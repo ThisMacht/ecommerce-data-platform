@@ -14,6 +14,7 @@ dependencies = []
 olist-verify-raw = "olist_platform.raw.verification:main"
 olist-profile-source = "olist_platform.raw.profiling:main"
 olist-validate-source-contract = "olist_platform.raw.contracts:main"
+olist-verify-source-schema = "olist_platform.raw.schema:main"
 
 [dependency-groups]
 dev = ["ruff>=0.11"]

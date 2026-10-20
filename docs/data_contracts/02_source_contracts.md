@@ -140,11 +140,16 @@ Initial snapshot dùng một deterministic timestamp `2020-01-01T00:00:00Z`. `so
 4. COPY toàn bộ CSV vào temporary text staging tables trong một transaction.
 5. Kiểm tra row counts, source keys và required relationships.
 6. Cast sang contract types và insert những source keys chưa tồn tại.
-7. Đồng bộ identity sequences và ghi `audit.source_seed_runs`.
+7. Kiểm tra mọi source key đã tồn tại ở target bằng `EXCEPT`; cách này tránh anti-join plans phụ thuộc statistics chưa có của target mới load.
+8. Đồng bộ identity sequences và ghi `audit.source_seed_runs`.
 
 Khi cùng `snapshot_id + manifest_sha256` đã có trạng thái `SUCCESS`, loader trả về thành công mà không đọc lại CSV. Nếu cùng `snapshot_id` có manifest checksum khác, loader fail thay vì âm thầm tiếp nhận snapshot mới.
 
 Existing source keys không bị seed ghi đè. Policy này bảo vệ các updates mà simulator đã áp dụng nếu operator vô tình chạy lại seed command.
+
+Seed rerun thành công phải giữ nguyên source payload, metadata, audit rows và identity sequence state. Integration tests so sánh full-row fingerprints cùng sequence state trước/sau shell no-op và xác minh source update được giữ nguyên cả khi gọi lại SQL seed trực tiếp.
+
+Nếu transaction seed fail, source rows cùng metadata và seed audit phải rollback; retry sau khi bỏ nguyên nhân lỗi phải thành công. PostgreSQL `setval` không transactional, nên lỗi xảy ra sau bước đồng bộ sequences có thể để lại sequence gaps. Contract yêu cầu version ordering và uniqueness, không yêu cầu sequence liên tục.
 
 ## 10. Schema evolution
 
@@ -180,8 +185,11 @@ Các TODO trên không ngăn initial snapshot seed và source read path hoạt �
 ```bash
 make validate-source-contract
 make seed-source
+make verify-source-schema
 make verify-source
 make test-source-integration
 ```
 
-`make test-source-integration` chạy seed lần hai để chứng minh no-op idempotence, sau đó kiểm tra row counts, seed audit và uniqueness của `source_sequence`.
+`make verify-source-schema` dùng PostgreSQL catalog report từ read-only role để đối chiếu physical source schema với machine-readable contract: tables, business/technical/metadata columns, types, nullability, ordered primary keys và `source_sequence` BY DEFAULT identity cùng unique constraint. Missing hoặc incompatible declarations fail; additive nullable columns warn theo schema-evolution policy. `make verify-source` chạy schema check trước source-state checks.
+
+`make test-source-integration` verify full canonical raw snapshot, rồi chạy production migration/seed runners trong disposable PostgreSQL container riêng. Mỗi test dùng database mới. Suite kiểm tra exact canonical counts, no-op data/metadata/audit/sequence state, preservation of updates, live schema drift và rollback/retry khi chèn lỗi ở late table insert hoặc seed audit insert. Local Compose data không được dùng.

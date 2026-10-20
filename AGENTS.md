@@ -6,7 +6,8 @@ Olist raw-data validation and PostgreSQL loading are implemented. Orchestration,
 
 - `src/olist_platform/raw/`: importable manifest, verification, profiling, and contract modules.
 - `scripts/`: compatibility wrappers calling the package.
-- `tests/unit/`: standard-library unit tests and installed CLI checks with temporary fixtures.
+- `tests/unit/`: unittest and installed CLI checks with temporary fixtures.
+- `tests/integration/`: disposable PostgreSQL tests using the canonical snapshot.
 - `config/`: versioned raw snapshot manifest and source contract.
 - `infrastructure/`: Compose, PostgreSQL migrations, seeds, checks, and shell runners.
 - `data/raw/`: immutable CSV inputs; see its README for attribution.
@@ -14,7 +15,7 @@ Olist raw-data validation and PostgreSQL loading are implemented. Orchestration,
 
 ## Build, Test, and Development Commands
 
-Use Python 3.10+, uv, and Docker Compose. Run commands from the repository root. Initialize configuration: `cp .env.example .env`.
+Use Python 3.10+, uv, and Docker Compose. Run commands from repository root. Initialize configuration: `cp .env.example .env`.
 
 - `make sync`: install the editable package and development tools from `uv.lock`.
 - `make lint` / `make format`: check lint/formatting or format Python with Ruff.
@@ -22,21 +23,21 @@ Use Python 3.10+, uv, and Docker Compose. Run commands from the repository root.
 - `make test`: run Ruff, contracts, unit tests, and Compose/shell checks without starting containers.
 - `make test-unit`: run Python unit tests only.
 - `make verify-raw` / `make profile-source`: verify the snapshot or regenerate profiles.
-- `make seed-source` / `make verify-source`: migrate/load PostgreSQL or verify source state.
-- `make test-source-integration`: seed, rerun the loader, and verify source state.
+- `make seed-source` / `make verify-source`: load PostgreSQL or check schema and source state.
+- `make test-source-integration`: test schema drift, seed reruns, and rollback in isolated PostgreSQL.
 - `make infrastructure-down`: stop services while retaining database volumes.
 
 ## Coding Style & Naming Conventions
 
-Use four-space Python indentation, type hints, and `snake_case`. Share raw-data helpers through `olist_platform.raw.manifest`. Configure Ruff in `pyproject.toml`. CLI defaults resolve relative to the working directory; pass explicit paths elsewhere. Keep shell runners POSIX-compatible with `set -eu`. Use uppercase SQL keywords. Name migrations `NNN_descriptive_name.sql`; add migrations instead of editing applied files.
+Use four-space indentation, type hints, and `snake_case`. Share raw-data helpers through `olist_platform.raw.manifest`. Configure Ruff in `pyproject.toml`. CLI defaults use the working directory; pass explicit paths elsewhere. Keep shell runners POSIX-compatible with `set -eu`. Use uppercase SQL keywords. Name migrations `NNN_descriptive_name.sql`; add migrations instead of editing applied files.
 
 ## Testing Guidelines
 
-Use `unittest`, `test_*.py` files, and `test_*` methods. Keep unit tests independent of Docker and full raw datasets. Cover parsing failures, contract drift, and installed CLI behavior. Run database integration checks for migration/loader changes. No coverage threshold is configured.
+Use `unittest`, `test_*.py` files, and `test_*` methods. Unit tests require neither Docker nor raw datasets. Cover parsing failures, contract drift, and installed CLI behavior. Run database integration checks for migration/loader changes. No coverage threshold is configured.
 
 ## Commit & Pull Request Guidelines
 
-Use concise imperative commit subjects. Describe changes, related issues, validation results, and contract/schema impacts. Update related documentation together. Commit `pyproject.toml` and `uv.lock` together when dependencies change.
+Use concise imperative commit subjects. Describe changes, validation, and contract/schema impacts. Update documentation together. Commit `pyproject.toml` and `uv.lock` together when dependencies change.
 
 Commit completed task changes without asking; preserve unrelated edits. Report the commit hash and subject in the final response.
 

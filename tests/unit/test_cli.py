@@ -110,6 +110,34 @@ class InstalledCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Source contract: PASS", result.stdout)
 
+    def test_schema_cli_rejects_missing_tables(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        catalog_path = self.workspace / "catalog.json"
+        catalog_path.write_text('{"schemas": {"olist": {}}}', encoding="utf-8")
+        result = self.run_command(
+            "olist-verify-source-schema",
+            "--contract",
+            str(repository_root / "config" / "source_contract.json"),
+            "--catalog",
+            str(catalog_path),
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("Missing source table: olist.orders", result.stderr)
+
+    def test_schema_cli_rejects_invalid_catalog_json(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        catalog_path = self.workspace / "catalog.json"
+        catalog_path.write_text("{", encoding="utf-8")
+        result = self.run_command(
+            "olist-verify-source-schema",
+            "--contract",
+            str(repository_root / "config" / "source_contract.json"),
+            "--catalog",
+            str(catalog_path),
+        )
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("Source schema report is invalid", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

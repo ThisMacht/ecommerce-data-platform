@@ -532,85 +532,83 @@ SELECT
 FROM stage_product_category_translation
 ON CONFLICT (product_category_name) DO NOTHING;
 
+-- Compare key sets without depending on fresh target-table statistics. Anti-join
+-- plans can otherwise choose a repeated full scan before autovacuum analyzes
+-- the first load. EXCEPT also preserves any later simulator payload updates.
 DO $presence_validation$
 BEGIN
     IF EXISTS (
-        SELECT 1 FROM stage_customers source
-        LEFT JOIN olist.customers target USING (customer_id)
-        WHERE target.customer_id IS NULL
+        SELECT customer_id FROM stage_customers
+        EXCEPT
+        SELECT customer_id FROM olist.customers
     ) THEN
         RAISE EXCEPTION 'Not every seeded customer key exists in the target';
     END IF;
 
     IF EXISTS (
-        SELECT 1 FROM stage_geolocation source
-        LEFT JOIN olist.geolocation target
-            ON target.geolocation_row_id = source.source_row_number
-        WHERE target.geolocation_row_id IS NULL
+        SELECT source_row_number FROM stage_geolocation
+        EXCEPT
+        SELECT geolocation_row_id FROM olist.geolocation
     ) THEN
         RAISE EXCEPTION 'Not every seeded geolocation row exists in the target';
     END IF;
 
     IF EXISTS (
-        SELECT 1 FROM stage_order_items source
-        LEFT JOIN olist.order_items target
-            ON target.order_id = source.order_id
-           AND target.order_item_id = source.order_item_id::integer
-        WHERE target.order_id IS NULL
+        SELECT order_id, order_item_id::integer FROM stage_order_items
+        EXCEPT
+        SELECT order_id, order_item_id FROM olist.order_items
     ) THEN
         RAISE EXCEPTION 'Not every seeded order-item key exists in the target';
     END IF;
 
     IF EXISTS (
-        SELECT 1 FROM stage_order_payments source
-        LEFT JOIN olist.order_payments target
-            ON target.order_id = source.order_id
-           AND target.payment_sequential = source.payment_sequential::integer
-        WHERE target.order_id IS NULL
+        SELECT order_id, payment_sequential::integer FROM stage_order_payments
+        EXCEPT
+        SELECT order_id, payment_sequential FROM olist.order_payments
     ) THEN
         RAISE EXCEPTION 'Not every seeded payment key exists in the target';
     END IF;
 
     IF EXISTS (
-        SELECT 1 FROM stage_order_reviews source
-        LEFT JOIN olist.order_reviews target USING (review_id, order_id)
-        WHERE target.review_id IS NULL
+        SELECT review_id, order_id FROM stage_order_reviews
+        EXCEPT
+        SELECT review_id, order_id FROM olist.order_reviews
     ) THEN
         RAISE EXCEPTION 'Not every seeded review key exists in the target';
     END IF;
 
     IF EXISTS (
-        SELECT 1 FROM stage_orders source
-        LEFT JOIN olist.orders target USING (order_id)
-        WHERE target.order_id IS NULL
+        SELECT order_id FROM stage_orders
+        EXCEPT
+        SELECT order_id FROM olist.orders
     ) THEN
         RAISE EXCEPTION 'Not every seeded order key exists in the target';
     END IF;
 
     IF EXISTS (
-        SELECT 1 FROM stage_products source
-        LEFT JOIN olist.products target USING (product_id)
-        WHERE target.product_id IS NULL
+        SELECT product_id FROM stage_products
+        EXCEPT
+        SELECT product_id FROM olist.products
     ) THEN
         RAISE EXCEPTION 'Not every seeded product key exists in the target';
     END IF;
 
     IF EXISTS (
-        SELECT 1 FROM stage_sellers source
-        LEFT JOIN olist.sellers target USING (seller_id)
-        WHERE target.seller_id IS NULL
+        SELECT seller_id FROM stage_sellers
+        EXCEPT
+        SELECT seller_id FROM olist.sellers
     ) THEN
         RAISE EXCEPTION 'Not every seeded seller key exists in the target';
     END IF;
 
     IF EXISTS (
-        SELECT 1 FROM stage_product_category_translation source
-        LEFT JOIN olist.product_category_name_translation target
-            USING (product_category_name)
-        WHERE target.product_category_name IS NULL
+        SELECT product_category_name FROM stage_product_category_translation
+        EXCEPT
+        SELECT product_category_name FROM olist.product_category_name_translation
     ) THEN
         RAISE EXCEPTION 'Not every seeded translation key exists in the target';
     END IF;
+
 END
 $presence_validation$;
 

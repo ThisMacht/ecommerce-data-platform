@@ -7,6 +7,7 @@ RAW_MANIFEST ?= config/raw_dataset_manifest.json
 SOURCE_CONTRACT ?= config/source_contract.json
 SOURCE_PROFILE_JSON ?= build/reports/source_profile.json
 SOURCE_PROFILE_MARKDOWN ?= docs/data_contracts/00_source_profile.md
+SOURCE_SCHEMA_REPORT ?= build/reports/source_schema.json
 COMPOSE_FILE ?= infrastructure/docker-compose.yml
 
 .DEFAULT_GOAL := help
@@ -14,7 +15,7 @@ COMPOSE_FILE ?= infrastructure/docker-compose.yml
 .PHONY: help sync lint format build verify-raw profile-source validate-source-contract test-raw-tools \
 	test-unit test-infrastructure-config test infrastructure-up \
 	infrastructure-status infrastructure-logs infrastructure-down migrate \
-	seed-source verify-source test-source-integration
+	seed-source verify-source verify-source-schema test-source-integration
 
 help:
 	@echo "Available targets:"
@@ -31,7 +32,8 @@ help:
 	@echo "  migrate                   Apply checksum-protected database migrations"
 	@echo "  seed-source               Verify and idempotently load the Olist snapshot"
 	@echo "  verify-source             Verify loaded source counts and metadata"
-	@echo "  test-source-integration   Seed twice and verify idempotent source state"
+	@echo "  verify-source-schema      Compare live PostgreSQL schema with the contract"
+	@echo "  test-source-integration   Test schema, seed reruns and rollback in an isolated container"
 	@echo "  test                       Run lint and fast tests without starting infrastructure"
 	@echo "  infrastructure-down       Stop containers without deleting database data"
 
@@ -94,12 +96,23 @@ migrate: infrastructure-up
 seed-source: verify-raw validate-source-contract migrate
 	$(COMPOSE) -f $(COMPOSE_FILE) run --rm source-loader
 
-verify-source: infrastructure-up
+verify-source: verify-source-schema
 	$(COMPOSE) -f $(COMPOSE_FILE) run --rm source-check
 
-test-source-integration: seed-source
-	$(COMPOSE) -f $(COMPOSE_FILE) run --rm source-loader
-	$(COMPOSE) -f $(COMPOSE_FILE) run --rm source-check
+verify-source-schema: validate-source-contract infrastructure-up
+	@mkdir -p "$(dir $(SOURCE_SCHEMA_REPORT))"
+	$(COMPOSE) -f $(COMPOSE_FILE) run --rm -T --entrypoint psql source-check \
+		--no-psqlrc --set=ON_ERROR_STOP=1 --tuples-only --no-align \
+		--file=/checks/export_source_schema.sql > "$(SOURCE_SCHEMA_REPORT)"
+	$(PYTHON) -m olist_platform.raw.schema \
+		--contract "$(SOURCE_CONTRACT)" --catalog "$(SOURCE_SCHEMA_REPORT)"
+
+test-source-integration:
+	OLIST_TEST_RAW_DIR="$(abspath $(RAW_DIR))" \
+	OLIST_TEST_MANIFEST="$(abspath $(RAW_MANIFEST))" \
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
+	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	$(PYTHON) -m unittest discover -s tests/integration -p 'test_source_layer.py' -v
 
 infrastructure-down:
 	$(COMPOSE) -f $(COMPOSE_FILE) down
