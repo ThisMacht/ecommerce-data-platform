@@ -11,7 +11,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Versioned source contract | Implemented |
 | Dockerized PostgreSQL, migrations and source seed | Implemented |
 | Live schema contract checks and isolated source integration tests | Implemented |
-| Source simulator mutation batches | TODO — Phase 0 |
+| Source simulator mutation batches | Implemented — 4 core tables |
 | MinIO, Airflow, Spark, dbt and Metabase | TODO — later phases |
 
 ## Quick start
@@ -31,19 +31,20 @@ make verify-source
 ## Project structure
 
 - `src/olist_platform/raw/`: package Python chứa manifest helpers, verification, profiling và source contracts.
+- `src/olist_platform/source_simulator/`: batch artifacts, deterministic fixtures và transactional apply.
 - `scripts/`: compatibility wrappers cho các Python commands trước đây; cần cài package trước khi dùng.
 - `tests/unit/`: `unittest` và fixture nhỏ, gồm kiểm tra installed CLI từ thư mục ngoài checkout.
-- `tests/integration/`: PostgreSQL tests dùng container tạm và canonical raw snapshot.
+- `tests/integration/`: PostgreSQL tests dùng container tạm; simulator dùng small SQL fixture trong `tests/fixtures/`, source seed dùng canonical raw snapshot.
 - `config/`: raw manifest và source contract versioned.
 - `infrastructure/`: Docker Compose cùng PostgreSQL migrations, seed và checks.
 - `data/raw/`: immutable CSV local, không commit vào Git.
 - `docs/`: contracts, generated source profile và runbooks; JSON reports nằm trong `build/reports/` đã ignore.
 
-Chỉ thêm folders simulator, ingestion, Airflow, Spark và dbt khi có implementation tương ứng.
+Chỉ thêm folders ingestion, Airflow, Spark và dbt khi có implementation tương ứng.
 
 ## Python development
 
-`pyproject.toml` khai báo package, Python version, CLI entry points và development tools. `uv.lock` khóa dependencies và phải được commit. Phase 0 chưa cần third-party runtime dependencies; Ruff thuộc development group. Dependencies của Airflow, Spark và dbt sẽ được quản lý theo runtime/service khi triển khai.
+`pyproject.toml` khai báo package, Python version, CLI entry points và development tools. `uv.lock` khóa dependencies và phải được commit. Simulator dùng Psycopg 3 với binary adapter; Ruff thuộc development group. Dependencies của Airflow, Spark và dbt sẽ được quản lý theo runtime/service khi triển khai.
 
 ```bash
 make sync       # uv sync --locked: cài editable package và dev tools vào .venv
@@ -71,6 +72,7 @@ Chạy Make và CLI từ repository root để dùng default paths. CLI resolve 
 - [Documentation reading order](docs/README.md)
 - [Raw dataset manifest](data/raw/README.md)
 - [Local infrastructure](infrastructure/README.md)
+- [Source simulator contract and usage](docs/data_contracts/03_source_simulator.md)
 - [Pipeline implementation plan](ecommerce_data_warehouse_pipeline_plan_v4.md)
 
 ## Commands
@@ -90,6 +92,28 @@ make test-source-integration  # Chạy tests trong PostgreSQL tạm, tự cleanu
 Integration suite cần Docker và toàn bộ 9 CSV canonical đã khóa checksum. Suite dùng cùng PostgreSQL image từ Compose, tạo container riêng không publish port và database mới cho từng test. Container cùng anonymous volume được xóa khi kết thúc; local Compose database không được dùng. Không cần chạy `make seed-source` trước.
 
 Các tests xác minh migration rerun, real schema drift, exact seed row counts, SHA-256 fingerprints của mọi source field (gồm metadata), audit rows và sequence state trước/sau rerun. Suite còn kiểm tra updates được giữ nguyên qua shell no-op lẫn SQL reseed, chèn lỗi tại table cuối và audit insert, rồi xác minh rollback cùng successful retry. PostgreSQL `setval` không transactional: audit failure có thể để lại sequence gaps; sequence không cần liên tục, nhưng data và audit phải rollback.
+
+## Source simulator
+
+```bash
+make generate-source-batches
+make validate-source-batch
+make test-source-simulator-integration
+```
+
+Generator tạo 4 immutable batches với 16 insert/update operations: same-timestamp records, child-before-parent arrivals, late payment và backdated corrections. Apply trong transaction, audit ở `audit.source_batch_runs`; cùng batch/hash là no-op, cùng ID khác payload bị reject. Source versions dùng identity sequence, kể cả khi timestamp đi lùi.
+
+Sau `make seed-source`, cấu hình connection qua process environment rồi apply từng directory theo thứ tự:
+
+```bash
+export SOURCE_SIMULATOR_DSN='postgresql://olist_loader:local_loader_change_me@127.0.0.1:5432/olist_source'
+make apply-source-batch
+make apply-source-batch SOURCE_BATCH_DIR=data/generated/source_batches/reliability_v1/002_children
+make apply-source-batch SOURCE_BATCH_DIR=data/generated/source_batches/reliability_v1/003_parents_updates
+make apply-source-batch SOURCE_BATCH_DIR=data/generated/source_batches/reliability_v1/004_backdated
+```
+
+DSN ở trên chỉ minh họa default local credentials; CLI cũng hỗ trợ standard `PG*` environment. Compose `.env` không tự được export vào CLI. Simulator integration tests dùng small synthetic baseline, không yêu cầu raw CSV; xem [contract](docs/data_contracts/03_source_simulator.md) cho expected counts, semantics và limitations.
 
 ## License
 

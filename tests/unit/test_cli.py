@@ -138,6 +138,37 @@ class InstalledCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn("Source schema report is invalid", result.stderr)
 
+    def test_simulator_cli_generates_and_validates_without_database(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        arguments = ["--contract", str(repository_root / "config/source_contract.json")]
+        result = self.run_command("olist-source-simulator", *arguments, "generate")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        directories = json.loads(result.stdout)["batch_directories"]
+        self.assertEqual(len(directories), 4)
+        result = self.run_command(
+            "olist-source-simulator",
+            *arguments,
+            "validate",
+            "--batch-dir",
+            directories[0],
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["operation_count"], 7)
+
+    def test_simulator_cli_rejects_corruption_before_connecting(self) -> None:
+        repository_root = Path(__file__).resolve().parents[2]
+        arguments = ["--contract", str(repository_root / "config/source_contract.json")]
+        result = self.run_command("olist-source-simulator", *arguments, "generate")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        directory = json.loads(result.stdout)["batch_directories"][0]
+        payload = self.workspace / directory / "operations.json"
+        payload.write_bytes(payload.read_bytes() + b"\n")
+        result = self.run_command(
+            "olist-source-simulator", *arguments, "apply", "--batch-dir", directory
+        )
+        self.assertEqual(result.returncode, 1, result.stderr)
+        self.assertIn("payload_sha256 mismatch", result.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()

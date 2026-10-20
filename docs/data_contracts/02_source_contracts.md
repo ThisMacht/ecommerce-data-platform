@@ -172,13 +172,13 @@ MVP chỉ hỗ trợ `INSERT` và `UPDATE`. Hard delete không được mô ph�
 
 | TODO | Impact | Planned phase |
 | --- | --- | --- |
-| `TODO(source-simulator)` | Chưa có batch generator cho updates, late parents và out-of-order events | Phase 0 |
+| `TODO(source-simulator-expansion)` | Simulator đã hỗ trợ 4 core tables; mở rộng các tables khác khi có pipeline tương ứng | Phase 4 |
 | `TODO(dirty-fixture)` | Chưa có deterministic invalid-record manifest | Phase 0 |
 | `TODO(contract-loader-generation)` | Seed SQL đang explicit theo snapshot v1, chưa generate từ JSON contract | Phase 0 or 1 |
 | `TODO(hard-delete)` | Không phát hiện source hard delete | Post-MVP |
 | `TODO(production-secrets)` | Local defaults không thay thế secret manager | Deployment phase |
 
-Các TODO trên không ngăn initial snapshot seed và source read path hoạt động. Chúng ngăn tuyên bố Phase 0 hoàn tất cho tới khi simulator fixtures và tests tương ứng được bổ sung.
+Simulator MVP và reliability fixtures đã được triển khai theo [Source Simulator Contract](03_source_simulator.md). Dirty-data injection cùng expected-error manifest vẫn chưa triển khai, nên Phase 0 chưa hoàn tất.
 
 ## 13. Verification commands
 

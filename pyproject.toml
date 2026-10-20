@@ -8,13 +8,16 @@ version = "0.1.0"
 description = "Olist source validation and batch data platform utilities"
 readme = "README.md"
 requires-python = ">=3.10"
-dependencies = []
+dependencies = [
+    "psycopg[binary]>=3.2,<4",
+]
 
 [project.scripts]
 olist-verify-raw = "olist_platform.raw.verification:main"
 olist-profile-source = "olist_platform.raw.profiling:main"
 olist-validate-source-contract = "olist_platform.raw.contracts:main"
 olist-verify-source-schema = "olist_platform.raw.schema:main"
+olist-source-simulator = "olist_platform.source_simulator.cli:main"
 
 [dependency-groups]
 dev = ["ruff>=0.11"]

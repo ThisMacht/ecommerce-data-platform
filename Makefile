@@ -9,13 +9,17 @@ SOURCE_PROFILE_JSON ?= build/reports/source_profile.json
 SOURCE_PROFILE_MARKDOWN ?= docs/data_contracts/00_source_profile.md
 SOURCE_SCHEMA_REPORT ?= build/reports/source_schema.json
 COMPOSE_FILE ?= infrastructure/docker-compose.yml
+SOURCE_BATCH_ROOT ?= data/generated/source_batches/reliability_v1
+SOURCE_BATCH_DIR ?= $(SOURCE_BATCH_ROOT)/001_initial
+SOURCE_SIMULATOR_SEED ?= 42
 
 .DEFAULT_GOAL := help
 
 .PHONY: help sync lint format build verify-raw profile-source validate-source-contract test-raw-tools \
 	test-unit test-infrastructure-config test infrastructure-up \
 	infrastructure-status infrastructure-logs infrastructure-down migrate \
-	seed-source verify-source verify-source-schema test-source-integration
+	seed-source verify-source verify-source-schema test-source-integration \
+	generate-source-batches validate-source-batch apply-source-batch test-source-simulator-integration
 
 help:
 	@echo "Available targets:"
@@ -34,6 +38,10 @@ help:
 	@echo "  verify-source             Verify loaded source counts and metadata"
 	@echo "  verify-source-schema      Compare live PostgreSQL schema with the contract"
 	@echo "  test-source-integration   Test schema, seed reruns and rollback in an isolated container"
+	@echo "  generate-source-batches   Publish deterministic simulator fixture batches"
+	@echo "  validate-source-batch     Verify a simulator batch without database access"
+	@echo "  apply-source-batch        Apply a batch using SOURCE_SIMULATOR_DSN or PG* environment"
+	@echo "  test-source-simulator-integration Test simulator transactions in disposable PostgreSQL"
 	@echo "  test                       Run lint and fast tests without starting infrastructure"
 	@echo "  infrastructure-down       Stop containers without deleting database data"
 
@@ -116,3 +124,20 @@ test-source-integration:
 
 infrastructure-down:
 	$(COMPOSE) -f $(COMPOSE_FILE) down
+
+generate-source-batches:
+	$(PYTHON) -m olist_platform.source_simulator.cli --contract "$(SOURCE_CONTRACT)" generate \
+		--output-dir "$(SOURCE_BATCH_ROOT)" --seed "$(SOURCE_SIMULATOR_SEED)"
+
+validate-source-batch:
+	$(PYTHON) -m olist_platform.source_simulator.cli --contract "$(SOURCE_CONTRACT)" validate \
+		--batch-dir "$(SOURCE_BATCH_DIR)"
+
+apply-source-batch:
+	$(PYTHON) -m olist_platform.source_simulator.cli --contract "$(SOURCE_CONTRACT)" apply \
+		--batch-dir "$(SOURCE_BATCH_DIR)"
+
+test-source-simulator-integration:
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
+	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	$(PYTHON) -m unittest discover -s tests/integration -p 'test_source_simulator.py' -v

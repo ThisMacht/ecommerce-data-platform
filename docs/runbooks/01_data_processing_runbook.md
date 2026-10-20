@@ -325,6 +325,9 @@ make seed-source
 make verify-source-schema
 make verify-source
 make test-source-integration
+make generate-source-batches
+make validate-source-batch
+make test-source-simulator-integration
 make infrastructure-status
 make infrastructure-logs
 make infrastructure-down
@@ -335,6 +338,8 @@ Chạy commands từ repository root. `make sync` cài package `src/olist_platfo
 `make verify-raw` kiểm tra filenames, sizes, SHA-256 checksums và headers. `make profile-source` chạy verification trước, sau đó sinh `docs/data_contracts/00_source_profile.md` và machine-readable report `build/reports/source_profile.json` đã được Git ignore. `make seed-source` start PostgreSQL, apply migrations và idempotently load snapshot. `make verify-source` đối chiếu live schema với contract trước khi kiểm tra source counts/audit bằng reader role; catalog được lưu ở `build/reports/source_schema.json`.
 
 `make test-source-integration` dùng full verified raw snapshot cùng một disposable PostgreSQL container riêng, không dùng local Compose database. Tests so sánh source data/metadata fingerprints, audit và sequence state trước/sau rerun, bảo vệ source updates, chèn lỗi ở late table/audit insert và kiểm tra rollback cùng retry. Container và anonymous volume được cleanup khi suite kết thúc. Sequence gaps sau failed `setval` được chấp nhận vì PostgreSQL sequences không transactional; source rows và audit vẫn phải rollback.
+
+Simulator commands và batch format được mô tả trong [Source Simulator Contract](../data_contracts/03_source_simulator.md). `make apply-source-batch SOURCE_BATCH_DIR=<directory>` dùng `SOURCE_SIMULATOR_DSN` hoặc standard `PG*` process environment, apply atomic source changes cùng audit, và trả `NOOP` khi replay cùng batch/hash. Predecessor batches phải commit trước; batch ID conflict làm fail. Simulator dùng cùng advisory transaction lock với seed. `make test-source-simulator-integration` kiểm tra protocol trên small fixture, không yêu cầu raw CSV. Applied migrations `001` không được sửa; `002` thêm batch audit.
 
 Các pipeline commands sau vẫn ở trạng thái **planned** và chỉ trở thành authoritative sau khi Make targets cùng automated tests tương ứng được triển khai:
 

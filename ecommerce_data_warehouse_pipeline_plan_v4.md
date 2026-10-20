@@ -486,8 +486,8 @@ Phase 0 tập trung vào việc hiểu đúng dataset, chốt data contracts, x�
 - [ ] Chốt valid-order policy, fact grains, surrogate keys, unknown-member policy và SCD Type 1.
 - [ ] Chốt schema evolution, BRL/decimal, timezone, delete policy và 48-hour lateness SLA.
 - [ ] Load Olist vào `olist_source`.
-- [ ] Xây source simulator có insert, update, source sequence và batch manifest.
-- [ ] Sinh fixture có same-timestamp, out-of-order và late updates trong/ngoài SLA.
+- [x] Xây source simulator có insert, update, source sequence và batch manifest cho 4 core tables.
+- [x] Sinh fixture có same-timestamp, out-of-order timestamps và late updates trong/ngoài SLA.
 - [ ] Xây deterministic dirty fixture và expected-error manifest.
 - [ ] Viết unit test cho error injection.
 - [ ] Dựng PostgreSQL, MinIO, Airflow LocalExecutor và Metabase bằng Docker Compose có health checks.
@@ -744,6 +744,8 @@ ecommerce-data-platform/
 ├── pyproject.toml
 └── uv.lock
 ```
+
+Package `olist_platform.source_simulator`, four-batch reliability fixture và isolated transactional tests đã được triển khai; xem `docs/data_contracts/03_source_simulator.md`. Dirty-data injector và CI vẫn chưa triển khai.
 
 Package `olist_platform.raw` và uv workflow đã được triển khai. `scripts/` chỉ giữ compatibility wrappers; reusable Python logic nằm trong `src/olist_platform`. Các folders khác trong sơ đồ là target layout và chỉ được tạo khi có code/tests tương ứng. CLI defaults dùng working directory; config và raw data không được bundle vào wheel.
 

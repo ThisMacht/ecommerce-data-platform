@@ -49,6 +49,10 @@ Raw CSV được mount `read-only`; chỉ named volume của PostgreSQL có quy�
 
 Readiness check dùng TCP để không nhận nhầm temporary initialization server của PostgreSQL image. Suite kiểm tra schema drift, migration no-op, seed no-op với full-row fingerprints/metadata/sequence state, preservation of source updates, rollback khi table/audit insert lỗi và retry sau failure. `setval` không rollback theo PostgreSQL semantics; gaps sau failed transaction được chấp nhận.
 
+## Source simulator
+
+Simulator host CLI dùng Psycopg qua `SOURCE_SIMULATOR_DSN` hoặc standard `PG*` environment. Chạy `make migrate`/`make seed-source` trước để apply migration `002` và cấp audit grants. Compose `.env` không tự được export vào CLI. `make test-source-simulator-integration` dùng container tạm riêng có ephemeral localhost port và small reference fixture; không cần raw CSV. Xem [simulator contract](../docs/data_contracts/03_source_simulator.md).
+
 ## TODO
 
 - `TODO(phase-0)`: thêm MinIO sau khi source simulator có deterministic batches.
