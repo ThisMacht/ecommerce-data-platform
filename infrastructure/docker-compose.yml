@@ -3,6 +3,28 @@ name: ecommerce-data-platform
 x-postgres-image: &postgres-image postgres:17.10-alpine3.23
 
 services:
+  minio:
+    image: olist-minio:2025-10-15
+    build:
+      context: ./minio
+    restart: unless-stopped
+    environment:
+      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-olist_minio_admin}
+      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-local_minio_change_me}
+    ports:
+      - "127.0.0.1:${MINIO_API_PORT:-9000}:9000"
+      - "127.0.0.1:${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, http://localhost:9000/minio/health/ready]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    networks:
+      - platform
+
   postgres:
     image: *postgres-image
     restart: unless-stopped
@@ -116,7 +138,7 @@ networks:
 
 volumes:
   postgres_data:
+  minio_data:
 
-# TODO(phase-0): Add MinIO after the source simulator is deterministic.
 # TODO(phase-1): Add Airflow, Spark and dbt only with their first vertical slice.
 # TODO(phase-3): Add Metabase after stable marts and read-only grants exist.

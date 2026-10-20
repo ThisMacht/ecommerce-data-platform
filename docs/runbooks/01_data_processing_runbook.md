@@ -367,7 +367,15 @@ Một run chỉ thành công khi toàn bộ điều kiện sau là đúng:
 - Cursor compare-and-swap thành công cho scheduled run, hoặc cursor giữ nguyên với isolated backfill.
 - Audit tables chứa final counters, timestamps và status.
 
-## 13. Change control
+## 13. Implemented orders Bronze operations
+
+Orders CLI slice đã hoạt động; phần end-to-end phía trên vẫn là planned workflow. Sau source seed và migration `003`, chạy `make bronze-up`, export `BRONZE_SOURCE_DSN` cùng AWS credentials, rồi `make init-bronze` và `make ingest-orders BRONZE_RUN_ID=<stable_id>`.
+
+Nếu run lỗi, gọi lại cùng run ID và config. `PREPARED` state giữ snapshot bytes/bounds, kể cả khi source đổi. Không tạo run mới để bỏ qua unfinished run, không sửa spool/control state. Marker đã có nhưng run còn `PREPARED` là recovery case hợp lệ: resume để hoàn tất checkpoint. Nếu checkpoint CAS conflict hoặc immutable-object conflict, giữ nguyên evidence để điều tra.
+
+Dùng `olist-bronze-orders verify --prefix '<manifest.prefix>'` trước khi đọc batch. Checkpoint `audit.bronze_orders_control` chỉ xác nhận Bronze delivery; chưa thể dùng để kết luận warehouse hoặc toàn pipeline thành công. Xem [contract và commands](../data_contracts/04_orders_bronze.md). `make test-bronze-integration` kiểm chứng recovery với disposable services và không cần raw CSV.
+
+## 14. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 

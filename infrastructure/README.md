@@ -1,12 +1,13 @@
 # Local Infrastructure
 
-Infrastructure hiện triển khai PostgreSQL source layer tối thiểu. Database service chạy liên tục trong Docker; migration, source loader và source verification chạy dưới dạng ephemeral container jobs dùng cùng image đã pin.
+Infrastructure triển khai PostgreSQL source layer và MinIO cho orders Bronze. Database/object storage là stateful services; migrations, source loader và source verification là ephemeral jobs.
 
 ## Implemented services
 
 | Service | Lifecycle | Purpose |
 | --- | --- | --- |
 | `postgres` | Stateful service | Lưu `olist_source`, source metadata và migration/seed audit |
+| `minio` | Stateful service | Lưu immutable orders Bronze batches, manifests và publication markers |
 | `migrate` | Ephemeral job | Apply versioned migrations và kiểm tra checksum |
 | `source-loader` | Ephemeral job | COPY raw CSV read-only vào source tables theo transaction |
 | `source-check` | Ephemeral job | Đọc bằng read-only role để export schema catalog và xác minh source state |
@@ -39,7 +40,7 @@ make infrastructure-logs
 make infrastructure-down
 ```
 
-Raw CSV được mount `read-only`; chỉ named volume của PostgreSQL có quyền ghi. Port mặc định bind vào `127.0.0.1:5432` và có thể đổi qua `POSTGRES_PORT` trong `.env`.
+Raw CSV được mount `read-only`; PostgreSQL và MinIO ghi vào named volumes riêng. PostgreSQL bind `127.0.0.1:5432`, đổi port qua `POSTGRES_PORT` trong `.env`.
 
 ## Source verification and integration tests
 
@@ -53,9 +54,16 @@ Readiness check dùng TCP để không nhận nhầm temporary initialization se
 
 Simulator host CLI dùng Psycopg qua `SOURCE_SIMULATOR_DSN` hoặc standard `PG*` environment. Chạy `make migrate`/`make seed-source` trước để apply migration `002` và cấp audit grants. Compose `.env` không tự được export vào CLI. `make test-source-simulator-integration` dùng container tạm riêng có ephemeral localhost port và small reference fixture; không cần raw CSV. Xem [simulator contract](../docs/data_contracts/03_source_simulator.md).
 
+## MinIO and orders Bronze
+
+`make bronze-up` build và start MinIO, đợi `/minio/health/ready`. Release `2025-10-15` được build từ upstream commit/checksummed archive trong `minio/Dockerfile`; lần đầu cần Internet và vài phút compile. API/console bind localhost ports 9000/9001; named volume `minio_data` được giữ khi down. `.env.example` có local credentials và port overrides.
+
+Sau source seed/migration `003`, export database/S3 credentials và dùng `make init-bronze`, `make ingest-orders BRONZE_RUN_ID=<id>`. Host CLI không tự load `.env`. Migration `003` tạo Bronze-only control/run/page state; không sửa source contract hoặc end-to-end watermark. Xem [orders Bronze contract](../docs/data_contracts/04_orders_bronze.md).
+
+`make test-bronze-integration` build cùng image, tạo PostgreSQL/MinIO tạm với ephemeral localhost ports và anonymous volumes; không dùng local services hoặc CSV. Cleanup chỉ nhắm container/volume riêng của suite.
+
 ## TODO
 
-- `TODO(phase-0)`: thêm MinIO sau khi source simulator có deterministic batches.
 - `TODO(phase-1)`: thêm Airflow, Spark và dbt cùng vertical slice đầu tiên.
 - `TODO(phase-3)`: thêm Metabase sau khi marts và read-only grants ổn định.
 - `TODO(security)`: dùng secret manager và network policy khi có deployment ngoài local.

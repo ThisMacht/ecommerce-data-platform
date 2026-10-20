@@ -9,6 +9,7 @@ description = "Olist source validation and batch data platform utilities"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "boto3>=1.40,<2",
     "psycopg[binary]>=3.2,<4",
 ]
 
@@ -18,6 +19,7 @@ olist-profile-source = "olist_platform.raw.profiling:main"
 olist-validate-source-contract = "olist_platform.raw.contracts:main"
 olist-verify-source-schema = "olist_platform.raw.schema:main"
 olist-source-simulator = "olist_platform.source_simulator.cli:main"
+olist-bronze-orders = "olist_platform.bronze.cli:main"
 
 [dependency-groups]
 dev = ["ruff>=0.11"]

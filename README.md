@@ -1,6 +1,6 @@
 # Olist E-commerce Data Platform
 
-Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source simulator, immutable Bronze/Silver layers, warehouse models và dashboards. Repository hiện đã triển khai source validation cùng PostgreSQL source layer tối thiểu; các phase sau được theo dõi trong [Pipeline Implementation Plan](ecommerce_data_warehouse_pipeline_plan_v4.md).
+Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source simulator, immutable Bronze/Silver layers, warehouse models và dashboards. Hiện đã có source validation, PostgreSQL source layer/simulator và orders Bronze CLI slice trên MinIO; các phase sau được theo dõi trong [Pipeline Implementation Plan](ecommerce_data_warehouse_pipeline_plan_v4.md).
 
 ## Current status
 
@@ -12,8 +12,9 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Dockerized PostgreSQL, migrations and source seed | Implemented |
 | Live schema contract checks and isolated source integration tests | Implemented |
 | Source simulator mutation batches | Implemented — 4 core tables |
+| Bounded orders extraction and immutable Bronze on MinIO | Implemented — orders-only CLI slice |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
-| MinIO, Airflow, Spark, dbt and Metabase | TODO — later phases |
+| Airflow, Spark, dbt and Metabase | TODO — later phases |
 
 ## Quick start
 
@@ -33,6 +34,7 @@ make verify-source
 
 - `src/olist_platform/raw/`: package Python chứa manifest helpers, verification, profiling và source contracts.
 - `src/olist_platform/source_simulator/`: batch artifacts, deterministic fixtures và transactional apply.
+- `src/olist_platform/bronze/`: bounded orders extraction, durable retry state và verified MinIO publication.
 - `scripts/`: compatibility wrappers cho các Python commands trước đây; cần cài package trước khi dùng.
 - `tests/unit/`: `unittest` và fixture nhỏ, gồm kiểm tra installed CLI từ thư mục ngoài checkout.
 - `tests/integration/`: PostgreSQL tests dùng container tạm; simulator dùng small SQL fixture trong `tests/fixtures/`, source seed dùng canonical raw snapshot.
@@ -45,7 +47,7 @@ Chỉ thêm folders ingestion, Airflow, Spark và dbt khi có implementation tư
 
 ## Python development
 
-`pyproject.toml` khai báo package, Python version, CLI entry points và development tools. `uv.lock` khóa dependencies và phải được commit. Simulator dùng Psycopg 3 với binary adapter; Ruff thuộc development group. Dependencies của Airflow, Spark và dbt sẽ được quản lý theo runtime/service khi triển khai.
+`pyproject.toml` khai báo package, Python version, CLI entry points và development tools. `uv.lock` khóa dependencies và phải được commit. Source tools dùng Psycopg 3 với binary adapter, Bronze dùng Boto3 cho S3 API; Ruff thuộc development group. Dependencies của Airflow, Spark và dbt sẽ được quản lý theo runtime/service khi triển khai.
 
 ```bash
 make sync       # uv sync --locked: cài editable package và dev tools vào .venv
@@ -73,11 +75,11 @@ Chạy Make và CLI từ repository root để dùng default paths. CLI resolve 
 [GitHub Actions CI](.github/workflows/ci.yml) chạy trên push, pull request và manual dispatch:
 
 - `Fast checks`: Python 3.10 và 3.12, cài dependencies từ `uv.lock`, chạy `make test`, build wheel/sdist và chạy lại unit tests với wheel đã cài.
-- `PostgreSQL source simulator`: Python 3.12, chạy `make test-source-simulator-integration` với PostgreSQL image từ Compose và disposable database cho từng test.
+- `PostgreSQL and MinIO integration`: Python 3.12, chạy simulator tests và `make test-bronze-integration` với disposable services và small SQL fixtures.
 
-CI không cần `.env`, raw CSV hay repository secrets. Simulator suite tự tạo credentials cho database tạm và cleanup container/volume khi kết thúc. Full snapshot suite (`make test-source-integration`) vẫn chạy local sau khi tải canonical CSV; chưa có DAG, Spark hoặc dbt checks trong CI.
+CI không cần `.env`, raw CSV hay repository secrets. Integration suites tự tạo credentials cho services tạm và cleanup container/volume khi kết thúc. Full snapshot suite (`make test-source-integration`) vẫn chạy local sau khi tải canonical CSV; chưa có DAG, Spark hoặc dbt checks trong CI.
 
-Tái hiện CI từ checkout sạch: `make sync`, `make test`, `make build` và `make test-source-simulator-integration`. Workflow pin action commit SHAs và uv version; cập nhật các pins cùng validation khi nâng tools.
+Tái hiện CI từ checkout sạch: `make sync`, `make test`, `make build`, `make test-source-simulator-integration` và `make test-bronze-integration`. Workflow pin action commit SHAs và uv version; cập nhật các pins cùng validation khi nâng tools.
 
 ## Documentation
 
@@ -85,6 +87,7 @@ Tái hiện CI từ checkout sạch: `make sync`, `make test`, `make build` và 
 - [Raw dataset manifest](data/raw/README.md)
 - [Local infrastructure](infrastructure/README.md)
 - [Source simulator contract and usage](docs/data_contracts/03_source_simulator.md)
+- [Orders Bronze contract, retry and local execution](docs/data_contracts/04_orders_bronze.md)
 - [Pipeline implementation plan](ecommerce_data_warehouse_pipeline_plan_v4.md)
 
 ## Commands
@@ -126,6 +129,12 @@ make apply-source-batch SOURCE_BATCH_DIR=data/generated/source_batches/reliabili
 ```
 
 DSN ở trên chỉ minh họa default local credentials; CLI cũng hỗ trợ standard `PG*` environment. Compose `.env` không tự được export vào CLI. Simulator integration tests dùng small synthetic baseline, không yêu cầu raw CSV; xem [contract](docs/data_contracts/03_source_simulator.md) cho expected counts, semantics và limitations.
+
+## Orders to Bronze
+
+MinIO và orders extractor đã có CLI slice với consistent snapshot, composite cursor/lookback, durable retry pages, immutable JSONL objects, manifest/SHA-256 và `_SUCCESS`. Checkpoint chỉ tiến sau verified publication; đây là Bronze delivery checkpoint, chưa phải watermark của toàn pipeline.
+
+Chạy `make bronze-up`, export database/S3 environment, `make init-bronze`, rồi `make ingest-orders BRONZE_RUN_ID=<stable_id>`. Resume cùng ID khi lỗi; dùng ID mới cho extraction tiếp theo. Xem [Bronze contract](docs/data_contracts/04_orders_bronze.md) cho đầy đủ commands, lookback SLA và limitations. `make test-bronze-integration` dùng small fixture, không cần canonical CSV.
 
 ## License
 

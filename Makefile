@@ -12,6 +12,8 @@ COMPOSE_FILE ?= infrastructure/docker-compose.yml
 SOURCE_BATCH_ROOT ?= data/generated/source_batches/reliability_v1
 SOURCE_BATCH_DIR ?= $(SOURCE_BATCH_ROOT)/001_initial
 SOURCE_SIMULATOR_SEED ?= 42
+BRONZE_RUN_ID ?=
+BRONZE_PAGE_SIZE ?= 1000
 
 .DEFAULT_GOAL := help
 
@@ -19,7 +21,8 @@ SOURCE_SIMULATOR_SEED ?= 42
 	test-unit test-infrastructure-config test infrastructure-up \
 	infrastructure-status infrastructure-logs infrastructure-down migrate \
 	seed-source verify-source verify-source-schema test-source-integration \
-	generate-source-batches validate-source-batch apply-source-batch test-source-simulator-integration
+	generate-source-batches validate-source-batch apply-source-batch test-source-simulator-integration \
+	bronze-up init-bronze ingest-orders test-bronze-integration
 
 help:
 	@echo "Available targets:"
@@ -44,6 +47,10 @@ help:
 	@echo "  test-source-simulator-integration Test simulator transactions in disposable PostgreSQL"
 	@echo "  test                       Run lint and fast tests without starting infrastructure"
 	@echo "  infrastructure-down       Stop containers without deleting database data"
+	@echo "  bronze-up                 Build and start MinIO, waiting for readiness"
+	@echo "  init-bronze               Create the Bronze bucket using AWS environment credentials"
+	@echo "  ingest-orders             Extract/resume orders; requires BRONZE_RUN_ID and connection environment"
+	@echo "  test-bronze-integration   Build MinIO and test orders extraction with disposable services"
 
 sync:
 	$(UV) sync --locked
@@ -141,3 +148,20 @@ test-source-simulator-integration:
 	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
 	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
 	$(PYTHON) -m unittest discover -s tests/integration -p 'test_source_simulator.py' -v
+
+bronze-up:
+	$(COMPOSE) -f $(COMPOSE_FILE) up --build -d --wait minio
+
+init-bronze:
+	$(PYTHON) -m olist_platform.bronze.cli init
+
+ingest-orders:
+	@test -n "$(BRONZE_RUN_ID)" || (echo "Set BRONZE_RUN_ID to a stable run identifier" >&2; exit 2)
+	$(PYTHON) -m olist_platform.bronze.cli --contract "$(SOURCE_CONTRACT)" extract \
+		--run-id "$(BRONZE_RUN_ID)" --page-size "$(BRONZE_PAGE_SIZE)"
+
+test-bronze-integration:
+	$(COMPOSE) -f $(COMPOSE_FILE) build minio
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
+	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	$(PYTHON) -m unittest discover -s tests/integration -p 'test_bronze_orders.py' -v

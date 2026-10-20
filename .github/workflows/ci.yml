@@ -44,7 +44,7 @@ jobs:
           make test-unit PYTHON=.venv/bin/python
 
   source-simulator:
-    name: PostgreSQL source simulator
+    name: PostgreSQL and MinIO integration
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -66,3 +66,5 @@ jobs:
           docker compose version
       - name: Test simulator transactions with isolated PostgreSQL
         run: make test-source-simulator-integration
+      - name: Test orders Bronze ingestion with isolated PostgreSQL and MinIO
+        run: make test-bronze-integration

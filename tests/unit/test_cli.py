@@ -68,6 +68,11 @@ class InstalledCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Verified 1 files successfully.", result.stdout)
 
+    def test_bronze_cli_is_installed_and_exposes_commands(self) -> None:
+        result = self.run_command("olist-bronze-orders", "--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("{init,extract,verify}", result.stdout)
+
     def test_verify_rejects_modified_snapshot(self) -> None:
         self.csv_path.write_bytes(
             self.csv_path.read_bytes().replace(b"10.50", b"99.99")

@@ -508,6 +508,7 @@ Một PostgreSQL instance có thể chứa `olist_source`, `olist_warehouse` và
 Phase này chỉ sử dụng `orders`, `customers`, `order_items` và `order_payments` để hoàn thiện một luồng dọc từ source đến dashboard trước khi mở rộng phạm vi.
 
 - [ ] Airflow extract một bounded incremental window từ PostgreSQL source.
+- [x] Implement orders CLI slice: bounded PostgreSQL snapshot → immutable JSONL Bronze trên MinIO, manifest/checksum/lineage và retry-safe Bronze-only checkpoint.
 - [ ] Ghi Bronze immutable theo `ingestion_date`, `run_id` và attempt path.
 - [ ] Tạo Bronze manifest, checksum, schema fingerprint và `_SUCCESS` marker.
 - [ ] Bổ sung physical `_record_uid`, `_logical_record_uid`, source version và ingestion metadata.
@@ -530,7 +531,7 @@ bronze/orders/
     run_id=<run_id>/
       manifest.json
       _SUCCESS
-      part-*.parquet
+      attempt=0001/part-*.jsonl
 ```
 
 Silver output có dạng:
