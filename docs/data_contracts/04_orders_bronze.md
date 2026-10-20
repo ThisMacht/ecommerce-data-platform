@@ -4,7 +4,7 @@
 
 Status: **Active — orders-only extraction slice, format version 1**. Python CLI đọc PostgreSQL và publish JSON Lines vào MinIO. Source contract `1.0.0`, migrations qua `003` và successful seed của đúng `dataset_snapshot_id` là bắt buộc. Schema `orders` phải khớp chính xác tên, types và nullability; additive columns cũng cần cập nhật contract trước khi extract ở slice này.
 
-Chưa có Airflow, Silver, Spark, warehouse hoặc end-to-end watermark. `audit.bronze_orders_control` chỉ xác nhận delivery vào Bronze; không thay thế `audit.pipeline_control` dự kiến commit sau downstream reconciliation. Bronze thành công chưa có nghĩa toàn pipeline thành công.
+Đã có [orders PySpark/Silver slice](05_orders_silver.md); Airflow, warehouse và end-to-end watermark còn planned. `audit.bronze_orders_control` chỉ xác nhận delivery vào Bronze; không thay thế `audit.pipeline_control` dự kiến commit sau downstream reconciliation. Bronze thành công chưa có nghĩa toàn pipeline thành công.
 
 ## Extraction and cursor
 

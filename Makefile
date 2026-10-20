@@ -14,6 +14,9 @@ SOURCE_BATCH_DIR ?= $(SOURCE_BATCH_ROOT)/001_initial
 SOURCE_SIMULATOR_SEED ?= 42
 BRONZE_RUN_ID ?=
 BRONZE_PAGE_SIZE ?= 1000
+PROCESSING_PYTHON ?= $(UV) run --locked --extra processing python
+BRONZE_PREFIX ?=
+SILVER_RUN_ID ?=
 
 .DEFAULT_GOAL := help
 
@@ -22,7 +25,8 @@ BRONZE_PAGE_SIZE ?= 1000
 	infrastructure-status infrastructure-logs infrastructure-down migrate \
 	seed-source verify-source verify-source-schema test-source-integration \
 	generate-source-batches validate-source-batch apply-source-batch test-source-simulator-integration \
-	bronze-up init-bronze ingest-orders test-bronze-integration
+	bronze-up init-bronze ingest-orders test-bronze-integration \
+	sync-processing process-orders test-processing test-silver-integration
 
 help:
 	@echo "Available targets:"
@@ -51,6 +55,10 @@ help:
 	@echo "  init-bronze               Create the Bronze bucket using AWS environment credentials"
 	@echo "  ingest-orders             Extract/resume orders; requires BRONZE_RUN_ID and connection environment"
 	@echo "  test-bronze-integration   Build MinIO and test orders extraction with disposable services"
+	@echo "  sync-processing           Install locked Spark processing dependencies (Java 17 required)"
+	@echo "  process-orders            Publish Silver; requires BRONZE_PREFIX and SILVER_RUN_ID"
+	@echo "  test-processing           Run Spark normalization, routing and deduplication tests"
+	@echo "  test-silver-integration   Test PostgreSQL -> Bronze -> Spark -> Silver with disposable services"
 
 sync:
 	$(UV) sync --locked
@@ -165,3 +173,21 @@ test-bronze-integration:
 	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
 	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
 	$(PYTHON) -m unittest discover -s tests/integration -p 'test_bronze_orders.py' -v
+
+sync-processing:
+	$(UV) sync --locked --extra processing
+
+process-orders:
+	@test -n "$(BRONZE_PREFIX)" -a -n "$(SILVER_RUN_ID)" || (echo "Set BRONZE_PREFIX and SILVER_RUN_ID" >&2; exit 2)
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m olist_platform.silver.cli \
+		--contract "$(SOURCE_CONTRACT)" process --bronze-prefix "$(BRONZE_PREFIX)" --run-id "$(SILVER_RUN_ID)"
+
+test-processing:
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m unittest discover -s tests/processing -p 'test_*.py' -v
+
+test-silver-integration:
+	$(COMPOSE) -f $(COMPOSE_FILE) build minio
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
+	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" \
+	$(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_silver_orders.py' -v

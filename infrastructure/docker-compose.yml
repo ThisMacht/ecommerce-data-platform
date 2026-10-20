@@ -140,5 +140,5 @@ volumes:
   postgres_data:
   minio_data:
 
-# TODO(phase-1): Add Airflow, Spark and dbt only with their first vertical slice.
+# TODO(phase-1): Add Airflow and dbt with executable workflows/models.
 # TODO(phase-3): Add Metabase after stable marts and read-only grants exist.

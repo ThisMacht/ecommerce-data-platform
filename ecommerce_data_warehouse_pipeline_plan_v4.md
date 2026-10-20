@@ -509,6 +509,7 @@ Phase này chỉ sử dụng `orders`, `customers`, `order_items` và `order_pay
 
 - [ ] Airflow extract một bounded incremental window từ PostgreSQL source.
 - [x] Implement orders CLI slice: bounded PostgreSQL snapshot → immutable JSONL Bronze trên MinIO, manifest/checksum/lineage và retry-safe Bronze-only checkpoint.
+- [x] Implement orders-only PySpark/Silver slice: timezone normalization, local validation, version dedupe, Parquet routes và immutable publication/replay; customer FK/deferred lifecycle chưa có.
 - [ ] Ghi Bronze immutable theo `ingestion_date`, `run_id` và attempt path.
 - [ ] Tạo Bronze manifest, checksum, schema fingerprint và `_SUCCESS` marker.
 - [ ] Bổ sung physical `_record_uid`, `_logical_record_uid`, source version và ingestion metadata.
@@ -535,6 +536,8 @@ bronze/orders/
 ```
 
 Silver output có dạng:
+
+Orders slice hiện dùng `silver/orders/run_id=<id>/attempt=<uuid>/<valid|rejected|duplicates>/part-*.parquet` cùng run-level request/manifest/marker; xem `docs/data_contracts/05_orders_silver.md`. Layout bên dưới là mục tiêu cho nhiều datasets và deferred routing.
 
 ```text
 silver/orders/valid/run_id=.../

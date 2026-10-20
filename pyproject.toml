@@ -20,6 +20,12 @@ olist-validate-source-contract = "olist_platform.raw.contracts:main"
 olist-verify-source-schema = "olist_platform.raw.schema:main"
 olist-source-simulator = "olist_platform.source_simulator.cli:main"
 olist-bronze-orders = "olist_platform.bronze.cli:main"
+olist-silver-orders = "olist_platform.silver.cli:main"
+
+[project.optional-dependencies]
+processing = [
+    "pyspark==4.0.2",
+]
 
 [dependency-groups]
 dev = ["ruff>=0.11"]

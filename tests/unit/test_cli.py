@@ -73,6 +73,11 @@ class InstalledCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("{init,extract,verify}", result.stdout)
 
+    def test_silver_cli_help_does_not_require_spark(self) -> None:
+        result = self.run_command("olist-silver-orders", "--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("{process,verify}", result.stdout)
+
     def test_verify_rejects_modified_snapshot(self) -> None:
         self.csv_path.write_bytes(
             self.csv_path.read_bytes().replace(b"10.50", b"99.99")

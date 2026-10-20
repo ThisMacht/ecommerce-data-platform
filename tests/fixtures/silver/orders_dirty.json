@@ -1,0 +1,15 @@
+[
+  {"order_id":"dup","source_sequence":1,"order_status":"created"},
+  {"order_id":"dup","source_sequence":2,"order_status":"delivered","order_delivered_customer_date":"2018-01-05T12:00:00"},
+  {"order_id":"dup","source_sequence":2,"order_status":"delivered","order_delivered_customer_date":"2018-01-05T12:00:00"},
+  {"order_id":"bad_customer","source_sequence":3,"customer_id":null},
+  {"order_id":"bad_time","source_sequence":4,"order_purchase_timestamp":"not-a-timestamp"},
+  {"order_id":"warning","source_sequence":5,"order_status":"delivered"},
+  {"order_id":"canceled","source_sequence":6,"order_status":" CANCELED "},
+  {"order_id":null,"source_sequence":7},
+  {"order_id":"bad_status","source_sequence":8,"order_status":"unknown"},
+  {"order_id":"gap","source_sequence":9,"order_purchase_timestamp":"2018-11-04T00:30:00","order_estimated_delivery_date":"2018-11-10T00:00:00"},
+  {"order_id":"ambiguous","source_sequence":10,"order_purchase_timestamp":"2018-02-17T23:30:00","order_estimated_delivery_date":"2018-02-20T00:00:00"},
+  {"order_id":"winter","source_sequence":11,"order_purchase_timestamp":"2018-07-01T12:00:00","order_estimated_delivery_date":"2018-07-10T00:00:00"},
+  {"order_id":"future","source_sequence":12,"order_purchase_timestamp":"2099-01-01T12:00:00","order_estimated_delivery_date":"2099-01-10T00:00:00"}
+]

@@ -1,0 +1,7 @@
+{
+  "counts": {"input_rows":13,"valid_rows":4,"rejected_rows":7,"duplicates_rows":2,"deferred_rows":0,"warning_rows":1},
+  "valid_order_ids": ["canceled","dup","warning","winter"],
+  "rule_violations": {"missing_customer_id":1,"invalid_order_purchase_timestamp":3,"missing_order_id":1,"invalid_order_status":1,"future_purchase_timestamp":1,"delivered_without_timestamp":1},
+  "summer_purchase_utc":"2018-01-01 14:00:00",
+  "winter_purchase_utc":"2018-07-01 15:00:00"
+}

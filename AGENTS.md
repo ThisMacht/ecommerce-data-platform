@@ -2,19 +2,21 @@
 
 ## Project Structure & Module Organization
 
-Implemented: raw validation, PostgreSQL loading/simulation and orders Bronze.
+Implemented: raw validation, PostgreSQL loading/simulation and orders Bronze/Silver.
 
 - `src/olist_platform/raw/`: manifests, profiling, contracts.
 - `src/olist_platform/source_simulator/`: deterministic batches and transactional apply.
 - `src/olist_platform/bronze/`: bounded extraction, durable retry and verified MinIO publication.
+- `src/olist_platform/silver/`: Spark normalization, routing and Parquet publication.
 - `scripts/`: compatibility wrappers.
 - `tests/unit/`: unittest and CLI checks.
+- `tests/processing/`: Spark checks with independent expected fixtures.
 - `tests/integration/`: disposable PostgreSQL/MinIO tests. Seed tests require canonical CSVs; others use `tests/fixtures/`.
 - `config/`: raw manifest and source contract.
 - `infrastructure/`: Compose, PostgreSQL migrations, seeds, checks, and runners.
 - `data/raw/`: immutable CSVs; ignored `data/generated/` holds batches.
 - `docs/`: contracts, profiles, runbooks; reports: `build/reports/`.
-- `.github/workflows/ci.yml`: Python checks/build and source/Bronze integration without CSVs or secrets.
+- `.github/workflows/ci.yml`: fast checks, source/Bronze and Spark/Silver integration.
 
 ## Build, Test, and Development Commands
 
@@ -33,6 +35,9 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make bronze-up` / `make init-bronze`: start MinIO or initialize its bucket.
 - `make ingest-orders BRONZE_RUN_ID=<id>`: extract/resume orders.
 - `make test-bronze-integration`: test disposable PostgreSQL/MinIO.
+- `make sync-processing`: install locked Spark extra; use Java 17.
+- `make process-orders BRONZE_PREFIX=<prefix> SILVER_RUN_ID=<id>`: publish/resume Silver.
+- `make test-processing` / `make test-silver-integration`: Spark or end-to-end slice checks.
 
 ## Coding Style & Naming Conventions
 
@@ -40,7 +45,7 @@ Use four spaces, type hints and `snake_case`. Ruff configuration: `pyproject.tom
 
 ## Testing Guidelines
 
-Use `unittest`, `test_*.py` and `test_*` methods. Unit tests need neither Docker nor CSVs. Cover parsing, drift, failures and replay. Run relevant integration suites after changes. No coverage threshold exists.
+Use `unittest`, `test_*.py` and `test_*` methods. Fast unit tests need no Docker, Spark or CSVs. Cover parsing, drift, failures and replay. Run relevant integration suites after changes. No coverage threshold exists.
 
 ## Commit & Pull Request Guidelines
 

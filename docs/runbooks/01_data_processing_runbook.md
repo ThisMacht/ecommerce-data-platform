@@ -375,7 +375,13 @@ Nếu run lỗi, gọi lại cùng run ID và config. `PREPARED` state giữ sna
 
 Dùng `olist-bronze-orders verify --prefix '<manifest.prefix>'` trước khi đọc batch. Checkpoint `audit.bronze_orders_control` chỉ xác nhận Bronze delivery; chưa thể dùng để kết luận warehouse hoặc toàn pipeline thành công. Xem [contract và commands](../data_contracts/04_orders_bronze.md). `make test-bronze-integration` kiểm chứng recovery với disposable services và không cần raw CSV.
 
-## 14. Change control
+## 14. Implemented orders Silver operations
+
+Sau verified Bronze publication, dùng Java 17, `make sync-processing` và `make process-orders BRONZE_PREFIX='<manifest.prefix>' SILVER_RUN_ID=<stable_id>`. Job đọc immutable input từ MinIO, không cần source database connection. Xác minh bằng `olist-silver-orders verify --prefix 'silver/orders/run_id=<id>'`.
+
+Retry dùng cùng run ID/input/config. Nếu chưa có sealed manifest, retry có thể compute một attempt mới; partial objects không được consumer đọc. Nếu manifest đã có, resume dùng lại sealed Parquet và hoàn tất marker; replay sau success trả `NOOP`. Không xóa/sửa request hoặc manifest để reuse ID với input khác. Kiểm tra customer FK/deferred, warehouse và watermark promotion vẫn planned. Xem [Silver contract](../data_contracts/05_orders_silver.md); chạy `make test-processing` và `make test-silver-integration` sau thay đổi rules/publication.
+
+## 15. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 

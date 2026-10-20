@@ -1,6 +1,6 @@
 # Olist E-commerce Data Platform
 
-Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source simulator, immutable Bronze/Silver layers, warehouse models và dashboards. Hiện đã có source validation, PostgreSQL source layer/simulator và orders Bronze CLI slice trên MinIO; các phase sau được theo dõi trong [Pipeline Implementation Plan](ecommerce_data_warehouse_pipeline_plan_v4.md).
+Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source simulator, immutable Bronze/Silver layers, warehouse models và dashboards. Hiện đã có source validation, PostgreSQL source layer/simulator và orders Bronze/PySpark Silver slices trên MinIO; các phase sau được theo dõi trong [Pipeline Implementation Plan](ecommerce_data_warehouse_pipeline_plan_v4.md).
 
 ## Current status
 
@@ -13,8 +13,9 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Live schema contract checks and isolated source integration tests | Implemented |
 | Source simulator mutation batches | Implemented — 4 core tables |
 | Bounded orders extraction and immutable Bronze on MinIO | Implemented — orders-only CLI slice |
+| Orders PySpark normalization, routing and immutable Silver Parquet | Implemented — local rules; relationship/deferred checks planned |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
-| Airflow, Spark, dbt and Metabase | TODO — later phases |
+| Airflow, dbt and Metabase | TODO — later phases |
 
 ## Quick start
 
@@ -35,6 +36,8 @@ make verify-source
 - `src/olist_platform/raw/`: package Python chứa manifest helpers, verification, profiling và source contracts.
 - `src/olist_platform/source_simulator/`: batch artifacts, deterministic fixtures và transactional apply.
 - `src/olist_platform/bronze/`: bounded orders extraction, durable retry state và verified MinIO publication.
+- `src/olist_platform/silver/`: explicit-schema Spark processing, row routing và Parquet publication.
+- `tests/processing/`: Spark tests và independent dirty fixture expectations; tách khỏi fast unit tests.
 - `scripts/`: compatibility wrappers cho các Python commands trước đây; cần cài package trước khi dùng.
 - `tests/unit/`: `unittest` và fixture nhỏ, gồm kiểm tra installed CLI từ thư mục ngoài checkout.
 - `tests/integration/`: PostgreSQL tests dùng container tạm; simulator dùng small SQL fixture trong `tests/fixtures/`, source seed dùng canonical raw snapshot.
@@ -47,7 +50,7 @@ Chỉ thêm folders ingestion, Airflow, Spark và dbt khi có implementation tư
 
 ## Python development
 
-`pyproject.toml` khai báo package, Python version, CLI entry points và development tools. `uv.lock` khóa dependencies và phải được commit. Source tools dùng Psycopg 3 với binary adapter, Bronze dùng Boto3 cho S3 API; Ruff thuộc development group. Dependencies của Airflow, Spark và dbt sẽ được quản lý theo runtime/service khi triển khai.
+`pyproject.toml` khai báo package, Python version, CLI entry points và development tools. `uv.lock` khóa dependencies và phải được commit. Source dùng Psycopg 3, object storage dùng Boto3, Ruff thuộc development group. PySpark nằm trong optional extra `processing`: dùng Java 17 và `make sync-processing`. Airflow/dbt runtime sẽ được quản lý khi triển khai.
 
 ```bash
 make sync       # uv sync --locked: cài editable package và dev tools vào .venv
@@ -76,10 +79,13 @@ Chạy Make và CLI từ repository root để dùng default paths. CLI resolve 
 
 - `Fast checks`: Python 3.10 và 3.12, cài dependencies từ `uv.lock`, chạy `make test`, build wheel/sdist và chạy lại unit tests với wheel đã cài.
 - `PostgreSQL and MinIO integration`: Python 3.12, chạy simulator tests và `make test-bronze-integration` với disposable services và small SQL fixtures.
+- `Orders Spark Silver`: Python 3.12/Java 17, cài locked processing extra, chạy `make test-processing` và `make test-silver-integration`.
 
-CI không cần `.env`, raw CSV hay repository secrets. Integration suites tự tạo credentials cho services tạm và cleanup container/volume khi kết thúc. Full snapshot suite (`make test-source-integration`) vẫn chạy local sau khi tải canonical CSV; chưa có DAG, Spark hoặc dbt checks trong CI.
+CI không cần `.env`, raw CSV hay repository secrets. Integration suites tự tạo credentials cho services tạm và cleanup container/volume khi kết thúc. Full snapshot suite (`make test-source-integration`) vẫn chạy local sau khi tải canonical CSV; DAG và dbt checks còn planned.
 
 Tái hiện CI từ checkout sạch: `make sync`, `make test`, `make build`, `make test-source-simulator-integration` và `make test-bronze-integration`. Workflow pin action commit SHAs và uv version; cập nhật các pins cùng validation khi nâng tools.
+
+Spark job dùng Java 17: `make sync-processing`, `make test-processing`, `make test-silver-integration`.
 
 ## Documentation
 
@@ -88,6 +94,7 @@ Tái hiện CI từ checkout sạch: `make sync`, `make test`, `make build`, `ma
 - [Local infrastructure](infrastructure/README.md)
 - [Source simulator contract and usage](docs/data_contracts/03_source_simulator.md)
 - [Orders Bronze contract, retry and local execution](docs/data_contracts/04_orders_bronze.md)
+- [Orders Silver rules, Parquet and publication](docs/data_contracts/05_orders_silver.md)
 - [Pipeline implementation plan](ecommerce_data_warehouse_pipeline_plan_v4.md)
 
 ## Commands
@@ -135,6 +142,12 @@ DSN ở trên chỉ minh họa default local credentials; CLI cũng hỗ trợ s
 MinIO và orders extractor đã có CLI slice với consistent snapshot, composite cursor/lookback, durable retry pages, immutable JSONL objects, manifest/SHA-256 và `_SUCCESS`. Checkpoint chỉ tiến sau verified publication; đây là Bronze delivery checkpoint, chưa phải watermark của toàn pipeline.
 
 Chạy `make bronze-up`, export database/S3 environment, `make init-bronze`, rồi `make ingest-orders BRONZE_RUN_ID=<stable_id>`. Resume cùng ID khi lỗi; dùng ID mới cho extraction tiếp theo. Xem [Bronze contract](docs/data_contracts/04_orders_bronze.md) cho đầy đủ commands, lookback SLA và limitations. `make test-bronze-integration` dùng small fixture, không cần canonical CSV.
+
+## Orders to Silver
+
+Sau Bronze, dùng Java 17, `make sync-processing`, rồi `make process-orders BRONZE_PREFIX='<manifest.prefix>' SILVER_RUN_ID=<stable_id>`. Spark chuẩn hóa strings/timezone, giữ version mới nhất, phân loại valid/rejected/duplicates và publish Parquet immutable có manifest/reconciliation. Warning là subset của valid.
+
+Hiện chưa kiểm tra customer foreign keys, chưa có deferred/quarantine lifecycle hoặc warehouse load. Silver không promote end-to-end watermark. Xem [Silver contract](docs/data_contracts/05_orders_silver.md) cho rules, retry semantics và tests.
 
 ## License
 

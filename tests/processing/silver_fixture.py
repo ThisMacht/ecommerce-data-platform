@@ -1,0 +1,97 @@
+"""Independent dirty input values and expected outcomes shared by Spark tests."""
+
+import json
+from pathlib import Path
+
+from olist_platform.bronze.storage import encode, sha256
+
+ROOT = Path(__file__).resolve().parents[2]
+FIXTURES = ROOT / "tests/fixtures/silver"
+
+
+def rows() -> list[dict]:
+    base = {
+        "customer_id": "customer_a",
+        "order_status": "approved",
+        "order_purchase_timestamp": "2018-01-01T12:00:00",
+        "order_approved_at": None,
+        "order_delivered_carrier_date": None,
+        "order_delivered_customer_date": None,
+        "order_estimated_delivery_date": "2018-01-10T00:00:00",
+        "source_updated_at": "2020-01-04T00:00:00+00:00",
+        "source_operation": "INSERT",
+        "source_batch_id": "dirty_fixture",
+        "source_loaded_at": "2020-01-04T00:00:00+00:00",
+    }
+    values = json.loads((FIXTURES / "orders_dirty.json").read_text())
+    result = []
+    for number, value in enumerate(values, 1):
+        row = base | value
+        row.update(
+            _record_uid=f"uid-{number:02}",
+            _logical_record_uid=None,
+            _ingested_at="2026-10-21T00:00:00+00:00",
+            _run_id="dirty",
+            _run_attempt=1,
+            _source_name="postgresql.orders",
+            _source_file="fixture.jsonl",
+            _source_row_number=number,
+            _schema_version="1.0.0",
+            _raw_payload=encode(row).decode().strip(),
+        )
+        result.append(row)
+    return result
+
+
+def publish_bronze(
+    store, contract: dict, prefix="bronze/orders/ingestion_date=2026-10-21/run_id=dirty"
+) -> str:
+    from olist_platform.silver.batch import LINEAGE
+
+    values = rows()
+    key = f"{prefix}/attempt=0001/part-000001.jsonl"
+    source_schema = (
+        next(t["columns"] for t in contract["tables"] if t["table"] == "orders")
+        + contract["metadata_columns"]
+    )
+    for row in values:
+        row.pop("_raw_payload")
+        row["_source_file"] = key
+        row["_record_uid"] = sha256(encode(["dirty", key, row["_source_row_number"]]))
+        row["_logical_record_uid"] = (
+            sha256(
+                encode(["postgresql.orders", row["order_id"], row["source_sequence"]])
+            )
+            if row["order_id"]
+            else None
+        )
+        assert set(row) == {column["name"] for column in source_schema} | set(LINEAGE)
+    body = b"".join(encode(row) for row in values)
+    manifest = {
+        "format_version": 1,
+        "schema_version": "1.0.0",
+        "source": "postgresql.orders",
+        "run_id": "dirty",
+        "prefix": prefix,
+        "prepared_at": "2026-10-21T00:00:00+00:00",
+        "config": {"contract_sha256": sha256(encode(contract))},
+        "source_schema": source_schema,
+        "schema_fingerprint": sha256(encode(source_schema)),
+        "row_count": len(values),
+        "source_row_count": len(values),
+        "page_count": 1,
+        "objects": [
+            {
+                "key": key,
+                "sha256": sha256(body),
+                "size_bytes": len(body),
+                "row_count": len(values),
+            }
+        ],
+    }
+    store.put_immutable(key, body)
+    store.put_immutable(f"{prefix}/manifest.json", encode(manifest))
+    store.put_immutable(
+        f"{prefix}/_SUCCESS", encode({"manifest_sha256": sha256(encode(manifest))})
+    )
+    return prefix

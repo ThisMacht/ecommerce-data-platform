@@ -7,7 +7,7 @@ Infrastructure triển khai PostgreSQL source layer và MinIO cho orders Bronze.
 | Service | Lifecycle | Purpose |
 | --- | --- | --- |
 | `postgres` | Stateful service | Lưu `olist_source`, source metadata và migration/seed audit |
-| `minio` | Stateful service | Lưu immutable orders Bronze batches, manifests và publication markers |
+| `minio` | Stateful service | Lưu immutable orders Bronze/Silver, manifests và publication markers |
 | `migrate` | Ephemeral job | Apply versioned migrations và kiểm tra checksum |
 | `source-loader` | Ephemeral job | COPY raw CSV read-only vào source tables theo transaction |
 | `source-check` | Ephemeral job | Đọc bằng read-only role để export schema catalog và xác minh source state |
@@ -62,9 +62,13 @@ Sau source seed/migration `003`, export database/S3 credentials và dùng `make 
 
 `make test-bronze-integration` build cùng image, tạo PostgreSQL/MinIO tạm với ephemeral localhost ports và anonymous volumes; không dùng local services hoặc CSV. Cleanup chỉ nhắm container/volume riêng của suite.
 
+## Orders Silver runtime
+
+Spark hiện chạy trên host bằng optional `processing` extra, không có placeholder service. Dùng Java 17, `make sync-processing` và `make process-orders BRONZE_PREFIX=<prefix> SILVER_RUN_ID=<id>`. Silver dùng cùng S3 environment/bucket, không cần PostgreSQL connection; xem [contract](../docs/data_contracts/05_orders_silver.md). `make test-silver-integration` kiểm tra toàn slice bằng local Spark và disposable services.
+
 ## TODO
 
-- `TODO(phase-1)`: thêm Airflow, Spark và dbt cùng vertical slice đầu tiên.
+- `TODO(phase-1)`: thêm Airflow và dbt với executable workflows/models.
 - `TODO(phase-3)`: thêm Metabase sau khi marts và read-only grants ổn định.
 - `TODO(security)`: dùng secret manager và network policy khi có deployment ngoài local.
 
