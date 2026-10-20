@@ -1,0 +1,73 @@
+# ===============================
+# Python
+# ===============================
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Distribution / packaging
+build/
+dist/
+*.egg-info/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# ===============================
+# Jupyter Notebook
+# ===============================
+.ipynb_checkpoints/
+
+# ===============================
+# Environment files
+# ===============================
+.env
+.env.*
+!.env.example
+
+# ===============================
+# Data (raw / processed / external only)
+# ===============================
+data/raw/*
+data/generated/*
+!data/raw/.gitkeep
+!data/raw/README.md
+
+# ===============================
+# Figures (optional)
+# ===============================
+figures/*
+!figures/.gitkeep
+
+# ===============================
+# IDE / Editor
+# ===============================
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# ===============================
+# OS files
+# ===============================
+.DS_Store
+Thumbs.db
+
+# ===============================
+# Logs
+# ===============================
+*.log
+
+# ===============================
+# Pytest / Coverage
+# ===============================
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+test.*
+plots/*

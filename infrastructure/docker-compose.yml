@@ -1,0 +1,122 @@
+name: ecommerce-data-platform
+
+x-postgres-image: &postgres-image postgres:17.10-alpine3.23
+
+services:
+  postgres:
+    image: *postgres-image
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-olist_source}
+      POSTGRES_USER: ${POSTGRES_USER:-olist_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local_admin_change_me}
+      PGDATA: /var/lib/postgresql/data
+      TZ: UTC
+    ports:
+      - "127.0.0.1:${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready --username="$${POSTGRES_USER}" --dbname="$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    shm_size: 256mb
+    stop_grace_period: 30s
+    networks:
+      - platform
+
+  migrate:
+    image: *postgres-image
+    profiles: [jobs]
+    init: true
+    read_only: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-olist_source}
+      POSTGRES_USER: ${POSTGRES_USER:-olist_admin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-local_admin_change_me}
+      SOURCE_LOADER_USER: ${SOURCE_LOADER_USER:-olist_loader}
+      SOURCE_LOADER_PASSWORD: ${SOURCE_LOADER_PASSWORD:-local_loader_change_me}
+      SOURCE_READER_USER: ${SOURCE_READER_USER:-olist_reader}
+      SOURCE_READER_PASSWORD: ${SOURCE_READER_PASSWORD:-local_reader_change_me}
+    volumes:
+      - ./postgres/migrations:/migrations:ro
+      - ./postgres/scripts:/scripts:ro
+    tmpfs:
+      - /tmp
+    entrypoint: ["/bin/sh", "/scripts/run_migrations.sh"]
+    networks:
+      - platform
+
+  source-loader:
+    image: *postgres-image
+    profiles: [jobs]
+    init: true
+    read_only: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      POSTGRES_DB: ${POSTGRES_DB:-olist_source}
+      SOURCE_LOADER_USER: ${SOURCE_LOADER_USER:-olist_loader}
+      SOURCE_LOADER_PASSWORD: ${SOURCE_LOADER_PASSWORD:-local_loader_change_me}
+      SOURCE_SNAPSHOT_ID: olist-kaggle-local-v1
+      SOURCE_SEED_BATCH_ID: seed_olist_kaggle_local_v1
+      SOURCE_SEED_TIMESTAMP: "2020-01-01T00:00:00Z"
+    volumes:
+      - ../config:/config:ro
+      - ../data/raw:/data/raw:ro
+      - ./postgres/seeds:/seeds:ro
+      - ./postgres/scripts:/scripts:ro
+    tmpfs:
+      - /tmp
+    entrypoint: ["/bin/sh", "/scripts/run_source_seed.sh"]
+    networks:
+      - platform
+
+  source-check:
+    image: *postgres-image
+    profiles: [jobs]
+    init: true
+    read_only: true
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      PGHOST: postgres
+      PGPORT: 5432
+      PGDATABASE: ${POSTGRES_DB:-olist_source}
+      PGUSER: ${SOURCE_READER_USER:-olist_reader}
+      PGPASSWORD: ${SOURCE_READER_PASSWORD:-local_reader_change_me}
+    volumes:
+      - ./postgres/checks:/checks:ro
+    tmpfs:
+      - /tmp
+    entrypoint:
+      - psql
+      - --no-psqlrc
+      - --set=ON_ERROR_STOP=1
+      - --file=/checks/verify_olist_source.sql
+    networks:
+      - platform
+
+networks:
+  platform:
+    driver: bridge
+
+volumes:
+  postgres_data:
+
+# TODO(phase-0): Add MinIO after the source simulator is deterministic.
+# TODO(phase-1): Add Airflow, Spark and dbt only with their first vertical slice.
+# TODO(phase-3): Add Metabase after stable marts and read-only grants exist.

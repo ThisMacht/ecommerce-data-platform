@@ -1,0 +1,197 @@
+{
+  "contract_version": "1.0.0",
+  "status": "active",
+  "dataset_snapshot_id": "olist-kaggle-local-v1",
+  "database": {
+    "name_env": "POSTGRES_DB",
+    "default_name": "olist_source",
+    "source_schema": "olist",
+    "audit_schema": "audit"
+  },
+  "policies": {
+    "currency": "BRL",
+    "money_type": "numeric(18,2)",
+    "source_timezone": "America/Sao_Paulo",
+    "warehouse_timezone": "UTC",
+    "lateness_sla_hours": 48,
+    "delete_policy": "INSERT_UPDATE_ONLY",
+    "schema_evolution": {
+      "additive_nullable_column": "WARN",
+      "missing_required_column": "FAIL",
+      "incompatible_type_change": "FAIL",
+      "unknown_schema_version": "FAIL"
+    }
+  },
+  "seed": {
+    "batch_id": "seed_olist_kaggle_local_v1",
+    "source_updated_at": "2020-01-01T00:00:00Z",
+    "conflict_policy": "DO_NOT_OVERWRITE_EXISTING_SOURCE_KEYS"
+  },
+  "metadata_columns": [
+    {
+      "name": "source_updated_at",
+      "postgres_type": "timestamp with time zone",
+      "nullable": false
+    },
+    {
+      "name": "source_sequence",
+      "postgres_type": "bigint",
+      "nullable": false
+    },
+    {
+      "name": "source_operation",
+      "postgres_type": "text",
+      "nullable": false
+    },
+    {
+      "name": "source_batch_id",
+      "postgres_type": "text",
+      "nullable": false
+    },
+    {
+      "name": "source_loaded_at",
+      "postgres_type": "timestamp with time zone",
+      "nullable": false
+    }
+  ],
+  "tables": [
+    {
+      "file": "olist_customers_dataset.csv",
+      "table": "customers",
+      "grain": "one row per order-scoped customer_id",
+      "source_key": ["customer_id"],
+      "primary_key": ["customer_id"],
+      "columns": [
+        {"name": "customer_id", "postgres_type": "text", "nullable": false},
+        {"name": "customer_unique_id", "postgres_type": "text", "nullable": false},
+        {"name": "customer_zip_code_prefix", "postgres_type": "text", "nullable": false},
+        {"name": "customer_city", "postgres_type": "text", "nullable": false},
+        {"name": "customer_state", "postgres_type": "text", "nullable": false}
+      ]
+    },
+    {
+      "file": "olist_geolocation_dataset.csv",
+      "table": "geolocation",
+      "grain": "one source CSV row; ZIP prefix is not unique",
+      "source_key": [],
+      "primary_key": ["geolocation_row_id"],
+      "technical_key": {
+        "name": "geolocation_row_id",
+        "postgres_type": "bigint",
+        "derivation": "one-based CSV data-row position"
+      },
+      "columns": [
+        {"name": "geolocation_zip_code_prefix", "postgres_type": "text", "nullable": false},
+        {"name": "geolocation_lat", "postgres_type": "numeric", "nullable": false},
+        {"name": "geolocation_lng", "postgres_type": "numeric", "nullable": false},
+        {"name": "geolocation_city", "postgres_type": "text", "nullable": false},
+        {"name": "geolocation_state", "postgres_type": "text", "nullable": false}
+      ]
+    },
+    {
+      "file": "olist_order_items_dataset.csv",
+      "table": "order_items",
+      "grain": "one item position within an order",
+      "source_key": ["order_id", "order_item_id"],
+      "primary_key": ["order_id", "order_item_id"],
+      "columns": [
+        {"name": "order_id", "postgres_type": "text", "nullable": false},
+        {"name": "order_item_id", "postgres_type": "integer", "nullable": false},
+        {"name": "product_id", "postgres_type": "text", "nullable": false},
+        {"name": "seller_id", "postgres_type": "text", "nullable": false},
+        {"name": "shipping_limit_date", "postgres_type": "timestamp without time zone", "nullable": false},
+        {"name": "price", "postgres_type": "numeric(18,2)", "nullable": false},
+        {"name": "freight_value", "postgres_type": "numeric(18,2)", "nullable": false}
+      ]
+    },
+    {
+      "file": "olist_order_payments_dataset.csv",
+      "table": "order_payments",
+      "grain": "one payment sequence within an order",
+      "source_key": ["order_id", "payment_sequential"],
+      "primary_key": ["order_id", "payment_sequential"],
+      "columns": [
+        {"name": "order_id", "postgres_type": "text", "nullable": false},
+        {"name": "payment_sequential", "postgres_type": "integer", "nullable": false},
+        {"name": "payment_type", "postgres_type": "text", "nullable": false},
+        {"name": "payment_installments", "postgres_type": "integer", "nullable": false},
+        {"name": "payment_value", "postgres_type": "numeric(18,2)", "nullable": false}
+      ]
+    },
+    {
+      "file": "olist_order_reviews_dataset.csv",
+      "table": "order_reviews",
+      "grain": "one review_id and order_id pair",
+      "source_key": ["review_id", "order_id"],
+      "primary_key": ["review_id", "order_id"],
+      "columns": [
+        {"name": "review_id", "postgres_type": "text", "nullable": false},
+        {"name": "order_id", "postgres_type": "text", "nullable": false},
+        {"name": "review_score", "postgres_type": "integer", "nullable": false},
+        {"name": "review_comment_title", "postgres_type": "text", "nullable": true},
+        {"name": "review_comment_message", "postgres_type": "text", "nullable": true},
+        {"name": "review_creation_date", "postgres_type": "timestamp without time zone", "nullable": false},
+        {"name": "review_answer_timestamp", "postgres_type": "timestamp without time zone", "nullable": false}
+      ]
+    },
+    {
+      "file": "olist_orders_dataset.csv",
+      "table": "orders",
+      "grain": "one order",
+      "source_key": ["order_id"],
+      "primary_key": ["order_id"],
+      "columns": [
+        {"name": "order_id", "postgres_type": "text", "nullable": false},
+        {"name": "customer_id", "postgres_type": "text", "nullable": false},
+        {"name": "order_status", "postgres_type": "text", "nullable": false},
+        {"name": "order_purchase_timestamp", "postgres_type": "timestamp without time zone", "nullable": false},
+        {"name": "order_approved_at", "postgres_type": "timestamp without time zone", "nullable": true},
+        {"name": "order_delivered_carrier_date", "postgres_type": "timestamp without time zone", "nullable": true},
+        {"name": "order_delivered_customer_date", "postgres_type": "timestamp without time zone", "nullable": true},
+        {"name": "order_estimated_delivery_date", "postgres_type": "timestamp without time zone", "nullable": false}
+      ]
+    },
+    {
+      "file": "olist_products_dataset.csv",
+      "table": "products",
+      "grain": "one product",
+      "source_key": ["product_id"],
+      "primary_key": ["product_id"],
+      "columns": [
+        {"name": "product_id", "postgres_type": "text", "nullable": false},
+        {"name": "product_category_name", "postgres_type": "text", "nullable": true},
+        {"name": "product_name_lenght", "postgres_type": "integer", "nullable": true},
+        {"name": "product_description_lenght", "postgres_type": "integer", "nullable": true},
+        {"name": "product_photos_qty", "postgres_type": "integer", "nullable": true},
+        {"name": "product_weight_g", "postgres_type": "integer", "nullable": true},
+        {"name": "product_length_cm", "postgres_type": "integer", "nullable": true},
+        {"name": "product_height_cm", "postgres_type": "integer", "nullable": true},
+        {"name": "product_width_cm", "postgres_type": "integer", "nullable": true}
+      ]
+    },
+    {
+      "file": "olist_sellers_dataset.csv",
+      "table": "sellers",
+      "grain": "one seller",
+      "source_key": ["seller_id"],
+      "primary_key": ["seller_id"],
+      "columns": [
+        {"name": "seller_id", "postgres_type": "text", "nullable": false},
+        {"name": "seller_zip_code_prefix", "postgres_type": "text", "nullable": false},
+        {"name": "seller_city", "postgres_type": "text", "nullable": false},
+        {"name": "seller_state", "postgres_type": "text", "nullable": false}
+      ]
+    },
+    {
+      "file": "product_category_name_translation.csv",
+      "table": "product_category_name_translation",
+      "grain": "one Portuguese product category",
+      "source_key": ["product_category_name"],
+      "primary_key": ["product_category_name"],
+      "columns": [
+        {"name": "product_category_name", "postgres_type": "text", "nullable": false},
+        {"name": "product_category_name_english", "postgres_type": "text", "nullable": false}
+      ]
+    }
+  ]
+}

@@ -1,0 +1,32 @@
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[project]
+name = "olist-data-platform"
+version = "0.1.0"
+description = "Olist source validation and batch data platform utilities"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = []
+
+[project.scripts]
+olist-verify-raw = "olist_platform.raw.verification:main"
+olist-profile-source = "olist_platform.raw.profiling:main"
+olist-validate-source-contract = "olist_platform.raw.contracts:main"
+
+[dependency-groups]
+dev = ["ruff>=0.11"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/olist_platform"]
+
+[tool.hatch.build.targets.sdist]
+include = ["/src", "/pyproject.toml", "/uv.lock", "/README.md", "/LICENSE"]
+
+[tool.ruff]
+target-version = "py310"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
