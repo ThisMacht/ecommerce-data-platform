@@ -13,6 +13,7 @@ Raw validation, PostgreSQL loading, and source simulation are implemented. Orche
 - `infrastructure/`: Compose, PostgreSQL migrations, seeds, checks, and runners.
 - `data/raw/`: immutable local CSV inputs. Generated batches use ignored `data/generated/`.
 - `docs/`: contracts, profiles, and runbooks. JSON reports use ignored `build/reports/`.
+- `.github/workflows/ci.yml`: Python checks/build and isolated simulator integration, without raw CSVs or secrets.
 
 ## Build, Test, and Development Commands
 

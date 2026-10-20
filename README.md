@@ -12,6 +12,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Dockerized PostgreSQL, migrations and source seed | Implemented |
 | Live schema contract checks and isolated source integration tests | Implemented |
 | Source simulator mutation batches | Implemented — 4 core tables |
+| GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
 | MinIO, Airflow, Spark, dbt and Metabase | TODO — later phases |
 
 ## Quick start
@@ -66,6 +67,17 @@ uv run --locked olist-verify-source-schema --catalog build/reports/source_schema
 ```
 
 Chạy Make và CLI từ repository root để dùng default paths. CLI resolve relative paths theo working directory, không suy ra checkout từ vị trí package. Khi gọi executable đã cài từ thư mục khác, truyền absolute paths qua `--manifest`, `--raw-dir`, `--contract` và các output options phù hợp. Wheel chỉ chứa application code; config, raw CSV và reports vẫn nằm ngoài package.
+
+## Continuous integration
+
+[GitHub Actions CI](.github/workflows/ci.yml) chạy trên push, pull request và manual dispatch:
+
+- `Fast checks`: Python 3.10 và 3.12, cài dependencies từ `uv.lock`, chạy `make test`, build wheel/sdist và chạy lại unit tests với wheel đã cài.
+- `PostgreSQL source simulator`: Python 3.12, chạy `make test-source-simulator-integration` với PostgreSQL image từ Compose và disposable database cho từng test.
+
+CI không cần `.env`, raw CSV hay repository secrets. Simulator suite tự tạo credentials cho database tạm và cleanup container/volume khi kết thúc. Full snapshot suite (`make test-source-integration`) vẫn chạy local sau khi tải canonical CSV; chưa có DAG, Spark hoặc dbt checks trong CI.
+
+Tái hiện CI từ checkout sạch: `make sync`, `make test`, `make build` và `make test-source-simulator-integration`. Workflow pin action commit SHAs và uv version; cập nhật các pins cùng validation khi nâng tools.
 
 ## Documentation
 

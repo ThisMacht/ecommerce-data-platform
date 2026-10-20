@@ -492,7 +492,8 @@ Phase 0 tập trung vào việc hiểu đúng dataset, chốt data contracts, x�
 - [ ] Viết unit test cho error injection.
 - [ ] Dựng PostgreSQL, MinIO, Airflow LocalExecutor và Metabase bằng Docker Compose có health checks.
 - [ ] Pin image/dependency versions, tạo `.env.example` và database migrations ban đầu.
-- [ ] Tạo CI skeleton chạy lint, unit tests và kiểm tra DAG import.
+- [x] Tạo CI skeleton chạy lint, contracts, unit tests, wheel/sdist build và simulator integration.
+- [ ] Bổ sung DAG import checks khi có Airflow DAG implementation.
 
 Một PostgreSQL instance có thể chứa `olist_source`, `olist_warehouse` và `airflow_metadata` trong môi trường local. Đây là lựa chọn đơn giản hóa cho portfolio, không phải kiến trúc production.
 
@@ -650,7 +651,9 @@ Unit tests tập trung vào source simulator, dirty-data injector, cursor orderi
 - [ ] Chạy DAG import test và một MinIO → Spark → PostgreSQL vertical-slice smoke test.
 - [ ] Chạy dbt grain tests, fan-out tests và reconciliation tests.
 
-GitHub Actions tách thành hai jobs. Fast job chạy trên mọi pull request:
+CI skeleton hiện có trong `.github/workflows/ci.yml`: fast checks/build và installed-wheel tests trên Python 3.10/3.12; simulator integration trên Python 3.12 với disposable PostgreSQL, không cần raw CSV hoặc secrets. DAG, Spark, dbt và end-to-end smoke checks bên dưới là phạm vi mở rộng khi các components được triển khai.
+
+GitHub Actions mục tiêu tách thành hai jobs. Fast job chạy trên mọi pull request:
 
 ```text
 1. Install dependencies từ lockfile
@@ -745,7 +748,7 @@ ecommerce-data-platform/
 └── uv.lock
 ```
 
-Package `olist_platform.source_simulator`, four-batch reliability fixture và isolated transactional tests đã được triển khai; xem `docs/data_contracts/03_source_simulator.md`. Dirty-data injector và CI vẫn chưa triển khai.
+Package `olist_platform.source_simulator`, four-batch reliability fixture và isolated transactional tests đã được triển khai; xem `docs/data_contracts/03_source_simulator.md`. CI skeleton đã có fast checks, package build và simulator integration. Dirty-data injector, DAG checks và end-to-end smoke CI vẫn chưa triển khai.
 
 Package `olist_platform.raw` và uv workflow đã được triển khai. `scripts/` chỉ giữ compatibility wrappers; reusable Python logic nằm trong `src/olist_platform`. Các folders khác trong sơ đồ là target layout và chỉ được tạo khi có code/tests tương ứng. CLI defaults dùng working directory; config và raw data không được bundle vào wheel.
 
