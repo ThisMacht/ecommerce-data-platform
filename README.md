@@ -13,7 +13,8 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Live schema contract checks and isolated source integration tests | Implemented |
 | Source simulator mutation batches | Implemented — 4 core tables |
 | Bounded orders extraction and immutable Bronze on MinIO | Implemented — orders-only CLI slice |
-| Orders PySpark normalization, routing and immutable Silver Parquet | Implemented — local rules; relationship/deferred checks planned |
+| Orders PySpark normalization, routing and immutable Silver Parquet | Implemented — local rules and optional customer FK/deferred routing |
+| Full customer snapshots and normalized customer Silver | Implemented — parent manifest/hash pinned to orders runs |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
 | Airflow, dbt and Metabase | TODO — later phases |
 
@@ -79,7 +80,7 @@ Chạy Make và CLI từ repository root để dùng default paths. CLI resolve 
 
 - `Fast checks`: Python 3.10 và 3.12, cài dependencies từ `uv.lock`, chạy `make test`, build wheel/sdist và chạy lại unit tests với wheel đã cài.
 - `PostgreSQL and MinIO integration`: Python 3.12, chạy simulator tests và `make test-bronze-integration` với disposable services và small SQL fixtures.
-- `Orders Spark Silver`: Python 3.12/Java 17, cài locked processing extra, chạy `make test-processing` và `make test-silver-integration`.
+- `Orders Spark Silver`: Python 3.12/Java 17, cài locked processing extra, chạy `make test-processing`, `make test-silver-integration` và `make test-customer-integration`.
 
 CI không cần `.env`, raw CSV hay repository secrets. Integration suites tự tạo credentials cho services tạm và cleanup container/volume khi kết thúc. Full snapshot suite (`make test-source-integration`) vẫn chạy local sau khi tải canonical CSV; DAG và dbt checks còn planned.
 
@@ -95,6 +96,7 @@ Spark job dùng Java 17: `make sync-processing`, `make test-processing`, `make t
 - [Source simulator contract and usage](docs/data_contracts/03_source_simulator.md)
 - [Orders Bronze contract, retry and local execution](docs/data_contracts/04_orders_bronze.md)
 - [Orders Silver rules, Parquet and publication](docs/data_contracts/05_orders_silver.md)
+- [Customer snapshots and orders dependency routing](docs/data_contracts/06_customer_snapshots.md)
 - [Pipeline implementation plan](ecommerce_data_warehouse_pipeline_plan_v4.md)
 
 ## Commands
@@ -147,7 +149,7 @@ Chạy `make bronze-up`, export database/S3 environment, `make init-bronze`, r�
 
 Sau Bronze, dùng Java 17, `make sync-processing`, rồi `make process-orders BRONZE_PREFIX='<manifest.prefix>' SILVER_RUN_ID=<stable_id>`. Spark chuẩn hóa strings/timezone, giữ version mới nhất, phân loại valid/rejected/duplicates và publish Parquet immutable có manifest/reconciliation. Warning là subset của valid.
 
-Hiện chưa kiểm tra customer foreign keys, chưa có deferred/quarantine lifecycle hoặc warehouse load. Silver không promote end-to-end watermark. Xem [Silver contract](docs/data_contracts/05_orders_silver.md) cho rules, retry semantics và tests.
+Muốn kiểm tra customer FK, tạo full customer Bronze/Silver bằng `make ingest-customers` và `make process-customers`, rồi truyền `CUSTOMER_SNAPSHOT=<customer Silver prefix>` khi process orders. Orders thiếu parent vào deferred; dùng snapshot mới và Silver run ID mới để reprocess cùng Bronze input. Xem [customer contract](docs/data_contracts/06_customer_snapshots.md). Persistent deferred/quarantine lifecycle và warehouse load vẫn planned; Silver không promote end-to-end watermark.
 
 ## License
 

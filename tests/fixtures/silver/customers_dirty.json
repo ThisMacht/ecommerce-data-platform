@@ -1,0 +1,8 @@
+[
+  {"customer_id":"customer_a","source_sequence":1},
+  {"customer_id":"customer_a","source_sequence":2,"customer_city":"Rio"},
+  {"customer_id":"customer_b","source_sequence":3},
+  {"customer_id":"bad_unique","source_sequence":4,"customer_unique_id":null},
+  {"customer_id":"warning","source_sequence":5,"customer_zip_code_prefix":"123","customer_city":" ","customer_state":"ZZ"},
+  {"customer_id":"bad_version","source_sequence":0}
+]

@@ -12,6 +12,7 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | 03 | [Source Simulator](data_contracts/03_source_simulator.md) | Batch format, deterministic fixtures, transactional apply và replay semantics | Active — four-table MVP |
 | 04 | [Orders Bronze](data_contracts/04_orders_bronze.md) | Bounded extraction, durable snapshot retry, MinIO publication và Bronze-only checkpoint | Active — orders CLI slice |
 | 05 | [Orders Silver](data_contracts/05_orders_silver.md) | Spark normalization, routing, deduplication, Parquet và replay | Active — orders local-rule slice |
+| 06 | [Customer Snapshots](data_contracts/06_customer_snapshots.md) | Full customers Bronze/Silver, orders FK routing và pinned dependency replay | Active |
 
 ## Related documents
 

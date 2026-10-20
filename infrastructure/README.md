@@ -66,6 +66,8 @@ Sau source seed/migration `003`, export database/S3 credentials và dùng `make 
 
 Spark hiện chạy trên host bằng optional `processing` extra, không có placeholder service. Dùng Java 17, `make sync-processing` và `make process-orders BRONZE_PREFIX=<prefix> SILVER_RUN_ID=<id>`. Silver dùng cùng S3 environment/bucket, không cần PostgreSQL connection; xem [contract](../docs/data_contracts/05_orders_silver.md). `make test-silver-integration` kiểm tra toàn slice bằng local Spark và disposable services.
 
+Migration `004` thêm customer snapshot control/run/page tables riêng. `make ingest-customers` đọc full snapshot, không dùng orders lookback; `make process-customers` publish customer Silver để orders dùng qua `CUSTOMER_SNAPSHOT`. `make test-customer-integration` kiểm tra late parents và pinned snapshot recovery. Xem [contract](../docs/data_contracts/06_customer_snapshots.md).
+
 ## TODO
 
 - `TODO(phase-1)`: thêm Airflow và dbt với executable workflows/models.

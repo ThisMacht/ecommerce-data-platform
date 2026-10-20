@@ -95,3 +95,5 @@ jobs:
         run: make test-processing
       - name: Test orders PostgreSQL to Bronze to Silver
         run: make test-silver-integration
+      - name: Test customer snapshots and orders dependencies
+        run: make test-customer-integration

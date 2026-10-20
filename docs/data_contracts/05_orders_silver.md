@@ -6,7 +6,7 @@ Status: **Active — orders-only local PySpark slice**, processor/schema `orders
 
 Runtime: Python 3.10+, Java 17 và PySpark `4.0.2` trong optional extra `processing`. `make test` không cần Spark/Java. Spark chạy local với temporary disk staging; chưa hỗ trợ distributed workers vì input/output temporary paths thuộc host. Cần đủ local disk cho cả input JSONL và output Parquet.
 
-Đây là validation trong một orders batch. **Chưa kiểm tra customer foreign keys, chưa có deferred lifecycle, quarantine database, warehouse merge hoặc end-to-end watermark.** Manifest ghi `relationship_checks=NOT_IMPLEMENTED`, `deferred_rows=0`. Silver valid chỉ có nghĩa pass các rules dưới đây; chưa bảo đảm referential integrity.
+Đây là contract cho `orders-silver-v1` local-rule mode: `relationship_checks=NOT_IMPLEMENTED`, `deferred_rows=0`. Khi truyền customer snapshot, [orders-silver-v2](06_customer_snapshots.md) bổ sung FK/deferred routing và pin dependency hash. Persistent deferred lifecycle, quarantine database, warehouse merge và end-to-end watermark vẫn planned.
 
 ## Input validation and lineage
 

@@ -1,4 +1,4 @@
-"""Extract orders into a verified, immutable Bronze batch."""
+"""Extract orders windows or full customer snapshots into immutable Bronze."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from olist_platform.raw.contracts import ContractError, load_contract
 
-from .orders import ingest_orders
+from .extraction import ingest_source
 from .storage import BronzeError, ObjectStore, s3_client, verify_published
 
 
@@ -29,6 +29,7 @@ def main() -> int:
     parser.add_argument(
         "--bucket", default=os.environ.get("BRONZE_S3_BUCKET", "olist-bronze")
     )
+    parser.add_argument("--table", choices=("orders", "customers"), default="orders")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="Create the bucket if absent")
     extract = commands.add_parser("extract", help="Prepare or resume a named run")
@@ -57,13 +58,14 @@ def main() -> int:
                 connect_timeout=10,
                 application_name="olist-bronze-orders",
             ) as connection:
-                result = ingest_orders(
+                result = ingest_source(
                     connection,
                     store,
                     contract,
                     run_id=arguments.run_id,
                     endpoint=arguments.endpoint,
                     page_size=arguments.page_size,
+                    table=arguments.table,
                 )
         print(json.dumps(result, ensure_ascii=False))
         return 0

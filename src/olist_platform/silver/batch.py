@@ -21,6 +21,8 @@ from olist_platform.bronze.storage import (
 )
 
 ROUTES = ("valid", "rejected", "duplicates")
+KEYS = {"orders": "order_id", "customers": "customer_id"}
+VERSIONS = ("orders-silver-v1", "orders-silver-v2", "customers-silver-v1")
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
@@ -47,28 +49,38 @@ def optional_read(store: ObjectStore, key: str) -> bytes | None:
         return None
 
 
-def source_columns(contract: dict) -> list[dict]:
-    table = next(t for t in contract["tables"] if t["table"] == "orders")
-    return table["columns"] + contract["metadata_columns"]
+def source_columns(contract: dict, table: str = "orders") -> list[dict]:
+    specification = next(t for t in contract["tables"] if t["table"] == table)
+    return specification["columns"] + contract["metadata_columns"]
 
 
-def validate_manifest(manifest: dict, contract: dict) -> None:
+def validate_manifest(manifest: dict, contract: dict, table: str = "orders") -> None:
     if contract["contract_version"] != "1.0.0" or manifest["schema_version"] != "1.0.0":
         raise BronzeError("Unsupported Silver input schema version")
-    if manifest["source"] != "postgresql.orders" or manifest[
+    if manifest["source"] != f"postgresql.{table}" or manifest[
         "source_schema"
-    ] != source_columns(contract):
-        raise BronzeError("Bronze schema does not match orders contract")
+    ] != source_columns(contract, table):
+        raise BronzeError(f"Bronze schema does not match {table} contract")
     if manifest["config"]["contract_sha256"] != sha256(encode(contract)):
         raise BronzeError("Bronze source contract hash mismatch")
+    if table == "customers" and (
+        manifest.get("snapshot_kind") != "FULL"
+        or manifest.get("extract_lower_bound") is not None
+    ):
+        raise BronzeError("Customer Silver requires a full Bronze snapshot")
     if contract["policies"]["source_timezone"] != "America/Sao_Paulo":
         raise BronzeError("Unsupported business timezone")
 
 
 def validate_record(
-    row: dict, contract: dict, manifest: dict, key: str, ordinal: int
+    row: dict,
+    contract: dict,
+    manifest: dict,
+    key: str,
+    ordinal: int,
+    table: str = "orders",
 ) -> dict:
-    columns = source_columns(contract)
+    columns = source_columns(contract, table)
     if not isinstance(row, dict) or set(row) != {c["name"] for c in columns} | set(
         LINEAGE
     ):
@@ -87,7 +99,7 @@ def validate_record(
         or type(row["_run_attempt"]) is not int
         or row["_run_attempt"] != 1
         or row["_run_id"] != manifest["run_id"]
-        or row["_source_name"] != "postgresql.orders"
+        or row["_source_name"] != f"postgresql.{table}"
         or row["_schema_version"] != "1.0.0"
         or row["_ingested_at"] != manifest["prepared_at"]
     ):
@@ -96,9 +108,9 @@ def validate_record(
     if instant.utcoffset() is None:
         raise BronzeError("Bronze ingestion timestamp requires an offset")
     logical = None
-    if row["order_id"] is not None and row["source_sequence"] is not None:
+    if row[KEYS[table]] is not None and row["source_sequence"] is not None:
         logical = sha256(
-            encode(["postgresql.orders", row["order_id"], row["source_sequence"]])
+            encode([f"postgresql.{table}", row[KEYS[table]], row["source_sequence"]])
         )
     if row["_logical_record_uid"] != logical:
         raise BronzeError("Invalid Bronze logical lineage")
@@ -112,13 +124,27 @@ def validate_record(
 
 def verify_objects(store: ObjectStore, manifest: dict) -> None:
     prefix = manifest["prefix"]
-    if (
-        manifest["format_version"] != 1
-        or manifest["schema_version"] != PROCESSOR_VERSION
-    ):
+    if manifest["format_version"] != 1 or manifest["schema_version"] not in VERSIONS:
         raise BronzeError("Unsupported Silver manifest version")
     if sha256(encode(manifest["request"])) != manifest["request_sha256"]:
         raise BronzeError("Silver request checksum mismatch")
+    if manifest["schema_version"] == "orders-silver-v2":
+        dependency = manifest["request"].get("customer_snapshot", {})
+        if (
+            manifest.get("relationship_checks") != "CUSTOMER_SNAPSHOT"
+            or not isinstance(dependency.get("prefix"), str)
+            or re.fullmatch(r"[0-9a-f]{64}", dependency.get("manifest_sha256", ""))
+            is None
+        ):
+            raise BronzeError("Invalid pinned customer dependency")
+    if (
+        manifest["schema_version"] == "customers-silver-v1"
+        and manifest.get("snapshot_kind") != "FULL"
+    ):
+        raise BronzeError("Customer Silver must declare a full snapshot")
+    routes = ROUTES + (
+        ("deferred",) if manifest["schema_version"] == "orders-silver-v2" else ()
+    )
     counts = manifest["counts"]
     if set(counts) != {
         "input_rows",
@@ -129,9 +155,8 @@ def verify_objects(store: ObjectStore, manifest: dict) -> None:
         "warning_rows",
     } or any(type(count) is not int or count < 0 for count in counts.values()):
         raise BronzeError("Invalid Silver counters")
-    if (
-        counts["input_rows"] != sum(counts[f"{route}_rows"] for route in ROUTES)
-        or counts["deferred_rows"] != 0
+    if counts["input_rows"] != sum(counts[f"{route}_rows"] for route in routes) or (
+        "deferred" not in routes and counts["deferred_rows"] != 0
     ):
         raise BronzeError("Silver routing reconciliation mismatch")
     if not 0 <= counts["warning_rows"] <= counts["valid_rows"]:
@@ -141,7 +166,7 @@ def verify_objects(store: ObjectStore, manifest: dict) -> None:
     keys = set()
     for obj in manifest["objects"]:
         if (
-            obj["route"] not in ROUTES
+            obj["route"] not in routes
             or not obj["key"].startswith(f"{prefix}/attempt=")
             or not obj["key"].endswith(".parquet")
             or obj["key"] in keys
@@ -151,7 +176,7 @@ def verify_objects(store: ObjectStore, manifest: dict) -> None:
         body = store.read(obj["key"])
         if sha256(body) != obj["sha256"] or len(body) != obj["size_bytes"]:
             raise BronzeError("Silver object checksum/size mismatch")
-    for route in ROUTES:
+    for route in routes:
         if counts[f"{route}_rows"] > 0 and not any(
             obj["route"] == route for obj in manifest["objects"]
         ):
@@ -170,34 +195,68 @@ def verify_silver(store: ObjectStore, prefix: str) -> dict:
     return manifest
 
 
-def process_orders(
+def process_batch(
     spark: SparkSession,
     store: ObjectStore,
     contract: dict,
     *,
     bronze_prefix: str,
     run_id: str,
+    table: str = "orders",
+    customer_snapshot: str | None = None,
 ) -> dict:
+    from .customers import check_customer_dependencies, transform_customers
     from .orders import input_schema, transform_orders
+
+    if table not in KEYS or (table == "customers" and customer_snapshot is not None):
+        raise BronzeError("Unsupported Silver dataset/dependency configuration")
+    processor = (
+        "customers-silver-v1"
+        if table == "customers"
+        else (
+            "orders-silver-v2" if customer_snapshot is not None else PROCESSOR_VERSION
+        )
+    )
+    routes = ROUTES + (("deferred",) if customer_snapshot is not None else ())
 
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", run_id):
         raise BronzeError("Invalid Silver run_id")
     bronze = verify_published(store, bronze_prefix)
-    validate_manifest(bronze, contract)
+    validate_manifest(bronze, contract, table)
     bronze_body = store.read(f"{bronze_prefix}/manifest.json")
     if json.loads(bronze_body) != bronze or json.loads(
         store.read(f"{bronze_prefix}/_SUCCESS")
     ) != {"manifest_sha256": sha256(bronze_body)}:
         raise BronzeError("Bronze manifest changed while preparing Silver")
     request = {
-        "processor_version": PROCESSOR_VERSION,
+        "processor_version": processor,
         "spark_version": spark.version,
         "run_id": run_id,
         "bronze_prefix": bronze_prefix,
         "bronze_manifest_sha256": sha256(bronze_body),
         "contract_sha256": sha256(encode(contract)),
     }
-    prefix = f"silver/orders/run_id={run_id}"
+    parent = None
+    if customer_snapshot is not None:
+        parent = verify_silver(store, customer_snapshot)
+        if (
+            parent["schema_version"] != "customers-silver-v1"
+            or parent.get("snapshot_kind") != "FULL"
+            or parent["request"]["contract_sha256"] != request["contract_sha256"]
+        ):
+            raise BronzeError(
+                "Customer dependency requires a full verified snapshot from the same source contract"
+            )
+        parent_body = store.read(f"{customer_snapshot}/manifest.json")
+        if json.loads(parent_body) != parent or json.loads(
+            store.read(f"{customer_snapshot}/_SUCCESS")
+        ) != {"manifest_sha256": sha256(parent_body)}:
+            raise BronzeError("Customer snapshot changed while preparing Silver")
+        request["customer_snapshot"] = {
+            "prefix": customer_snapshot,
+            "manifest_sha256": sha256(parent_body),
+        }
+    prefix = f"silver/{table}/run_id={run_id}"
     request_hash = sha256(encode(request))
     store.put_immutable(f"{prefix}/request.json", encode(request))
     existing = optional_read(store, f"{prefix}/manifest.json")
@@ -226,24 +285,36 @@ def process_orders(
                     handle.write(
                         encode(
                             validate_record(
-                                json.loads(line), contract, bronze, part["key"], ordinal
+                                json.loads(line),
+                                contract,
+                                bronze,
+                                part["key"],
+                                ordinal,
+                                table,
                             )
                         )
                     )
         frame = (
-            spark.read.schema(input_schema(contract))
+            spark.read.schema(input_schema(contract, table))
             .option("mode", "FAILFAST")
             .json(str(inputs))
         )
-        classified = transform_orders(frame).persist()
+        classified = (
+            transform_orders(frame) if table == "orders" else transform_customers(frame)
+        )
+        parent_keys = None
+        if parent is not None:
+            parent_keys = load_customer_keys(spark, store, parent, root / "parent")
+            classified = check_customer_dependencies(classified, parent_keys)
+        classified = classified.persist()
         try:
             from pyspark.sql import functions as F
 
-            counts = {f"{route}_rows": 0 for route in ROUTES}
+            counts = {f"{route}_rows": 0 for route in routes}
             for row in classified.groupBy("_routing").count().collect():
                 counts[f"{row['_routing']}_rows"] = row["count"]
             counts["input_rows"] = sum(counts.values())
-            counts["deferred_rows"] = 0
+            counts.setdefault("deferred_rows", 0)
             counts["warning_rows"] = classified.filter(
                 (F.col("_routing") == "valid") & (F.size("warning_rule_ids") > 0)
             ).count()
@@ -253,9 +324,13 @@ def process_orders(
             violations = {
                 row["rule"]: row["count"]
                 for row in selected.select(
-                    F.explode(F.concat("error_rule_ids", "warning_rule_ids")).alias(
-                        "rule"
-                    )
+                    F.explode(
+                        F.concat(
+                            "error_rule_ids",
+                            "warning_rule_ids",
+                            *(["deferred_rule_ids"] if parent is not None else []),
+                        )
+                    ).alias("rule")
                 )
                 .groupBy("rule")
                 .count()
@@ -263,7 +338,7 @@ def process_orders(
             }
             output = root / "output"
             classified.repartition(2, "_routing").sortWithinPartitions(
-                "order_id", "_record_uid"
+                KEYS[table], "_record_uid"
             ).write.partitionBy("_routing").mode("error").parquet(str(output))
             parquet_paths = sorted(output.glob("_routing=*/*.parquet"))
             output_schema = classified.drop("_routing").schema.jsonValue()
@@ -275,7 +350,7 @@ def process_orders(
                 }
                 if any(
                     physical_counts.get(route, 0) != counts[f"{route}_rows"]
-                    for route in ROUTES
+                    for route in routes
                 ):
                     raise BronzeError("Parquet materialization row count mismatch")
                 output_schema = persisted.drop("_routing").schema.jsonValue()
@@ -296,17 +371,21 @@ def process_orders(
                 )
             manifest = {
                 "format_version": 1,
-                "schema_version": "orders-silver-v1",
+                "schema_version": processor,
                 "run_id": run_id,
                 "prefix": prefix,
                 "request": request,
                 "request_sha256": request_hash,
                 "counts": counts,
                 "rule_violations": violations,
-                "relationship_checks": "NOT_IMPLEMENTED",
+                "relationship_checks": "CUSTOMER_SNAPSHOT"
+                if parent is not None
+                else ("NOT_APPLICABLE" if table == "customers" else "NOT_IMPLEMENTED"),
                 "output_schema": output_schema,
                 "objects": objects,
             }
+            if table == "customers":
+                manifest["snapshot_kind"] = "FULL"
             manifest["schema_fingerprint"] = sha256(encode(manifest["output_schema"]))
             verify_objects(store, manifest)
             body = encode(manifest)
@@ -326,3 +405,84 @@ def process_orders(
             return {"status": "PUBLISHED", "manifest": verify_silver(store, prefix)}
         finally:
             classified.unpersist()
+            if parent_keys is not None:
+                parent_keys.unpersist()
+
+
+def process_orders(
+    spark: SparkSession,
+    store: ObjectStore,
+    contract: dict,
+    *,
+    bronze_prefix: str,
+    run_id: str,
+    customer_snapshot: str | None = None,
+) -> dict:
+    return process_batch(
+        spark,
+        store,
+        contract,
+        bronze_prefix=bronze_prefix,
+        run_id=run_id,
+        customer_snapshot=customer_snapshot,
+    )
+
+
+def process_customers(
+    spark: SparkSession,
+    store: ObjectStore,
+    contract: dict,
+    *,
+    bronze_prefix: str,
+    run_id: str,
+) -> dict:
+    return process_batch(
+        spark,
+        store,
+        contract,
+        bronze_prefix=bronze_prefix,
+        run_id=run_id,
+        table="customers",
+    )
+
+
+def load_customer_keys(
+    spark: SparkSession, store: ObjectStore, manifest: dict, directory: Path
+):
+    from pyspark.sql import functions as F
+
+    directory.mkdir()
+    paths = []
+    for number, obj in enumerate(manifest["objects"]):
+        if obj["route"] != "valid":
+            continue
+        body = store.read(obj["key"])
+        if sha256(body) != obj["sha256"]:
+            raise BronzeError("Customer snapshot changed while downloading")
+        path = directory / f"part-{number}.parquet"
+        path.write_bytes(body)
+        paths.append(str(path))
+    if paths:
+        data = spark.read.parquet(*paths)
+        if data.schema["customer_id"].dataType.simpleString() != "string":
+            raise BronzeError("Invalid customer snapshot key type")
+        keys = data.select("customer_id").cache()
+    else:
+        path = directory / "empty.jsonl"
+        path.touch()
+        keys = spark.read.schema("customer_id string").json(str(path)).cache()
+    try:
+        if (
+            keys.count() != manifest["counts"]["valid_rows"]
+            or keys.filter(
+                F.col("customer_id").isNull() | (F.length("customer_id") == 0)
+            )
+            .limit(1)
+            .count()
+            or keys.groupBy("customer_id").count().filter("count > 1").limit(1).count()
+        ):
+            raise BronzeError("Invalid customer snapshot key set/count")
+    except BaseException:
+        keys.unpersist()
+        raise
+    return keys

@@ -1,0 +1,5 @@
+{
+  "input_rows":6,"valid_rows":3,"rejected_rows":2,"duplicates_rows":1,
+  "valid_customer_ids":["customer_a","customer_b","warning"],
+  "rule_violations":{"missing_customer_unique_id":1,"invalid_source_sequence":1,"missing_customer_city":1,"invalid_customer_zip_code_prefix":1,"invalid_customer_state":1}
+}

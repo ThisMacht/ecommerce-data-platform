@@ -21,6 +21,8 @@ olist-verify-source-schema = "olist_platform.raw.schema:main"
 olist-source-simulator = "olist_platform.source_simulator.cli:main"
 olist-bronze-orders = "olist_platform.bronze.cli:main"
 olist-silver-orders = "olist_platform.silver.cli:main"
+olist-bronze-source = "olist_platform.bronze.cli:main"
+olist-silver-source = "olist_platform.silver.cli:main"
 
 [project.optional-dependencies]
 processing = [

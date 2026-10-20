@@ -186,7 +186,9 @@ class BronzeOrdersIntegrationTest(BronzeFixtureCase):
                 raise RuntimeError("injected serialization failure")
             return original_encode(value)
 
-        with patch("olist_platform.bronze.orders.encode", side_effect=fail_second_page):
+        with patch(
+            "olist_platform.bronze.extraction.encode", side_effect=fail_second_page
+        ):
             with self.assertRaisesRegex(RuntimeError, "serialization failure"):
                 self.ingest()
         for table in ("runs", "parts", "control"):
@@ -233,7 +235,8 @@ class BronzeOrdersIntegrationTest(BronzeFixtureCase):
             return original_encode(value)
 
         with patch(
-            "olist_platform.bronze.orders.encode", side_effect=change_after_first_page
+            "olist_platform.bronze.extraction.encode",
+            side_effect=change_after_first_page,
         ):
             manifest = self.ingest()["manifest"]
         self.assertTrue(changed)

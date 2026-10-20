@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from pyspark.sql import DataFrame, SparkSession, Window
+from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
 from olist_platform.bronze.storage import BronzeError
+
+from .validation import classify_versions
 
 BUSINESS_TIMES = (
     "order_purchase_timestamp",
@@ -54,10 +56,10 @@ def spark_session(master: str = "local[2]") -> SparkSession:
     return spark
 
 
-def input_schema(contract: dict) -> T.StructType:
-    table = next(t for t in contract["tables"] if t["table"] == "orders")
+def input_schema(contract: dict, table: str = "orders") -> T.StructType:
+    specification = next(t for t in contract["tables"] if t["table"] == table)
     fields = []
-    for column in table["columns"] + contract["metadata_columns"]:
+    for column in specification["columns"] + contract["metadata_columns"]:
         kind = T.LongType() if column["name"] == "source_sequence" else T.StringType()
         fields.append(T.StructField(column["name"], kind))
     fields.extend(
@@ -81,8 +83,6 @@ def transform_orders(
         raise BronzeError("Unsupported business timezone")
     if frame.sparkSession.conf.get("spark.sql.session.timeZone") != "UTC":
         raise BronzeError("Silver processing requires a UTC Spark session")
-    if frame.groupBy("_record_uid").count().filter("count > 1").limit(1).count():
-        raise BronzeError("Repeated physical record UID in Bronze input")
     raw = frame
     for name in ("order_id", "customer_id", "order_status", "source_batch_id"):
         trimmed = F.trim(F.col(name))
@@ -184,33 +184,7 @@ def transform_orders(
     )
     frame = frame.withColumn("error_rule_ids", F.array_compact(F.array(*errors)))
     frame = frame.withColumn("warning_rule_ids", F.array_compact(F.array(*warnings)))
-    eligible = F.col("order_id").isNotNull() & (F.col("source_sequence") > 0)
-    conflicts = (
-        frame.filter(eligible)
-        .groupBy("order_id", "source_sequence")
-        .agg(F.countDistinct(F.sha2("_raw_payload", 256)).alias("versions"))
-        .filter("versions > 1")
-        .limit(1)
-        .count()
-    )
-    if conflicts:
-        raise BronzeError("Conflicting payloads for the same order/source version")
-    frame = frame.withColumn(
-        "_dedupe_key",
-        F.when(eligible, F.concat(F.lit("key:"), F.col("order_id"))).otherwise(
-            F.concat(F.lit("uid:"), F.col("_record_uid"))
-        ),
-    )
-    window = Window.partitionBy("_dedupe_key").orderBy(
-        F.col("source_sequence").desc_nulls_last(), F.col("_record_uid").desc()
-    )
-    frame = frame.withColumn("_rank", F.row_number().over(window))
-    frame = frame.withColumn(
-        "_routing",
-        F.when(F.col("_rank") > 1, "duplicates")
-        .when(F.size("error_rule_ids") > 0, "rejected")
-        .otherwise("valid"),
-    )
+    frame = classify_versions(frame, "order_id")
     columns = raw.columns + [
         "order_purchase_date",
         "error_rule_ids",

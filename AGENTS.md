@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Implemented: raw validation, PostgreSQL loading/simulation and orders Bronze/Silver.
+Implemented: raw validation, PostgreSQL loading/simulation, orders/customers Bronze/Silver and pinned customer FK checks.
 
 - `src/olist_platform/raw/`: manifests, profiling, contracts.
 - `src/olist_platform/source_simulator/`: deterministic batches and transactional apply.
@@ -34,9 +34,11 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make infrastructure-down`: stop services; retain volumes.
 - `make bronze-up` / `make init-bronze`: start MinIO or initialize its bucket.
 - `make ingest-orders BRONZE_RUN_ID=<id>`: extract/resume orders.
+- `make ingest-customers` / `make process-customers`: publish full customer snapshots.
 - `make test-bronze-integration`: test disposable PostgreSQL/MinIO.
 - `make sync-processing`: install locked Spark extra; use Java 17.
 - `make process-orders BRONZE_PREFIX=<prefix> SILVER_RUN_ID=<id>`: publish/resume Silver.
+- Add `CUSTOMER_SNAPSHOT=<prefix>` for FK/deferred routing; `make test-customer-integration` verifies it.
 - `make test-processing` / `make test-silver-integration`: Spark or end-to-end slice checks.
 
 ## Coding Style & Naming Conventions
@@ -56,3 +58,5 @@ Use imperative commit subjects; describe behavior, validation and contract impac
 Never commit credentials, CSVs or generated artifacts. Never edit raw snapshots; re-profile new checksums and update manifests. Simulator: `SOURCE_SIMULATOR_DSN`/`PG*`. Compose `.env` is not automatically exported. Default credentials are local-only.
 
 Bronze: `BRONZE_SOURCE_DSN`/`PG*` and AWS credentials. Resume unfinished run IDs; never edit prepared pages. Bronze delivery checkpoint is separate from the planned pipeline watermark.
+
+Use full customer snapshots for FK checks. Snapshot hashes are immutable per Silver run; reprocess with a new run ID when dependencies change. Deferred persistence/expiry remains planned.
