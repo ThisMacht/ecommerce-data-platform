@@ -4,7 +4,7 @@
 | --- | --- |
 | System | Olist E-commerce Data Platform |
 | Owner | Data Engineering |
-| Status | Partially active — manual core pipeline active; Airflow orchestration planned |
+| Status | Partially active — core pipeline and local Airflow full-snapshot wrapper active; incremental/backfill planned |
 | Last reviewed | 2026-10-21 |
 | Processing mode | Batch |
 
@@ -16,7 +16,7 @@ Tài liệu này là hướng dẫn vận hành bổ sung cho:
 - [Raw dataset manifest](../../data/raw/README.md)
 - [Source contracts](../data_contracts/02_source_contracts.md)
 
-PostgreSQL source, bốn core Bronze/Silver datasets, staging, dbt và deferred lifecycle đã được triển khai. Các mục 13–20 mô tả operations hiện có; orchestration và các commands đánh dấu **planned** vẫn là target interface, chưa khả dụng.
+PostgreSQL source, bốn core Bronze/Silver datasets, staging, dbt và deferred lifecycle đã được triển khai. Các mục 13–20 mô tả operations hiện có; local Airflow full wrapper đã có; incremental/backfill và các commands đánh dấu **planned** vẫn là target interface, chưa khả dụng.
 
 ## 1. Scope
 
@@ -453,6 +453,24 @@ health CLI; `PIPELINE_DASHBOARD_OUTPUT=<path>` đổi vị trí. HTML vẫn đư
 unhealthy. File là snapshot tĩnh: kiểm tra timestamp và command exit status;
 nếu database/ghi file lỗi, file cũ có thể vẫn tồn tại. Không dùng file cũ làm bằng
 chứng cho lần kiểm tra vừa thất bại.
+
+### Airflow execution and recovery
+
+`make sync-airflow test-airflow`, sau đó `make airflow-local` chạy standalone local
+với metadata riêng trong `build/airflow/`. DAG `olist_core_full_snapshot` paused
+mặc định; trigger thủ công và đối chiếu PostgreSQL audit trước khi unpause daily UTC.
+Một task gọi runner, không tách 19 business stages thành Airflow tasks.
+
+Thiếu CSV/Java fail; retry hai lần cách nhau một phút, tối đa một active DAG run.
+Task failure sau audit begin ghi failure hiện có; crash/kill có thể để RUNNING
+đến khi resume. Retry/Clear task trong **cùng DAG run** giữ identity. Không tạo run
+mới, không dùng `dags test` để resume, không xóa pending ID và không sửa code/config
+đã pin. Nếu pending thuộc manual run, hoàn tất manual run trước khi trigger DAG.
+
+Local file lock và PostgreSQL guard vẫn áp dụng; không chạy cùng run từ nhiều
+checkout. UI/API bind loopback, SQLite metadata và standalone chỉ dành cho local.
+Không coi logical date là extraction window; scheduled incremental/backfill còn
+planned. Chi tiết [local Airflow](../../infrastructure/README.md#local-airflow).
 
 ## 21. Change control
 

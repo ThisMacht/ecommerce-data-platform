@@ -45,7 +45,8 @@ PIPELINE_DASHBOARD_OUTPUT ?= build/reports/pipeline_dashboard.html
 	ingest-order-payments ingest-order-items process-order-payments process-order-items test-order-children-integration \
 	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration \
 	register-deferred resolve-deferred test-deferred-integration test-deferred-state-integration \
-	test-pipeline-control-integration test-pipeline-integration pipeline-health pipeline-dashboard
+	test-pipeline-control-integration test-pipeline-integration pipeline-health pipeline-dashboard \
+	sync-airflow airflow-local test-airflow
 
 help:
 	@echo "Available targets:"
@@ -97,6 +98,18 @@ help:
 	@echo "  test-pipeline-integration Test all core receipts and dbt-gated watermark commit"
 	@echo "  pipeline-health           Check audit freshness, runtime, quality and deferred backlog (requires PG*)"
 	@echo "  pipeline-dashboard        Write a standalone HTML health snapshot (requires PG*)"
+	@echo "  sync-airflow / airflow-local Install isolated Airflow / start local standalone (paused DAG)"
+	@echo "  test-airflow              Import/serialize the real DAG and check retry wiring"
+
+sync-airflow:
+	$(UV) sync --project airflow --locked
+
+airflow-local:
+	sh scripts/airflow.sh standalone
+
+test-airflow:
+	AIRFLOW_HOME="$(abspath build/airflow-test)" AIRFLOW__CORE__LOAD_EXAMPLES=False \
+		$(UV) run --project airflow --locked python -m unittest discover -s tests/orchestration -p 'test_*.py' -v
 
 pipeline-dashboard:
 	$(PYTHON) -m olist_platform.pipeline.health --thresholds "$(PIPELINE_HEALTH_CONFIG)" --html-output "$(PIPELINE_DASHBOARD_OUTPUT)"
@@ -149,6 +162,7 @@ test-infrastructure-config:
 	sh -n infrastructure/postgres/scripts/run_migrations.sh
 	sh -n infrastructure/postgres/scripts/run_source_seed.sh
 	sh -n scripts/make_dataset.sh
+	sh -n scripts/airflow.sh
 
 test: lint validate-source-contract test-unit test-infrastructure-config
 

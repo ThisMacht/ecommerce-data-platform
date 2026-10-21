@@ -5,7 +5,8 @@
 Status: **Active — local manual full-snapshot pipeline, receipt reconciliation and atomic control commit**.
 Migration `009` thêm `audit.pipeline_runs`, `pipeline_task_runs`,
 `pipeline_dataset_runs` và `pipeline_control`. Namespace là `local_core_v1`;
-đây chưa phải scheduled Airflow pipeline hoặc backfill interface.
+Airflow có daily wrapper dùng cùng namespace; đây chưa phải scheduled incremental
+namespace hoặc backfill interface.
 
 Runner local dùng full snapshots cho cả bốn core tables. Full mode được bổ sung
 cho items/payments; default standalone extraction của orders/items/payments vẫn
@@ -19,8 +20,9 @@ toàn runner. PostgreSQL advisory transaction lock serialize control operations;
 chỉ một run ID được `RUNNING` trong namespace. Pending run ID nằm trong file cũ;
 không tự đổi ID để bỏ qua unfinished Bronze/state.
 
-Begin pin SHA-256 của source/scripts/config/dbt/lockfile/Makefile cùng contract và
-public connection identity, endpoint/bucket, reader role. Không lưu password hoặc
+Begin pin SHA-256 của source/scripts/config/dbt/lockfile/Makefile cùng Airflow DAG/
+runtime lock, contract và public connection identity, endpoint/bucket, reader role.
+Airflow DAG/run context cũng được pin nếu có. Không lưu password hoặc
 DSN. Cùng ID nhưng code/config khác bị reject. Resume tăng run attempt, giữ baseline
 control và original start time; old running tasks được đánh dấu failed. Task của
 attempt cũ không được ghi vào attempt mới.
@@ -31,7 +33,7 @@ giữ pending ID và không promote watermark. Process crash có thể để `RU
 resume cùng ID tạo attempt mới, replay immutable data-plane receipts.
 
 Local file lock bảo vệ cùng checkout; không phải distributed execution lease.
-Không chạy cùng run ID từ nhiều hosts/checkouts. Airflow `max_active_runs=1` hoặc
+Không chạy cùng run ID từ nhiều hosts/checkouts. DAG local đặt `max_active_runs=1`;
 distributed ownership vẫn cần được triển khai trước khi mở rộng orchestration.
 
 ## Receipt verification
@@ -115,6 +117,19 @@ Sau lỗi, giữ pending ID và gọi lại `make dataset` bằng code/config c�
 commit nhưng mất local response, begin trả `NOOP`, giữ counters/control versions
 cũ và dọn pending file. Khi nâng cấp từ bounded runner cũ, hoàn tất unfinished runs
 với config cũ trước; không sửa prepared pages, checkpoints hoặc request hashes.
+
+## Airflow retry identity
+
+DAG `olist_core_full_snapshot` gọi runner bằng một BashOperator task. Context
+được truyền qua environment và hash thành valid run ID; try number không tham gia
+identity. Cùng DAG run retry/Clear sẽ replay cùng receipts hoặc NOOP sau success,
+kể cả khi pending file không còn. Pending của run khác bị reject trước seed/load.
+Thiếu CSV/Java fail thay vì skip. Manual runner giữ hành vi skip/PARTIAL cũ.
+
+Không gọi `make dataset` thiếu original Airflow context để resume một Airflow run;
+dùng Retry/Clear trong cùng execution. Namespace/control/run_type vẫn là local
+full snapshot, không dùng Airflow logical date làm bounds. Default DAG paused,
+daily UTC, catchup off, max active runs 1. Xem [local deployment/recovery](../../infrastructure/README.md#local-airflow).
 
 ## Operational health
 

@@ -140,5 +140,5 @@ volumes:
   postgres_data:
   minio_data:
 
-# TODO(phase-1): Add Airflow and dbt with executable workflows/models.
+# Airflow uses the isolated host runtime in airflow/; dbt uses the analytics extra.
 # TODO(phase-3): Add Metabase after stable marts and read-only grants exist.

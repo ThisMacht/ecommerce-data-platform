@@ -47,6 +47,10 @@ def configuration(root: Path, contract: dict) -> dict:
         "endpoint": os.environ.get("BRONZE_S3_ENDPOINT", "http://127.0.0.1:9000"),
         "bucket": os.environ.get("BRONZE_S3_BUCKET", "olist-bronze"),
         "dbt_reader": os.environ["DBT_READER_USER"],
+        "orchestration": {
+            "dag_id": os.environ.get("OLIST_AIRFLOW_DAG_ID"),
+            "run_id": os.environ.get("OLIST_AIRFLOW_RUN_ID"),
+        },
     }
 
 

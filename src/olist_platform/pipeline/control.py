@@ -30,11 +30,17 @@ TASKS = (
 
 def code_hash(root: Path) -> str:
     paths = [root / "pyproject.toml", root / "uv.lock", root / "Makefile"]
+    paths.extend(
+        p
+        for p in (root / "airflow/pyproject.toml", root / "airflow/uv.lock")
+        if p.exists()
+    )
     for directory, extensions in (
         ("src", {".py"}),
         ("scripts", {".py", ".sh"}),
         ("config", {".json"}),
         ("dbt", {".sql", ".yml"}),
+        ("airflow/dags", {".py"}),
     ):
         paths.extend(
             p

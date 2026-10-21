@@ -119,6 +119,130 @@ class MakeDatasetTest(unittest.TestCase):
         self.assertIn("[FOUND] order_items", output)
         self.assertFalse(Path(".env").exists())
 
+    def test_airflow_identity_is_stable_scoped_and_not_shell_input(self):
+        with patch.dict(
+            os.environ,
+            {
+                "OLIST_AIRFLOW_DAG_ID": "olist_core_full_snapshot",
+                "OLIST_AIRFLOW_RUN_ID": "manual__2026-01-01 '$(touch bad)'",
+            },
+        ):
+            first = make_dataset.airflow_run_id()
+            self.assertEqual(first, make_dataset.airflow_run_id())
+            self.assertRegex(first, r"^airflow_[0-9a-f]{64}$")
+            os.environ["OLIST_AIRFLOW_DAG_ID"] = "other"
+            self.assertNotEqual(first, make_dataset.airflow_run_id())
+            os.environ["OLIST_AIRFLOW_RUN_ID"] = ""
+            with self.assertRaisesRegex(ValueError, "Both Airflow"):
+                make_dataset.airflow_run_id()
+
+    def test_airflow_missing_csv_or_java_fails_before_services(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "OLIST_AIRFLOW_DAG_ID": "olist_core_full_snapshot",
+                    "OLIST_AIRFLOW_RUN_ID": "test",
+                },
+            ),
+            patch("scripts.make_dataset.run") as command,
+        ):
+            Path("data/raw", self.names[0]).unlink()
+            with self.assertRaisesRegex(ValueError, "complete raw"):
+                self.invoke()
+            Path("data/raw", self.names[0]).touch()
+            with patch("scripts.make_dataset.shutil.which", return_value=None):
+                with self.assertRaisesRegex(ValueError, "requires Java"):
+                    self.invoke()
+            command.assert_not_called()
+
+    def test_airflow_cannot_adopt_unrelated_pending_run(self):
+        pending = Path("build/reports/dataset/pending-run.txt")
+        pending.parent.mkdir(parents=True)
+        pending.write_text("dataset_unfinished\n")
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "OLIST_AIRFLOW_DAG_ID": "olist_core_full_snapshot",
+                    "OLIST_AIRFLOW_RUN_ID": "test",
+                },
+            ),
+            patch("scripts.make_dataset.run") as command,
+        ):
+            with self.assertRaisesRegex(ValueError, "pending dataset"):
+                self.invoke()
+            command.assert_not_called()
+        self.assertEqual(pending.read_text(), "dataset_unfinished\n")
+
+    def test_airflow_retry_after_commit_reuses_identity_and_noops(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "OLIST_AIRFLOW_DAG_ID": "olist_core_full_snapshot",
+                    "OLIST_AIRFLOW_RUN_ID": "test",
+                },
+            ),
+            patch("scripts.make_dataset.shutil.which", return_value="java"),
+        ):
+            identity = make_dataset.airflow_run_id()
+            with patch("scripts.make_dataset.run", side_effect=self.command):
+                self.invoke()
+            self.assertTrue(
+                all(
+                    args[args.index("--run-id") + 1] == identity
+                    for args in self.commands
+                    if "--run-id" in args
+                )
+            )
+            self.commands.clear()
+
+            def replay(*args, capture=False):
+                if "olist_platform.pipeline.cli" in args and "begin" in args:
+                    self.commands.append(args)
+                    return '{"status":"NOOP"}'
+                return self.command(*args, capture=capture)
+
+            with patch("scripts.make_dataset.run", side_effect=replay):
+                self.assertIn("already committed", self.invoke())
+            self.assertFalse(any("extract" in args for args in self.commands))
+            self.assertFalse(Path("build/reports/dataset/pending-run.txt").exists())
+
+    def test_airflow_failed_attempt_resumes_same_identity(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "OLIST_AIRFLOW_DAG_ID": "olist_core_full_snapshot",
+                    "OLIST_AIRFLOW_RUN_ID": "retry",
+                },
+            ),
+            patch("scripts.make_dataset.shutil.which", return_value="java"),
+        ):
+            identity = make_dataset.airflow_run_id()
+
+            def fail_load(*args, capture=False):
+                if "olist_platform.warehouse.cli" in args:
+                    raise subprocess.CalledProcessError(1, args)
+                return self.command(*args, capture=capture)
+
+            with patch("scripts.make_dataset.run", side_effect=fail_load):
+                with self.assertRaises(subprocess.CalledProcessError):
+                    self.invoke()
+            pending = Path("build/reports/dataset/pending-run.txt")
+            self.assertEqual(pending.read_text().strip(), identity)
+            with patch("scripts.make_dataset.run", side_effect=self.command):
+                self.invoke()
+            self.assertFalse(pending.exists())
+            self.assertTrue(
+                all(
+                    args[args.index("--run-id") + 1] == identity
+                    for args in self.commands
+                    if "--run-id" in args
+                )
+            )
+
     def test_shell_entrypoint_resolves_repository_from_another_directory(self):
         source = Path(__file__).resolve().parents[2] / "scripts"
         Path("scripts").mkdir()

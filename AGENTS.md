@@ -11,6 +11,7 @@ Implemented: core data layers, dbt analytics, deferred retries and receipt-gated
 - `src/olist_platform/warehouse/`: verified Silver loading, canonical hashes and version-aware merges.
 - `src/olist_platform/deferred/`: quarantine registration, bounded retry/expiry and atomic staging resolution.
 - `src/olist_platform/pipeline/`: run/task audit, receipt reconciliation and all-table cursor CAS.
+- `airflow/`: isolated Python 3.12 runtime/lock and one local full-snapshot DAG.
 - `dbt/`: staging views, customer Type 1 dimension, order fact and daily GMV/AOV marts.
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
@@ -54,6 +55,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make test-pipeline-control-integration` / `make test-pipeline-integration`: atomic controls and full receipt/dbt gates.
 - `make pipeline-health`: read-only JSON checks using `PG*`; thresholds: `config/pipeline_health.json`. CLI exit 0 healthy, 1 unhealthy, 2 unavailable; Make fails on either error.
 - `make pipeline-dashboard`: write a static HTML health snapshot to `build/reports/pipeline_dashboard.html`; inspect its timestamp and command exit status.
+- `make sync-airflow` / `make test-airflow` / `make airflow-local`: install isolated Airflow, check real DAG import/serialization or start local standalone with paused DAG.
 - `make test-bronze-integration`: test disposable PostgreSQL/MinIO.
 - `make sync-processing`: install locked Spark extra; use Java 17.
 - `make process-orders BRONZE_PREFIX=<prefix> SILVER_RUN_ID=<id>`: publish/resume Silver.
@@ -89,3 +91,5 @@ Aggregate items/payments separately before joining orders. Customer dimension us
 Count retry inputs separately from source growth. Resolution must commit queue/attempts/staging/audit atomically; expired rows never load. Duplicate pending occurrences must dedupe by full business key/version before merge.
 
 Local runner uses full snapshots for all four tables and audits 19 tasks. Final gate holds staging SHARE locks through fresh dbt build and atomic watermark CAS. Resume with unchanged code/config; never bypass missing receipts. Scheduled incremental/backfill orchestration is not implemented.
+
+Airflow retries must retain original DAG/run context; clear the same task instance, never replace an unfinished run. Missing CSV/Java fails orchestration. Standalone SQLite metadata is local-only; don't install Airflow into the root environment.

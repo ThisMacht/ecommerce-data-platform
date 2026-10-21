@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -15,6 +16,17 @@ RUN_CONTEXT = None
 CURRENT_TASK = None
 
 CORE_TABLES = ("customers", "orders", "order_items", "order_payments")
+
+
+def airflow_run_id() -> str | None:
+    dag = os.environ.get("OLIST_AIRFLOW_DAG_ID")
+    execution = os.environ.get("OLIST_AIRFLOW_RUN_ID")
+    if dag is None and execution is None:
+        return None
+    if not dag or not execution:
+        raise ValueError("Both Airflow DAG and run identity must be provided")
+    digest = hashlib.sha256(json.dumps([dag, execution]).encode()).hexdigest()
+    return f"airflow_{digest}"
 
 
 def audit(command: str, *options: str, run_id: str | None = None) -> dict:
@@ -113,6 +125,14 @@ def main() -> None:
 
 def execute() -> None:
     global RUN_CONTEXT, CURRENT_TASK
+    requested = airflow_run_id()
+    reports = Path("build/reports/dataset")
+    pending = reports / "pending-run.txt"
+    saved = pending.read_text().strip() if pending.exists() else None
+    if saved is not None and not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", saved):
+        raise ValueError("Invalid saved dataset run ID")
+    if requested and saved is not None and requested != saved:
+        raise ValueError("Resume the pending dataset run before another Airflow run")
     manifest = json.loads(Path("config/raw_dataset_manifest.json").read_text())
     missing = [
         f["name"]
@@ -131,7 +151,23 @@ def execute() -> None:
         )
         for name in missing:
             print(f"  Missing: data/raw/{name}")
+        if requested:
+            raise ValueError("Airflow requires the complete raw snapshot")
         return
+
+    java_home = os.environ.get("JAVA_HOME")
+    if not java_home:
+        candidates = sorted(Path("/usr/lib/jvm").glob("java-17*/bin/java"))
+        if candidates:
+            os.environ["JAVA_HOME"] = str(candidates[0].parent.parent)
+    java = (
+        str(Path(os.environ["JAVA_HOME"]) / "bin/java")
+        if os.environ.get("JAVA_HOME")
+        else "java"
+    )
+    silver = shutil.which(java) is not None
+    if requested and not silver:
+        raise ValueError("Airflow requires Java 17 and the complete pipeline")
 
     if not Path(".env").exists():
         shutil.copyfile(".env.example", ".env")
@@ -168,17 +204,6 @@ def execute() -> None:
     run("make", "seed-source", "verify-source")
     run("make", "bronze-up", "init-bronze")
 
-    java_home = os.environ.get("JAVA_HOME")
-    if not java_home:
-        candidates = sorted(Path("/usr/lib/jvm").glob("java-17*/bin/java"))
-        if candidates:
-            os.environ["JAVA_HOME"] = str(candidates[0].parent.parent)
-    java = (
-        str(Path(os.environ["JAVA_HOME"]) / "bin/java")
-        if os.environ.get("JAVA_HOME")
-        else "java"
-    )
-    silver = shutil.which(java) is not None
     if silver:
         run("uv", "sync", "--locked", "--extra", "processing", "--extra", "analytics")
     else:
@@ -188,14 +213,8 @@ def execute() -> None:
         )
     os.environ.setdefault("SPARK_LOCAL_IP", "127.0.0.1")
 
-    reports = Path("build/reports/dataset")
     reports.mkdir(parents=True, exist_ok=True)
-    pending = reports / "pending-run.txt"
-    run_id = (
-        pending.read_text().strip() if pending.exists() else f"dataset_{uuid4().hex}"
-    )
-    if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", run_id):
-        raise ValueError("Invalid saved dataset run ID")
+    run_id = saved or requested or f"dataset_{uuid4().hex}"
     pending.write_text(run_id + "\n")
     print(f"[RUN] {run_id}; rerun make dataset after failure to resume", flush=True)
     if silver:

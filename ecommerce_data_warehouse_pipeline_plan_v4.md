@@ -416,7 +416,7 @@ Trong mỗi processing run, record cùng source key được dedupe bằng cách
 
 ### 7.3. Cursor storage và atomic commit
 
-Local manual full-snapshot namespace `local_core_v1` đã triển khai run/task audit, exact receipt reconciliation và atomic four-table watermark CAS qua fresh dbt gate; xem `docs/data_contracts/11_pipeline_control.md`. Scheduled incremental discovery, isolated backfills và Airflow vẫn là mục tiêu của phần dưới.
+Local full-snapshot namespace `local_core_v1` đã triển khai run/task audit, exact receipt reconciliation và atomic four-table watermark CAS qua fresh dbt gate; Airflow daily wrapper gọi cùng runner, paused mặc định, một task/cùng retry identity. Xem `docs/data_contracts/11_pipeline_control.md`. Scheduled incremental discovery, isolated backfills và distributed/production orchestration vẫn là mục tiêu của phần dưới.
 
 `audit.pipeline_control` có một row cho mỗi `pipeline_name + source_table`, gồm `committed_cursor JSONB`, `cursor_version`, `updated_by_run_id` và `updated_at`. Cursor ví dụ:
 
@@ -495,7 +495,7 @@ Phase 0 tập trung vào việc hiểu đúng dataset, chốt data contracts, x�
 - [ ] Dựng PostgreSQL, MinIO, Airflow LocalExecutor và Metabase bằng Docker Compose có health checks.
 - [ ] Pin image/dependency versions, tạo `.env.example` và database migrations ban đầu.
 - [x] Tạo CI skeleton chạy lint, contracts, unit tests, wheel/sdist build và simulator integration.
-- [ ] Bổ sung DAG import checks khi có Airflow DAG implementation.
+- [x] Bổ sung DAG import/serialization checks với isolated pinned Airflow runtime; local full-snapshot DAG có max active runs 1, retry identity và strict prerequisites.
 
 Một PostgreSQL instance có thể chứa `olist_source`, `olist_warehouse` và `airflow_metadata` trong môi trường local. Đây là lựa chọn đơn giản hóa cho portfolio, không phải kiến trúc production.
 
@@ -608,8 +608,8 @@ Operational dashboard cần hiển thị pipeline status, duration, freshness, q
 - [ ] Hỗ trợ backfill bằng `start_date` và `end_date`.
 - [ ] So sánh kết quả backfill với full reload.
 - [ ] Xác minh backfill không thay đổi scheduled watermark theo mặc định.
-- [ ] Cấu hình Airflow retry, retry delay và failure callback.
-- [ ] Ghi task failures vào `audit.pipeline_task_runs`.
+- [x] Cấu hình local Airflow wrapper retry 2 lần, delay 1 phút; failure callback riêng vẫn planned, runner giữ audit hiện có.
+- [x] Ghi business-stage failures vào `audit.pipeline_task_runs` qua runner; Airflow crash/kill có thể giữ RUNNING tới resume.
 
 **Milestone 3:** Pipeline incremental, idempotent và version-aware; bounded lookback, out-of-order data, retry, failure recovery, concurrency guard và backfill đều được chứng minh bằng automated tests, không chỉ bằng happy-path demo.
 

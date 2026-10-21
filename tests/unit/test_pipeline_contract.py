@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from olist_platform.bronze.storage import BronzeError
-from olist_platform.pipeline.control import TABLES, dbt_evidence, reconcile
+from olist_platform.pipeline.control import TABLES, code_hash, dbt_evidence, reconcile
 
 
 def dataset_evidence(rows=2):
@@ -42,6 +42,33 @@ def dataset_evidence(rows=2):
 
 
 class PipelineContractTest(unittest.TestCase):
+    def test_fingerprint_pins_airflow_code_and_lock_but_excludes_runtime_artifacts(
+        self,
+    ):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            for filename in (
+                "pyproject.toml",
+                "uv.lock",
+                "Makefile",
+                "airflow/pyproject.toml",
+                "airflow/uv.lock",
+                "airflow/dags/core.py",
+            ):
+                path = root / filename
+                path.parent.mkdir(parents=True, exist_ok=True)
+                path.write_text("original")
+            original = code_hash(root)
+            runtime = root / "airflow/.venv/lib/runtime.py"
+            runtime.parent.mkdir(parents=True)
+            runtime.write_text("not part of application source")
+            self.assertEqual(code_hash(root), original)
+            for filename in ("airflow/dags/core.py", "airflow/uv.lock"):
+                path = root / filename
+                path.write_text("changed")
+                self.assertNotEqual(code_hash(root), original)
+                path.write_text("original")
+
     def test_exact_reconciliation_includes_retry_without_inflating_source(self):
         item = dataset_evidence()
         retry = {

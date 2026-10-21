@@ -78,9 +78,64 @@ Migration `008` thêm deferred quarantine/registration/resolution/attempt tables
 
 Migration `009` thêm run/task/dataset audit và pipeline control riêng cho manual full-snapshot namespace `local_core_v1`. Final coordinator giữ staging SHARE locks qua fresh dbt build và atomic cursor CAS. Bronze delivery state không đổi. Xem [pipeline contract](../docs/data_contracts/11_pipeline_control.md).
 
+## Local Airflow
+
+Airflow chạy trên host, **không** mount Docker socket vào container. Host cần
+Python 3.12, uv, Java 17, Docker Compose và quyền chạy local pipeline như trước.
+`airflow/pyproject.toml` pin Airflow 3.1.8, `airflow/uv.lock` khóa transitive packages;
+`airflow/.venv` tách khỏi Spark/dbt `.venv`. Không cài Airflow vào root environment.
+
+```bash
+make sync-airflow
+make test-airflow
+make airflow-local
+```
+
+Wrapper `scripts/airflow.sh` pin metadata vào SQLite trong ignored `build/airflow`,
+executor `LocalExecutor`, parallelism 1, DAG folder của checkout, tắt example DAGs
+và bind API/UI vào `127.0.0.1:8080`. Standalone khởi tạo metadata/auth local và
+chạy các components; Ctrl-C dừng components nhưng giữ metadata và data services.
+Không commit password files/logs. Không dùng deployment này ngoài máy local.
+
+DAG `olist_core_full_snapshot`: daily UTC, paused upon creation, no catchup,
+max active runs 1; task `run_core_pipeline` retries 2 lần, delay 1 phút, timeout
+1 giờ. Một task dùng `BashOperator` gọi runner; business logic/audit 19 stages
+không sao chép vào DAG. UI cho thấy execution tổng, PostgreSQL audit cho thấy stages.
+Chưa có stage-level Airflow graph, callbacks hoặc notification integration.
+
+Trigger thủ công qua UI, kiểm tra audit/report trước khi bật schedule. Thiếu raw
+snapshot hoặc Java làm task fail; không chấp nhận local skip/PARTIAL làm success.
+Runner giữ file lock và namespace hiện có; manual runner và DAG không được chạy
+đồng thời. Hai identity context được truyền qua operator `env`, không interpolate
+vào shell. Pipeline ID là `airflow_` + SHA-256 của JSON `[dag_id, run_id]`, không
+phụ thuộc task try number. Context được pin trong pipeline request.
+
+Retry/Clear failed task của **cùng DAG run** để resume. Không tạo DAG run mới,
+không xóa pending file, không đổi hashes để vượt conflict. `airflow dags test`
+tạo run mới nên không phải recovery command. Nếu cần chạy runner trực tiếp,
+export `OLIST_AIRFLOW_DAG_ID` và `OLIST_AIRFLOW_RUN_ID` đúng original context rồi
+`make dataset`; default manual call không có context sẽ bị configuration gate
+reject. Resume phải giữ code/config cũ. Completed run retry trả NOOP kể cả khi
+pending file đã được dọn. Crash có thể để audit RUNNING tới lần resume.
+
+Run vẫn là local full snapshot trong `local_core_v1` với `run_type=manual`, kể cả
+khi được Airflow timer kích hoạt. Nó không sử dụng logical date làm source bounds,
+không thay đổi extraction cursor và không cung cấp backfill interface. Namespace
+scheduled incremental riêng, lookback SLA và PostgreSQL Airflow metadata còn planned.
+
+Khi chủ động nâng Airflow, resolve lại với official constraints rồi commit cả lock:
+
+```bash
+uv add --project airflow --python 3.12 --constraint https://raw.githubusercontent.com/apache/airflow/constraints-3.1.8/constraints-3.12.txt 'apache-airflow==3.1.8'
+```
+
+Sau nâng version chạy fast tests, DAG import/serialization và local smoke.
+Tham khảo [Apache Airflow quick start](https://airflow.apache.org/docs/apache-airflow/3.1.8/start.html)
+và [BashOperator env guidance](https://airflow.apache.org/docs/apache-airflow-providers-standard/stable/operators/bash.html).
+
 ## TODO
 
-- `TODO(phase-1)`: thêm Airflow với executable workflows; dbt models đã có.
+- `TODO(orchestration)`: scheduled incremental discovery, isolated backfill và deployment metadata PostgreSQL.
 - `TODO(phase-3)`: thêm Metabase sau khi marts và read-only grants ổn định.
 - `TODO(security)`: dùng secret manager và network policy khi có deployment ngoài local.
 

@@ -23,7 +23,8 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Operational dashboard | Implemented — standalone HTML health snapshot; manual refresh |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
 | dbt customer dimension, order fact and daily GMV/AOV views | Implemented — exact reconciliation and relationship tests |
-| Airflow and Metabase | TODO — later phases |
+| Airflow orchestration | Implemented — paused daily local full-snapshot DAG, isolated runtime and stable retry identity |
+| Metabase | TODO — later phases |
 
 ## Quick start
 
@@ -68,7 +69,7 @@ Chỉ thêm folders ingestion, Airflow, Spark và dbt khi có implementation tư
 
 ## Python development
 
-`pyproject.toml` khai báo package, Python version, CLI entry points và development tools. `uv.lock` khóa dependencies và phải được commit. Source dùng Psycopg 3, object storage dùng Boto3, Ruff thuộc development group. PySpark nằm trong optional extra `processing`: dùng Java 17 và `make sync-processing`. Airflow/dbt runtime sẽ được quản lý khi triển khai.
+`pyproject.toml` khai báo package, Python version, CLI entry points và development tools. `uv.lock` khóa dependencies và phải được commit. Source dùng Psycopg 3, object storage dùng Boto3, Ruff thuộc development group. PySpark nằm trong optional extra `processing`: dùng Java 17 và `make sync-processing`. dbt dùng extra `analytics`. Airflow có Python 3.12 environment và lock riêng trong `airflow/`.
 
 ```bash
 make sync       # uv sync --locked: cài editable package và dev tools vào .venv
@@ -99,7 +100,7 @@ Chạy Make và CLI từ repository root để dùng default paths. CLI resolve 
 - `PostgreSQL and MinIO integration`: Python 3.12, chạy simulator tests và `make test-bronze-integration` với disposable services và small SQL fixtures.
 - `Orders Spark Silver`: Python 3.12/Java 17, cài locked processing extra, chạy `make test-processing`, `make test-silver-integration` và `make test-customer-integration`.
 
-CI không cần `.env`, raw CSV hay repository secrets. Integration suites tự tạo credentials cho services tạm và cleanup container/volume khi kết thúc. Full snapshot suite (`make test-source-integration`) vẫn chạy local sau khi tải canonical CSV; dbt checks đã có; DAG checks còn planned.
+CI không cần `.env`, raw CSV hay repository secrets. Integration suites tự tạo credentials cho services tạm và cleanup container/volume khi kết thúc. Full snapshot suite (`make test-source-integration`) vẫn chạy local sau khi tải canonical CSV; Job orchestration import/serialize DAG bằng runtime Airflow thật, độc lập với fast checks.
 
 Tái hiện CI từ checkout sạch: `make sync`, `make test`, `make build`, `make test-source-simulator-integration` và `make test-bronze-integration`. Workflow pin action commit SHAs và uv version; cập nhật các pins cùng validation khi nâng tools.
 
@@ -178,7 +179,7 @@ Items hiện chỉ kiểm tra product/seller ID không thiếu; membership chưa
 
 Sau migration `006`, dùng `make load-warehouse SOURCE_TABLE=<table> SILVER_PREFIX='<prefix>' WAREHOUSE_RUN_ID=<id>`. CLI nhận `WAREHOUSE_DSN` hoặc `PG*` và cùng S3 environment. Chỉ valid rows được COPY/merge vào `raw_staging`; data và `audit.warehouse_load_runs` commit cùng transaction. Source sequence mới thắng, version cũ bị bỏ qua, cùng version khác business hash làm fail; retry cùng ID/input trả `NOOP`.
 
-`make dataset` tự chạy bước này và lưu `*_warehouse.json`. Xem [staging contract](docs/data_contracts/08_warehouse_staging.md); kiểm tra bằng `make test-warehouse-merge-integration` và `make test-warehouse-integration`. Local run/task audit và gated pipeline watermarks đã có ở [pipeline contract](docs/data_contracts/11_pipeline_control.md); scheduled Airflow orchestration còn planned.
+`make dataset` tự chạy bước này và lưu `*_warehouse.json`. Xem [staging contract](docs/data_contracts/08_warehouse_staging.md); kiểm tra bằng `make test-warehouse-merge-integration` và `make test-warehouse-integration`. Local run/task audit và gated pipeline watermarks đã có ở [pipeline contract](docs/data_contracts/11_pipeline_control.md); Airflow local full-snapshot orchestration đã có; scheduled incremental còn planned.
 
 ## dbt analytics
 
@@ -196,7 +197,7 @@ Standalone operations: `make register-deferred SOURCE_TABLE=<table> SILVER_PREFI
 
 `make dataset` ghi run/task audit và đối chiếu server-side Bronze/Silver/warehouse/deferred receipts. Final gate khóa ghi staging trong lúc chạy fresh dbt build; chỉ sau tất cả tasks/tests/counts đạt mới commit bốn pipeline cursors bằng CAS cùng reconciliation audit. Lỗi giữ watermark cũ; committed replay trả `NOOP`.
 
-Xem [pipeline contract](docs/data_contracts/11_pipeline_control.md); chạy `make test-pipeline-control-integration` và `make test-pipeline-integration` sau thay đổi gates. Namespace hiện là manual `local_core_v1`, dùng full snapshots; Airflow, scheduled incremental extraction và atomic analytics publication chưa triển khai.
+Xem [pipeline contract](docs/data_contracts/11_pipeline_control.md); chạy `make test-pipeline-control-integration` và `make test-pipeline-integration` sau thay đổi gates. Namespace hiện là manual `local_core_v1`, dùng full snapshots; Airflow có thể gọi full runner; scheduled incremental extraction và atomic analytics publication chưa triển khai.
 
 `make pipeline-health` đọc audit qua `PG*` (có thể dùng reader role), xuất JSON về run đang chạy/gần nhất, lần thành công cuối, freshness, runtime, reject/warning rates và deferred backlog. Ngưỡng nằm trong `config/pipeline_health.json`; đổi bằng `PIPELINE_HEALTH_CONFIG=<path>`. CLI `olist-pipeline-health` trả exit `0` healthy, `1` vượt ngưỡng/thiếu success, `2` không thể kiểm tra; Make trả nonzero khi CLI thất bại. Command không tự đọc `.env`, không thay đổi queue/watermark và chưa tự được lập lịch. Chi tiết cách tính và giới hạn ở [operational health](docs/data_contracts/11_pipeline_control.md#operational-health).
 
@@ -207,6 +208,27 @@ metrics và thresholds; không cần web server. CLI vẫn xuất JSON và trả
 code; HTML vẫn được tạo khi unhealthy. Đây là snapshot tĩnh có timestamp, không tự
 refresh. Nếu không đọc được database hoặc ghi file thất bại, command báo lỗi;
 file cũ có thể còn tồn tại nên cần kiểm tra timestamp và exit code.
+
+## Local Airflow orchestration
+
+Cài Python 3.12, uv, Docker Compose, Java 17 và đủ 9 CSV canonical, rồi chạy:
+
+```bash
+make sync-airflow test-airflow
+make airflow-local
+```
+
+UI bind `127.0.0.1:8080`; credentials local được tạo trong ignored
+`build/airflow/`. DAG `olist_core_full_snapshot` mặc định paused, schedule `@daily`
+UTC, `catchup=False`, `max_active_runs=1`. Trigger thủ công để kiểm tra trước khi
+unpause. Một task gọi runner hiện có; 19 business stages vẫn audit trong PostgreSQL.
+Dừng standalone bằng Ctrl-C; PostgreSQL/MinIO và metadata được giữ lại.
+
+Retry/Clear task của **cùng DAG run** giữ pipeline ID, replay receipts hoặc NOOP
+sau commit. Không trigger run mới để thay thế unfinished run và không sửa code/config
+trong khi run đang pending. Airflow thiếu CSV/Java sẽ fail thay vì skip. Đây là
+local standalone orchestration dùng SQLite riêng, chưa phải deployment production,
+scheduled incremental hay isolated backfill. Xem [operations](infrastructure/README.md#local-airflow).
 
 ## License
 
