@@ -4,7 +4,7 @@
 
 Status: **Active — full customers Bronze/Silver và optional orders FK routing**. Source contract vẫn là `1.0.0`. Customer artifacts dùng `customers-bronze-v1` / `customers-silver-v1`; orders có parent snapshot dùng `orders-silver-v2`. Orders Bronze windows và `orders-silver-v1` local-rule mode giữ nguyên contract/replay behavior.
 
-Slice này thêm parent membership checks và explicit reprocessing khi parent xuất hiện. Durable deferred queue và attempt/age limits đã có theo [lifecycle contract](10_deferred_lifecycle.md); generic rejects quarantine và end-to-end watermark vẫn planned. Warehouse staging đã có theo [contract](08_warehouse_staging.md).
+Slice này thêm parent membership checks và explicit reprocessing khi parent xuất hiện. Durable deferred queue và attempt/age limits đã có theo [lifecycle contract](10_deferred_lifecycle.md); generic rejects quarantine còn planned. Local pipeline watermarks đã có theo [pipeline contract](11_pipeline_control.md); Silver tự nó không promote cursors. Warehouse staging đã có theo [contract](08_warehouse_staging.md).
 
 ## Full customer snapshots
 

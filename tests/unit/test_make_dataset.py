@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import io
 import json
 import os
@@ -9,8 +10,10 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import patch
 
+from scripts import make_dataset
 from scripts.make_dataset import main
 
 
@@ -83,6 +86,10 @@ class MakeDatasetTest(unittest.TestCase):
                         },
                     }
                 }
+            )
+        if "olist_platform.pipeline.cli" in args:
+            return json.dumps(
+                {"status": "STARTED" if "begin" in args else "SUCCESS", "attempt": 1}
             )
         if "extract" in args or "process" in args:
             table = args[args.index("--table") + 1]
@@ -163,7 +170,7 @@ class MakeDatasetTest(unittest.TestCase):
             self.assertEqual(
                 args[args.index("--silver-prefix") + 1], f"silver/{table}/run_id=test"
             )
-        self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 18)
+        self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 19)
         retries = [
             args for args in self.commands if "olist_platform.deferred.cli" in args
         ]
@@ -181,7 +188,10 @@ class MakeDatasetTest(unittest.TestCase):
         self.assertIn("[DONE]", output)
         self.assertEqual(os.environ["DBT_READER_USER"], "reader")
         self.assertTrue(
-            any("dbt" in args and "build" in args for args in self.commands)
+            any(
+                "olist_platform.pipeline.cli" in args and "finish" in args
+                for args in self.commands
+            )
         )
 
     def test_absent_java_skips_silver_but_extracts_all_four_tables(self):
@@ -196,6 +206,66 @@ class MakeDatasetTest(unittest.TestCase):
             any("olist_platform.warehouse.cli" in args for args in self.commands)
         )
         self.assertIn("[SKIP] Silver", output)
+        self.assertTrue(Path("build/reports/dataset/pending-run.txt").exists())
+        self.assertFalse(
+            any("olist_platform.pipeline.cli" in args for args in self.commands)
+        )
+
+    def test_local_file_lock_prevents_a_second_runner(self):
+        root = Path("build/reports/dataset")
+        root.mkdir(parents=True)
+        with (root / "runner.lock").open("a") as guard:
+            fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            with (
+                patch("scripts.make_dataset.run") as command,
+                self.assertRaisesRegex(RuntimeError, "Another local"),
+            ):
+                self.invoke()
+            command.assert_not_called()
+
+    def test_stage_execution_records_begin_and_success_without_auditing_audit_calls(
+        self,
+    ):
+        with (
+            patch.object(
+                make_dataset, "RUN_CONTEXT", {"run_id": "fixture", "attempt": 2}
+            ),
+            patch.object(make_dataset, "CURRENT_TASK", None),
+            patch("scripts.make_dataset.audit") as audit,
+            patch(
+                "scripts.make_dataset.subprocess.run",
+                return_value=SimpleNamespace(stdout="{}"),
+            ),
+        ):
+            make_dataset.run(
+                "python",
+                "-m",
+                "olist_platform.bronze.cli",
+                "--table",
+                "orders",
+                "extract",
+                capture=True,
+            )
+            self.assertEqual(
+                [call.args[-1] for call in audit.call_args_list], ["RUNNING", "SUCCESS"]
+            )
+            self.assertTrue(
+                all(
+                    "orders.bronze.extract" in call.args
+                    for call in audit.call_args_list
+                )
+            )
+            audit.reset_mock()
+            make_dataset.run(
+                "python",
+                "-m",
+                "olist_platform.pipeline.cli",
+                "--run-id",
+                "fixture",
+                "task",
+                capture=True,
+            )
+            audit.assert_not_called()
 
     def test_failed_processing_preserves_run_id_for_retry(self):
         def fail(*args, **kwargs):
@@ -249,7 +319,7 @@ class MakeDatasetTest(unittest.TestCase):
 
     def test_failed_dbt_build_keeps_run_pending_and_retry_reuses_load_ids(self):
         def fail(*args, **kwargs):
-            if "dbt" in args and "build" in args:
+            if "olist_platform.pipeline.cli" in args and "finish" in args:
                 raise subprocess.CalledProcessError(1, "dbt")
             return self.command(*args, **kwargs)
 

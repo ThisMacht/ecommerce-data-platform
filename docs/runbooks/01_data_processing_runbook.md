@@ -4,7 +4,7 @@
 | --- | --- |
 | System | Olist E-commerce Data Platform |
 | Owner | Data Engineering |
-| Status | Partially active — source, core Bronze/Silver, staging, dbt and deferred lifecycle; orchestration planned |
+| Status | Partially active — manual core pipeline active; Airflow orchestration planned |
 | Last reviewed | 2026-10-21 |
 | Processing mode | Batch |
 
@@ -16,7 +16,7 @@ Tài liệu này là hướng dẫn vận hành bổ sung cho:
 - [Raw dataset manifest](../../data/raw/README.md)
 - [Source contracts](../data_contracts/02_source_contracts.md)
 
-PostgreSQL source, bốn core Bronze/Silver datasets, staging, dbt và deferred lifecycle đã được triển khai. Các mục 13–19 mô tả operations hiện có; orchestration và các commands đánh dấu **planned** vẫn là target interface, chưa khả dụng.
+PostgreSQL source, bốn core Bronze/Silver datasets, staging, dbt và deferred lifecycle đã được triển khai. Các mục 13–20 mô tả operations hiện có; orchestration và các commands đánh dấu **planned** vẫn là target interface, chưa khả dụng.
 
 ## 1. Scope
 
@@ -379,7 +379,7 @@ Dùng `olist-bronze-orders verify --prefix '<manifest.prefix>'` trước khi đ�
 
 Sau verified Bronze publication, dùng Java 17, `make sync-processing` và `make process-orders BRONZE_PREFIX='<manifest.prefix>' SILVER_RUN_ID=<stable_id>`. Job đọc immutable input từ MinIO, không cần source database connection. Xác minh bằng `olist-silver-orders verify --prefix 'silver/orders/run_id=<id>'`.
 
-Retry dùng cùng run ID/input/config. Nếu chưa có sealed manifest, retry có thể compute một attempt mới; partial objects không được consumer đọc. Nếu manifest đã có, resume dùng lại sealed Parquet và hoàn tất marker; replay sau success trả `NOOP`. Không xóa/sửa request hoặc manifest để reuse ID với input khác. Customer FK/deferred routing đã có ở mục 15; persisted deferred lifecycle đã có ở mục 19; watermark promotion vẫn planned; staging đã có ở mục 17. Xem [Silver contract](../data_contracts/05_orders_silver.md); chạy `make test-processing` và `make test-silver-integration` sau thay đổi rules/publication.
+Retry dùng cùng run ID/input/config. Nếu chưa có sealed manifest, retry có thể compute một attempt mới; partial objects không được consumer đọc. Nếu manifest đã có, resume dùng lại sealed Parquet và hoàn tất marker; replay sau success trả `NOOP`. Không xóa/sửa request hoặc manifest để reuse ID với input khác. Customer FK/deferred routing đã có ở mục 15; persisted deferred lifecycle đã có ở mục 19; local watermark promotion đã có ở mục 20; staging đã có ở mục 17. Xem [Silver contract](../data_contracts/05_orders_silver.md); chạy `make test-processing` và `make test-silver-integration` sau thay đổi rules/publication.
 
 ## 15. Implemented customer snapshots and FK routing
 
@@ -401,7 +401,7 @@ Apply migration `006`; dùng Java 17, `WAREHOUSE_DSN` hoặc `PG*`, cùng S3 cre
 
 Đối chiếu `audit.warehouse_load_runs`: load candidates bằng Silver valid; inserted + updated + unchanged + stale ignored phải bằng candidates. Source sequence quyết định version, không dùng timestamp. Same-version khác hash là integrity failure; không sửa target để ép pass. Retry cùng input/run ID sau lỗi sẽ rollback/replay an toàn; nếu đã commit thì trả `NOOP` với counters cũ. Parent snapshot khác cần Silver ID mới và warehouse load ID mới.
 
-Data/audit commit cùng transaction, theo từng dataset; toàn bộ bốn datasets chưa atomic như một pipeline. dbt đã có ở mục 18; end-to-end watermark chưa triển khai. Run ID conflict, checksum/schema mismatch hoặc conflict version phải giữ evidence để điều tra. Xem [staging contract](../data_contracts/08_warehouse_staging.md); chạy cả hai warehouse integration suites sau thay đổi.
+Data/audit commit cùng transaction, theo từng dataset; toàn bộ bốn datasets chưa atomic như một pipeline. dbt đã có ở mục 18; local watermark gate đã có ở mục 20; scheduled incremental orchestration chưa triển khai. Run ID conflict, checksum/schema mismatch hoặc conflict version phải giữ evidence để điều tra. Xem [staging contract](../data_contracts/08_warehouse_staging.md); chạy cả hai warehouse integration suites sau thay đổi.
 
 ## 18. Implemented dbt analytics
 
@@ -409,7 +409,7 @@ Sau migration `007`, dùng `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_
 
 Chỉ coi analytics build đạt khi `run_results.json` không có failed/error/skipped nodes và command exit code bằng zero. Kiểm tra `orders_without_items`/`orders_without_payments` khi đọc GMV/AOV. Không so sánh GMV trực tiếp với gross paid amount như hai giá trị phải bằng nhau. AOV NULL khi không có eligible positive-payment orders.
 
-Models hiện là views, không phải atomic published snapshot; failed build không rollback mọi views. Tránh concurrent source/staging writers khi cần consistent analytics. Chưa promote end-to-end watermark. Xem [analytics contract](../data_contracts/09_analytics_models.md); chạy `make test-dbt-integration` sau thay đổi grains, joins hoặc metrics.
+Models hiện là views, không phải atomic published snapshot; failed build không rollback mọi views. Tránh concurrent source/staging writers khi cần consistent analytics. dbt standalone không promote watermark; local final gate ở mục 20 mới thực hiện việc đó. Xem [analytics contract](../data_contracts/09_analytics_models.md); chạy `make test-dbt-integration` sau thay đổi grains, joins hoặc metrics.
 
 ## 19. Implemented deferred lifecycle
 
@@ -417,9 +417,17 @@ Sau migration `008`, runner tự register và resolve frozen missing-parent reco
 
 Mỗi pass tối đa 1.000 pending rows/bảng; kiểm tra `remaining_pending_rows`, routing counters và `audit.deferred_attempts`. Default expiry là ba committed attempts hoặc 168 giờ từ first registration. Replay cùng ID không tăng attempts. Parent mới hoặc pass mới cần ID mới; không reset terminal state hoặc sửa frozen payload/limits để ép pass.
 
-Resolution data/queue/audit atomic. Terminal rejects ghi vào resolution audit, giữ original Silver bất biến. Retry inputs không phải source growth; duplicates được ghi riêng trước merge. Xem [contract](../data_contracts/10_deferred_lifecycle.md). Chạy hai deferred integration suites sau thay đổi; chưa có background scheduler hoặc end-to-end watermark.
+Resolution data/queue/audit atomic. Terminal rejects ghi vào resolution audit, giữ original Silver bất biến. Retry inputs không phải source growth; duplicates được ghi riêng trước merge. Xem [contract](../data_contracts/10_deferred_lifecycle.md). Chạy hai deferred integration suites sau thay đổi; chưa có background scheduler; local watermark promotion thuộc final gate ở mục 20.
 
-## 20. Change control
+## 20. Implemented local pipeline completion
+
+Sau migration `009`, `make dataset` ghi `pipeline_runs`, task attempts và per-dataset reconciliation. Local runner dùng full snapshots cho cả bốn core tables và giữ file lock. Khi thiếu Java, chỉ hoàn tất Bronze, báo PARTIAL và giữ pending ID; không đánh dấu pipeline success.
+
+Final coordinator verify remote markers/hashes cùng server-side receipts, giữ staging SHARE locks, chạy fresh dbt build và đối soát exact counters. Chỉ sau mọi gates đạt mới CAS cả bốn controls cùng dataset audit và run SUCCESS trong một transaction. Một lỗi, missing receipt hoặc CAS conflict giữ controls cũ. Source scan counts của full snapshot không được gọi là new-source growth.
+
+Sau failure/crash, giữ pending ID và code/config cũ rồi gọi lại `make dataset`. Task attempt cũ được giữ, resume tạo attempt mới; data-plane và deferred retries replay cùng IDs. Không chạy cùng run từ nhiều hosts/checkouts. Local namespace là manual `local_core_v1`; scheduled incremental/backfill và atomic analytics publication chưa triển khai. Xem [pipeline contract](../data_contracts/11_pipeline_control.md).
+
+## 21. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 

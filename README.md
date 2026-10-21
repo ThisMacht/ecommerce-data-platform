@@ -18,6 +18,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Items/payments Silver with composite grain and decimal money | Implemented — pinned full orders FK checks; product/seller membership remains planned |
 | PostgreSQL raw staging and transactional load audit | Implemented — version-aware merges, canonical hashes and exact load reconciliation |
 | Durable deferred lifecycle | Implemented — bounded retry passes, pinned full snapshots, expiry and atomic staging resolution |
+| Local pipeline audit and watermarks | Implemented — full-snapshot receipts, fresh dbt gate and all-table atomic CAS commit |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
 | dbt customer dimension, order fact and daily GMV/AOV views | Implemented — exact reconciliation and relationship tests |
 | Airflow and Metabase | TODO — later phases |
@@ -32,7 +33,7 @@ make dataset
 
 [`scripts/make_dataset.sh`](scripts/make_dataset.sh) tự tạo `.env` nếu thiếu, sync dependencies, verify/seed PostgreSQL, start MinIO và chạy customers → full orders → order_items → order_payments qua Bronze/Silver rồi PostgreSQL staging và dbt build/tests, tự truyền parent snapshots cho FK checks. Không cần nhập run IDs, prefixes hay export local credentials; runner lấy cấu hình từ Compose và lưu kết quả trong ignored `build/reports/dataset/`. Cần Python 3.10+, uv, Docker Compose; Java 17 cho Silver/staging (tự nhận diện JDK 17 trong `/usr/lib/jvm` nếu chưa đặt `JAVA_HOME`).
 
-Runner xử lý cả 4 core datasets. Thiếu bất kỳ CSV nào trong snapshot 9 files thì seed/downstream được bỏ qua và liệt kê file thiếu; loader hiện không hỗ trợ partial seed. Thiếu Java thì chỉ chạy Bronze. CSV có sẵn nhưng sai checksum, migration hoặc processing/load lỗi sẽ dừng, không bị nuốt lỗi. Sau lỗi, gọi lại `make dataset` để resume run ID đã lưu; sau success, lần gọi tiếp tạo run mới. Chạy một runner tại một thời điểm; services/volumes được giữ lại. Pending orders run từ phiên bản runner cũ phải hoàn tất bằng config cũ trước khi chuyển sang full mode; xem [contract](docs/data_contracts/07_order_children.md).
+Runner xử lý full snapshots cả 4 core datasets. Thiếu bất kỳ CSV nào trong snapshot 9 files thì seed/downstream được bỏ qua và liệt kê file thiếu; loader hiện không hỗ trợ partial seed. Thiếu Java thì chỉ chạy Bronze, báo `PARTIAL` và giữ pending ID để resume. CSV có sẵn nhưng sai checksum, migration hoặc processing/load lỗi sẽ dừng. Sau lỗi, gọi lại `make dataset` với code/config cũ để resume; sau success, lần gọi tiếp tạo run mới. Runner giữ local file lock; services/volumes được giữ lại. Pending runs từ bounded runner cũ phải hoàn tất bằng config cũ trước khi chuyển sang full mode; xem [pipeline contract](docs/data_contracts/11_pipeline_control.md).
 
 Prerequisites: Python `>=3.10`, [uv](https://docs.astral.sh/uv/getting-started/installation/), Docker Engine và Docker Compose.
 
@@ -175,7 +176,7 @@ Items hiện chỉ kiểm tra product/seller ID không thiếu; membership chưa
 
 Sau migration `006`, dùng `make load-warehouse SOURCE_TABLE=<table> SILVER_PREFIX='<prefix>' WAREHOUSE_RUN_ID=<id>`. CLI nhận `WAREHOUSE_DSN` hoặc `PG*` và cùng S3 environment. Chỉ valid rows được COPY/merge vào `raw_staging`; data và `audit.warehouse_load_runs` commit cùng transaction. Source sequence mới thắng, version cũ bị bỏ qua, cùng version khác business hash làm fail; retry cùng ID/input trả `NOOP`.
 
-`make dataset` tự chạy bước này và lưu `*_warehouse.json`. Xem [staging contract](docs/data_contracts/08_warehouse_staging.md); kiểm tra bằng `make test-warehouse-merge-integration` và `make test-warehouse-integration`. DAG audit và end-to-end watermark vẫn planned.
+`make dataset` tự chạy bước này và lưu `*_warehouse.json`. Xem [staging contract](docs/data_contracts/08_warehouse_staging.md); kiểm tra bằng `make test-warehouse-merge-integration` và `make test-warehouse-integration`. Local run/task audit và gated pipeline watermarks đã có ở [pipeline contract](docs/data_contracts/11_pipeline_control.md); scheduled Airflow orchestration còn planned.
 
 ## dbt analytics
 
@@ -187,7 +188,13 @@ Chạy riêng bằng `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_PASSWO
 
 `make dataset` tự register missing-parent records, rồi resolve theo full parent snapshot sau từng dependent dataset và trước dbt. Queue lưu original UID/payload, default ba attempts hoặc bảy ngày. Retry cùng run ID không tăng attempts; expiry là terminal reject. Queue transitions, version-aware staging merge và audit commit cùng transaction.
 
-Standalone operations: `make register-deferred SOURCE_TABLE=<table> SILVER_PREFIX=<prefix> DEFERRED_RUN_ID=<id>`, rồi `make resolve-deferred SOURCE_TABLE=<table> PARENT_SNAPSHOT=<full prefix> DEFERRED_RUN_ID=<new id>`. Xem [contract](docs/data_contracts/10_deferred_lifecycle.md). Mỗi pass tối đa 1.000 rows/bảng; chưa có background scheduler hoặc end-to-end watermark.
+Standalone operations: `make register-deferred SOURCE_TABLE=<table> SILVER_PREFIX=<prefix> DEFERRED_RUN_ID=<id>`, rồi `make resolve-deferred SOURCE_TABLE=<table> PARENT_SNAPSHOT=<full prefix> DEFERRED_RUN_ID=<new id>`. Xem [contract](docs/data_contracts/10_deferred_lifecycle.md). Mỗi pass tối đa 1.000 rows/bảng; chưa có background scheduler; local watermarks chỉ được commit ở final pipeline gate.
+
+## Pipeline completion and watermarks
+
+`make dataset` ghi run/task audit và đối chiếu server-side Bronze/Silver/warehouse/deferred receipts. Final gate khóa ghi staging trong lúc chạy fresh dbt build; chỉ sau tất cả tasks/tests/counts đạt mới commit bốn pipeline cursors bằng CAS cùng reconciliation audit. Lỗi giữ watermark cũ; committed replay trả `NOOP`.
+
+Xem [pipeline contract](docs/data_contracts/11_pipeline_control.md); chạy `make test-pipeline-control-integration` và `make test-pipeline-integration` sau thay đổi gates. Namespace hiện là manual `local_core_v1`, dùng full snapshots; Airflow, scheduled incremental extraction và atomic analytics publication chưa triển khai.
 
 ## License
 

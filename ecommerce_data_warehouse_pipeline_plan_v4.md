@@ -416,6 +416,8 @@ Trong mỗi processing run, record cùng source key được dedupe bằng cách
 
 ### 7.3. Cursor storage và atomic commit
 
+Local manual full-snapshot namespace `local_core_v1` đã triển khai run/task audit, exact receipt reconciliation và atomic four-table watermark CAS qua fresh dbt gate; xem `docs/data_contracts/11_pipeline_control.md`. Scheduled incremental discovery, isolated backfills và Airflow vẫn là mục tiêu của phần dưới.
+
 `audit.pipeline_control` có một row cho mỗi `pipeline_name + source_table`, gồm `committed_cursor JSONB`, `cursor_version`, `updated_by_run_id` và `updated_at`. Cursor ví dụ:
 
 ```json
@@ -592,8 +594,8 @@ Operational dashboard cần hiển thị pipeline status, duration, freshness, q
 - [ ] Chụp consistent snapshot cùng fixed lower/upper bounds cho run và retry.
 - [ ] Test pagination với nhiều record có cùng `source_updated_at`.
 - [ ] Lưu committed cursor cùng compare-and-swap version trong JSONB control table.
-- [ ] Chỉ promote watermark candidates sau khi toàn bộ pipeline thành công.
-- [ ] Giữ watermark cũ nếu dbt hoặc reconciliation fail.
+- [x] Promote local full-snapshot watermark candidates sau mọi receipt/dbt gates; scheduled incremental namespace vẫn planned.
+- [x] Giữ local watermark cũ nếu dbt/reconciliation fail; failure injection và CAS rollback đã có tests.
 - [ ] Áp dụng lookback 48 giờ và kiểm thử cả record trong lẫn ngoài lateness SLA.
 - [ ] Hoàn thiện pipeline-wide source/lookback accounting; deferred resolution đã tách source/bronze rows (zero) khỏi retry input.
 - [ ] Dedupe về latest source version trước warehouse merge.

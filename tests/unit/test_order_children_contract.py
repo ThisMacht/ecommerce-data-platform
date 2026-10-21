@@ -48,7 +48,12 @@ class OrderChildrenContractTest(unittest.TestCase):
         self.assertEqual(
             configuration(*args, full_snapshot=True)["snapshot_kind"], "FULL"
         )
-        for table in ("customers", "order_items", "order_payments"):
+        for table in ("order_items", "order_payments"):
+            self.assertEqual(
+                configuration(*args, table=table, full_snapshot=True)["snapshot_kind"],
+                "FULL",
+            )
+        for table in ("customers",):
             with self.assertRaises(BronzeError):
                 configuration(*args, table=table, full_snapshot=True)
 

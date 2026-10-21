@@ -38,7 +38,7 @@ def main() -> int:
     extract.add_argument(
         "--full-snapshot",
         action="store_true",
-        help="Full orders snapshot for child FK checks",
+        help="Full source snapshot for parent checks or pipeline gates",
     )
     verify = commands.add_parser(
         "verify", help="Verify a published manifest and all objects"

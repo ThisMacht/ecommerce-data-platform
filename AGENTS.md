@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Implemented: core source/Bronze/Silver, pinned FK checks, transactional staging, dbt analytics and durable deferred retries.
+Implemented: core data layers, dbt analytics, deferred retries and receipt-gated local pipeline audit/watermarks.
 
 - `src/olist_platform/raw/`: manifests, profiling, contracts.
 - `src/olist_platform/source_simulator/`: deterministic batches and transactional apply.
@@ -10,6 +10,7 @@ Implemented: core source/Bronze/Silver, pinned FK checks, transactional staging,
 - `src/olist_platform/silver/`: Spark normalization, routing and Parquet publication.
 - `src/olist_platform/warehouse/`: verified Silver loading, canonical hashes and version-aware merges.
 - `src/olist_platform/deferred/`: quarantine registration, bounded retry/expiry and atomic staging resolution.
+- `src/olist_platform/pipeline/`: run/task audit, receipt reconciliation and all-table cursor CAS.
 - `dbt/`: staging views, customer Type 1 dimension, order fact and daily GMV/AOV marts.
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
@@ -50,6 +51,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make register-deferred SOURCE_TABLE=<table> SILVER_PREFIX=<prefix> DEFERRED_RUN_ID=<id>`: persist deferred rows with immutable limits.
 - `make resolve-deferred SOURCE_TABLE=<table> PARENT_SNAPSHOT=<full prefix> DEFERRED_RUN_ID=<id>`: retry at most 1,000 pending rows; use a new ID for a new pass/parent.
 - `make test-deferred-state-integration` / `make test-deferred-integration`: verify lifecycle transactions and pinned snapshots.
+- `make test-pipeline-control-integration` / `make test-pipeline-integration`: atomic controls and full receipt/dbt gates.
 - `make test-bronze-integration`: test disposable PostgreSQL/MinIO.
 - `make sync-processing`: install locked Spark extra; use Java 17.
 - `make process-orders BRONZE_PREFIX=<prefix> SILVER_RUN_ID=<id>`: publish/resume Silver.
@@ -72,7 +74,7 @@ Use imperative commit subjects; describe behavior, validation and contract impac
 
 Never commit credentials, CSVs or generated artifacts. Never edit raw snapshots; re-profile new checksums and update manifests. Simulator: `SOURCE_SIMULATOR_DSN`/`PG*`. Compose `.env` is not automatically exported. Default credentials are local-only.
 
-Bronze: `BRONZE_SOURCE_DSN`/`PG*` and AWS credentials. Resume unfinished run IDs; never edit prepared pages. Bronze delivery checkpoint is separate from the planned pipeline watermark.
+Bronze: `BRONZE_SOURCE_DSN`/`PG*` and AWS credentials. Resume unfinished run IDs; never edit prepared pages. Bronze delivery checkpoint is separate from local pipeline control.
 
 Use full customer snapshots for FK checks. Snapshot hashes are immutable per Silver/resolution run; use a new run ID when dependencies change. Deferred limits are immutable per physical UID/rule; terminal states never reopen on replay.
 
@@ -83,3 +85,5 @@ Warehouse uses authoritative `source_sequence`, versioned business hashes and at
 Aggregate items/payments separately before joining orders. Customer dimension uses `customer_unique_id`; AOV counts eligible positive-payment orders once. dbt views are not atomic published snapshots; require passing build/tests and avoid concurrent writers.
 
 Count retry inputs separately from source growth. Resolution must commit queue/attempts/staging/audit atomically; expired rows never load. Duplicate pending occurrences must dedupe by full business key/version before merge.
+
+Local runner uses full snapshots for all four tables and audits 19 tasks. Final gate holds staging SHARE locks through fresh dbt build and atomic watermark CAS. Resume with unchanged code/config; never bypass missing receipts. Scheduled incremental/backfill orchestration is not implemented.

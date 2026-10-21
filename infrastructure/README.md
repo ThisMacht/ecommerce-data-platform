@@ -76,6 +76,8 @@ Migration `007` tạo `analytics` schema do loader role sở hữu, cấp reader
 
 Migration `008` thêm deferred quarantine/registration/resolution/attempt tables. Existing loader có write permissions cần thiết, reader chỉ SELECT. `make register-deferred` và `make resolve-deferred` chạy trên host; `make dataset` tự nối vào flow trước dbt. Xem [lifecycle contract](../docs/data_contracts/10_deferred_lifecycle.md).
 
+Migration `009` thêm run/task/dataset audit và pipeline control riêng cho manual full-snapshot namespace `local_core_v1`. Final coordinator giữ staging SHARE locks qua fresh dbt build và atomic cursor CAS. Bronze delivery state không đổi. Xem [pipeline contract](../docs/data_contracts/11_pipeline_control.md).
+
 ## TODO
 
 - `TODO(phase-1)`: thêm Airflow với executable workflows; dbt models đã có.

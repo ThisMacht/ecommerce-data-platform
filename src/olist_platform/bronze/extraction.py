@@ -84,8 +84,8 @@ def configuration(
     lookback = contract["policies"]["lateness_sla_hours"]
     if type(lookback) is not int or not 0 <= lookback <= 24 * 365:
         raise BronzeError("Invalid contract lookback hours")
-    if full_snapshot and table != "orders":
-        raise BronzeError("Explicit full snapshots are supported for orders only")
+    if full_snapshot and table == "customers":
+        raise BronzeError("Customers already use full snapshots")
     config = {
         "format_version": 1,
         "extractor_version": f"{table}-bronze-v1",

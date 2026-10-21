@@ -7,7 +7,7 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | Order | Document | Purpose | Status |
 | ---: | --- | --- | --- |
 | 00 | [Olist Source Profile](data_contracts/00_source_profile.md) | Kết quả profiling, key validation, null statistics và source relationships | Generated — Active |
-| 01 | [Batch Data Processing Runbook](runbooks/01_data_processing_runbook.md) | Quy trình vận hành, retry, backfill, reconciliation và incident recovery | Partially active — core Bronze/Silver/staging/dbt; orchestration planned |
+| 01 | [Batch Data Processing Runbook](runbooks/01_data_processing_runbook.md) | Quy trình vận hành, retry, backfill, reconciliation và incident recovery | Active for manual core pipeline — Airflow orchestration planned |
 | 02 | [Source Contracts](data_contracts/02_source_contracts.md) | Source boundary, grains, keys, types, simulator metadata và seed semantics | Active |
 | 03 | [Source Simulator](data_contracts/03_source_simulator.md) | Batch format, deterministic fixtures, transactional apply và replay semantics | Active — four-table MVP |
 | 04 | [Orders Bronze](data_contracts/04_orders_bronze.md) | Bounded extraction, durable snapshot retry, MinIO publication và Bronze-only checkpoint | Active — orders CLI slice |
@@ -17,6 +17,7 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | 08 | [Warehouse Staging](data_contracts/08_warehouse_staging.md) | Canonical hashes, version-aware PostgreSQL merges và transactional load audit | Active |
 | 09 | [Analytics Models](data_contracts/09_analytics_models.md) | dbt grains, shopper identity, Type 1 attributes và exact GMV/AOV tests | Active |
 | 10 | [Deferred Lifecycle](data_contracts/10_deferred_lifecycle.md) | Persisted quarantine, pinned dependency retries, expiry và atomic staging resolution | Active |
+| 11 | [Pipeline Control](data_contracts/11_pipeline_control.md) | Local run/task audit, receipt gates và atomic pipeline watermark commit | Active — manual full snapshots |
 
 ## Related documents
 

@@ -84,7 +84,7 @@ load_candidate_rows = warehouse_inserted_rows + warehouse_updated_rows
 
 Audit lưu Silver routing counters và committed merge counters. Chưa thay thế
 planned DAG-level audit hoặc generic failure-attempt lifecycle. Deferred resolution state đã có ở [lifecycle contract](10_deferred_lifecycle.md).
-Không promote end-to-end watermark: dbt build/tests đã có theo [analytics contract](09_analytics_models.md), nhưng atomic publication và gates toàn pipeline chưa hoàn thiện.
+Staging load tự nó không promote watermark. Local full-snapshot pipeline gate đã có theo [contract](11_pipeline_control.md), giữ staging locks qua fresh dbt và atomic cursor commit. Scheduled incremental orchestration và atomic analytics publication vẫn chưa có.
 Staging không thêm FK tới current target tables: dependency membership vẫn được
 đánh giá theo pinned Silver snapshots, có thể khác current staging state.
 Product/seller membership vẫn chưa được kiểm tra.

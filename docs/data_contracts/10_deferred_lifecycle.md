@@ -5,7 +5,7 @@
 Status: **Active — missing-customer/order retries, persisted limits and atomic staging resolution**.
 Migration `008` thêm shared `audit.quarantine_records`, registration/resolution runs
 và per-record attempts. Hiện chỉ persist deferred rules `missing_customer` và
-`missing_order`; generic rejects/warnings quarantine và DAG-wide audit còn planned.
+`missing_order`; generic rejects/warnings quarantine và scheduled DAG audit còn planned; local run/task audit đã có theo [pipeline contract](11_pipeline_control.md).
 CLI dùng Spark extra, Java 17, `WAREHOUSE_DSN`/`PG*` và S3 credentials như warehouse.
 
 ## Registration and identity
@@ -86,7 +86,7 @@ load_candidate_rows = inserted + updated + unchanged + stale_ignored
 
 Không tính retry inputs thành source growth. Terminal rejects được lưu bằng
 resolution audit/attempts và quarantine reason; không sửa rejected Parquet của
-original run. Chưa publish thêm Silver resolution batch hoặc end-to-end watermark.
+original run. Không publish thêm Silver resolution batch; local watermarks được commit ở final [pipeline gate](11_pipeline_control.md), không ở resolution pass.
 
 ## Commands and operation
 

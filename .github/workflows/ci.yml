@@ -72,6 +72,8 @@ jobs:
         run: make test-warehouse-merge-integration
       - name: Test durable deferred lifecycle transactions
         run: make test-deferred-state-integration
+      - name: Test pipeline control transactions and watermark CAS
+        run: make test-pipeline-control-integration
       - name: Install locked analytics dependencies
         run: make sync-analytics
       - name: Test dbt models and metric reconciliation in isolated PostgreSQL
@@ -111,3 +113,7 @@ jobs:
         run: make test-warehouse-integration
       - name: Test deferred retries against verified full snapshots
         run: make test-deferred-integration
+      - name: Install processing and analytics dependencies for the pipeline gate
+        run: uv sync --locked --extra processing --extra analytics
+      - name: Test all core receipts and dbt-gated watermark commit
+        run: make test-pipeline-integration

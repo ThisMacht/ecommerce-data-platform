@@ -90,8 +90,8 @@ Các models hiện là **views**: rebuild deterministic nhưng không tạo immu
 published snapshot. dbt build không atomic toàn DAG; failed tests không rollback
 toàn bộ views đã tạo. Chỉ coi artifacts thành công khi build exit code bằng zero;
 không chạy writer/reader pipeline đồng thời khi cần một consistent business snapshot.
-Atomic mart publication, DAG audit, end-to-end watermark, Airflow, dashboards,
-products/sellers FK vẫn planned. Deferred retry/expiry đã có theo [lifecycle contract](10_deferred_lifecycle.md).
+Atomic mart publication, scheduled DAG orchestration, Airflow và dashboards cùng
+products/sellers FK vẫn planned. Local run/task audit và watermark gate đã có theo [pipeline contract](11_pipeline_control.md). Deferred retry/expiry đã có theo [lifecycle contract](10_deferred_lifecycle.md).
 
 ## References
 

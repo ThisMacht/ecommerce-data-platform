@@ -72,7 +72,7 @@ input_rows = valid_rows + rejected_rows + deferred_rows + duplicates_rows
 
 Parent tới muộn: tạo full orders snapshot mới và reprocess **original child Bronze**
 bằng Silver ID mới. Original UIDs giữ nguyên; old outputs bất biến. Durable deferred
-retry/expiry đã có theo [lifecycle contract](10_deferred_lifecycle.md); end-to-end watermark vẫn planned. Warehouse staging đã có theo [contract](08_warehouse_staging.md).
+retry/expiry đã có theo [lifecycle contract](10_deferred_lifecycle.md); local watermark chỉ được promote sau final [pipeline gate](11_pipeline_control.md). Warehouse staging đã có theo [contract](08_warehouse_staging.md).
 
 ## Commands and validation
 

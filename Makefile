@@ -28,6 +28,7 @@ DEFERRED_RUN_ID ?=
 MAX_DEFERRED_ATTEMPTS ?= 3
 MAX_DEFERRED_AGE_HOURS ?= 168
 ANALYTICS_PYTHON ?= $(UV) run --locked --extra analytics python
+PIPELINE_PYTHON ?= $(UV) run --locked --extra processing --extra analytics python
 
 .DEFAULT_GOAL := help
 
@@ -41,7 +42,8 @@ ANALYTICS_PYTHON ?= $(UV) run --locked --extra analytics python
 	ingest-customers process-customers test-customer-integration \
 	ingest-order-payments ingest-order-items process-order-payments process-order-items test-order-children-integration \
 	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration \
-	register-deferred resolve-deferred test-deferred-integration test-deferred-state-integration
+	register-deferred resolve-deferred test-deferred-integration test-deferred-state-integration \
+	test-pipeline-control-integration test-pipeline-integration
 
 help:
 	@echo "Available targets:"
@@ -89,6 +91,8 @@ help:
 	@echo "  register-deferred         Persist deferred Silver; set SOURCE_TABLE, SILVER_PREFIX, DEFERRED_RUN_ID"
 	@echo "  resolve-deferred          Retry pending rows; set SOURCE_TABLE, PARENT_SNAPSHOT, DEFERRED_RUN_ID"
 	@echo "  test-deferred-state-integration / test-deferred-integration Test lifecycle transactions / verified snapshots"
+	@echo "  test-pipeline-control-integration Test atomic pipeline control and CAS failures"
+	@echo "  test-pipeline-integration Test all core receipts and dbt-gated watermark commit"
 
 sync:
 	$(UV) sync --locked
@@ -248,7 +252,8 @@ test-customer-integration:
 ingest-order-payments ingest-order-items:
 	@test -n "$(BRONZE_RUN_ID)" || (echo "Set BRONZE_RUN_ID" >&2; exit 2)
 	$(PYTHON) -m olist_platform.bronze.cli --contract "$(SOURCE_CONTRACT)" --table $(subst -,_,$(@:ingest-%=%)) extract \
-		--run-id "$(BRONZE_RUN_ID)" --page-size "$(BRONZE_PAGE_SIZE)"
+		--run-id "$(BRONZE_RUN_ID)" --page-size "$(BRONZE_PAGE_SIZE)" \
+		$(if $(filter 1,$(BRONZE_FULL_SNAPSHOT)),--full-snapshot,)
 
 process-order-payments process-order-items:
 	@test -n "$(BRONZE_PREFIX)" && test -n "$(SILVER_RUN_ID)" && test -n "$(ORDER_SNAPSHOT)" || (echo "Set BRONZE_PREFIX, SILVER_RUN_ID and ORDER_SNAPSHOT" >&2; exit 2)
@@ -313,3 +318,14 @@ test-deferred-integration:
 	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
 	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_deferred_snapshots.py' -v
+
+test-pipeline-control-integration:
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
+	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	$(PYTHON) -m unittest discover -s tests/integration -p 'test_pipeline_control.py' -v
+
+test-pipeline-integration:
+	$(COMPOSE) -f $(COMPOSE_FILE) build minio
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
+	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PIPELINE_PYTHON) -m unittest discover -s tests/integration -p 'test_pipeline_gate.py' -v

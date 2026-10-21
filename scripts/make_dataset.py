@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import fcntl
 import json
 import os
 import re
@@ -10,17 +11,108 @@ import subprocess
 from pathlib import Path
 from uuid import uuid4
 
+RUN_CONTEXT = None
+CURRENT_TASK = None
+
 CORE_TABLES = ("customers", "orders", "order_items", "order_payments")
 
 
+def audit(command: str, *options: str, run_id: str | None = None) -> dict:
+    identity = run_id or RUN_CONTEXT["run_id"]
+    output = run(
+        "uv",
+        "run",
+        "--locked",
+        "python",
+        "-m",
+        "olist_platform.pipeline.cli",
+        "--run-id",
+        identity,
+        command,
+        *options,
+        capture=True,
+    )
+    return json.loads(output)
+
+
 def run(*arguments: str, capture: bool = False) -> str:
+    global CURRENT_TASK
+    name = None
+    if RUN_CONTEXT is not None and "olist_platform.pipeline.cli" not in arguments:
+        if "--table" in arguments:
+            table = arguments[arguments.index("--table") + 1]
+            module = arguments[arguments.index("-m") + 1].split(".")[1]
+            verb = next(
+                (
+                    word
+                    for word in ("extract", "process", "register", "resolve")
+                    if word in arguments
+                ),
+                "load",
+            )
+            name = f"{table}.{module}.{verb}"
+        if name:
+            CURRENT_TASK = name
+            audit(
+                "task",
+                "--attempt",
+                str(RUN_CONTEXT["attempt"]),
+                "--name",
+                name,
+                "--status",
+                "RUNNING",
+            )
     result = subprocess.run(
         arguments, check=True, text=True, stdout=subprocess.PIPE if capture else None
     )
+    if name:
+        audit(
+            "task",
+            "--attempt",
+            str(RUN_CONTEXT["attempt"]),
+            "--name",
+            name,
+            "--status",
+            "SUCCESS",
+        )
+        CURRENT_TASK = None
     return result.stdout if capture else ""
 
 
 def main() -> None:
+    global RUN_CONTEXT, CURRENT_TASK
+    RUN_CONTEXT = CURRENT_TASK = None
+    reports = Path("build/reports/dataset")
+    reports.mkdir(parents=True, exist_ok=True)
+    with (reports / "runner.lock").open("a") as guard:
+        try:
+            fcntl.flock(guard, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            raise RuntimeError("Another local dataset runner is active") from None
+        try:
+            execute()
+        except BaseException:
+            if RUN_CONTEXT is not None:
+                try:
+                    audit(
+                        "fail",
+                        "--attempt",
+                        str(RUN_CONTEXT["attempt"]),
+                        "--name",
+                        CURRENT_TASK or "verification",
+                    )
+                except (subprocess.SubprocessError, OSError, ValueError):
+                    print(
+                        "Pipeline failure audit unavailable; retain the pending run ID.",
+                        flush=True,
+                    )
+            raise
+        finally:
+            RUN_CONTEXT = CURRENT_TASK = None
+
+
+def execute() -> None:
+    global RUN_CONTEXT, CURRENT_TASK
     manifest = json.loads(Path("config/raw_dataset_manifest.json").read_text())
     missing = [
         f["name"]
@@ -104,9 +196,15 @@ def main() -> None:
     )
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", run_id):
         raise ValueError("Invalid saved dataset run ID")
-    # shortcut: one local operator; use orchestration before concurrent wrapper runs.
     pending.write_text(run_id + "\n")
     print(f"[RUN] {run_id}; rerun make dataset after failure to resume", flush=True)
+    if silver:
+        started = audit("begin", run_id=run_id)
+        if started["status"] == "NOOP":
+            pending.unlink()
+            print(f"[DONE] Pipeline already committed: {run_id}", flush=True)
+            return
+        RUN_CONTEXT = {"run_id": run_id, "attempt": started["attempt"]}
     snapshots = {}
     for table in CORE_TABLES:
         bronze = json.loads(
@@ -122,7 +220,7 @@ def main() -> None:
                 "extract",
                 "--run-id",
                 run_id,
-                *(["--full-snapshot"] if table == "orders" else []),
+                *(["--full-snapshot"] if table != "customers" else []),
                 capture=True,
             )
         )
@@ -227,22 +325,25 @@ def main() -> None:
                 )
             print(f"[OK] {table} deferred: {resolved['routing_counts']}", flush=True)
     if silver:
-        run(
-            "uv",
-            "run",
-            "--locked",
-            "--extra",
-            "analytics",
-            "dbt",
-            "build",
-            "--project-dir",
-            "dbt",
-            "--profiles-dir",
-            "dbt",
-            "--target-path",
+        CURRENT_TASK = "dbt.build"
+        finished = audit(
+            "finish",
+            "--attempt",
+            str(RUN_CONTEXT["attempt"]),
+            "--dbt-target",
             str((reports / f"{run_id}_dbt").resolve()),
         )
-        print(f"[OK] dbt models/tests: {reports}/{run_id}_dbt", flush=True)
+        (reports / f"{run_id}_pipeline.json").write_text(
+            json.dumps(finished, indent=2) + "\n"
+        )
+        CURRENT_TASK = None
+        print(f"[OK] dbt/reconciliation/watermarks: {finished['status']}", flush=True)
+    else:
+        print(
+            "[PARTIAL] Bronze only; keep this run ID and install Java 17 to resume the full pipeline.",
+            flush=True,
+        )
+        return
     pending.unlink()
     print(f"[DONE] Reports: {reports}/{run_id}_*.json", flush=True)
 
@@ -250,6 +351,8 @@ def main() -> None:
 if __name__ == "__main__":
     try:
         main()
+    except RuntimeError as error:
+        raise SystemExit(str(error)) from None
     except subprocess.CalledProcessError as error:
         raise SystemExit(
             f"Dataset command failed (exit {error.returncode}); fix the error and rerun make dataset."
