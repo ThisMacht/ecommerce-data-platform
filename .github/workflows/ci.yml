@@ -70,6 +70,10 @@ jobs:
         run: make test-bronze-integration
       - name: Test warehouse merge transactions with isolated PostgreSQL
         run: make test-warehouse-merge-integration
+      - name: Install locked analytics dependencies
+        run: make sync-analytics
+      - name: Test dbt models and metric reconciliation in isolated PostgreSQL
+        run: make test-dbt-integration
 
   silver:
     name: Core datasets Spark Silver

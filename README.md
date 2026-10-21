@@ -18,7 +18,8 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Items/payments Silver with composite grain and decimal money | Implemented — pinned full orders FK checks; product/seller membership remains planned |
 | PostgreSQL raw staging and transactional load audit | Implemented — version-aware merges, canonical hashes and exact load reconciliation |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
-| Airflow, dbt and Metabase | TODO — later phases |
+| dbt customer dimension, order fact and daily GMV/AOV views | Implemented — exact reconciliation and relationship tests |
+| Airflow and Metabase | TODO — later phases |
 
 ## Quick start
 
@@ -28,7 +29,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 make dataset
 ```
 
-[`scripts/make_dataset.sh`](scripts/make_dataset.sh) tự tạo `.env` nếu thiếu, sync dependencies, verify/seed PostgreSQL, start MinIO và chạy customers → full orders → order_items → order_payments qua Bronze/Silver rồi PostgreSQL staging, tự truyền parent snapshots cho FK checks. Không cần nhập run IDs, prefixes hay export local credentials; runner lấy cấu hình từ Compose và lưu kết quả trong ignored `build/reports/dataset/`. Cần Python 3.10+, uv, Docker Compose; Java 17 cho Silver/staging (tự nhận diện JDK 17 trong `/usr/lib/jvm` nếu chưa đặt `JAVA_HOME`).
+[`scripts/make_dataset.sh`](scripts/make_dataset.sh) tự tạo `.env` nếu thiếu, sync dependencies, verify/seed PostgreSQL, start MinIO và chạy customers → full orders → order_items → order_payments qua Bronze/Silver rồi PostgreSQL staging và dbt build/tests, tự truyền parent snapshots cho FK checks. Không cần nhập run IDs, prefixes hay export local credentials; runner lấy cấu hình từ Compose và lưu kết quả trong ignored `build/reports/dataset/`. Cần Python 3.10+, uv, Docker Compose; Java 17 cho Silver/staging (tự nhận diện JDK 17 trong `/usr/lib/jvm` nếu chưa đặt `JAVA_HOME`).
 
 Runner xử lý cả 4 core datasets. Thiếu bất kỳ CSV nào trong snapshot 9 files thì seed/downstream được bỏ qua và liệt kê file thiếu; loader hiện không hỗ trợ partial seed. Thiếu Java thì chỉ chạy Bronze. CSV có sẵn nhưng sai checksum, migration hoặc processing/load lỗi sẽ dừng, không bị nuốt lỗi. Sau lỗi, gọi lại `make dataset` để resume run ID đã lưu; sau success, lần gọi tiếp tạo run mới. Chạy một runner tại một thời điểm; services/volumes được giữ lại. Pending orders run từ phiên bản runner cũ phải hoàn tất bằng config cũ trước khi chuyển sang full mode; xem [contract](docs/data_contracts/07_order_children.md).
 
@@ -94,7 +95,7 @@ Chạy Make và CLI từ repository root để dùng default paths. CLI resolve 
 - `PostgreSQL and MinIO integration`: Python 3.12, chạy simulator tests và `make test-bronze-integration` với disposable services và small SQL fixtures.
 - `Orders Spark Silver`: Python 3.12/Java 17, cài locked processing extra, chạy `make test-processing`, `make test-silver-integration` và `make test-customer-integration`.
 
-CI không cần `.env`, raw CSV hay repository secrets. Integration suites tự tạo credentials cho services tạm và cleanup container/volume khi kết thúc. Full snapshot suite (`make test-source-integration`) vẫn chạy local sau khi tải canonical CSV; DAG và dbt checks còn planned.
+CI không cần `.env`, raw CSV hay repository secrets. Integration suites tự tạo credentials cho services tạm và cleanup container/volume khi kết thúc. Full snapshot suite (`make test-source-integration`) vẫn chạy local sau khi tải canonical CSV; dbt checks đã có; DAG checks còn planned.
 
 Tái hiện CI từ checkout sạch: `make sync`, `make test`, `make build`, `make test-source-simulator-integration` và `make test-bronze-integration`. Workflow pin action commit SHAs và uv version; cập nhật các pins cùng validation khi nâng tools.
 
@@ -173,7 +174,13 @@ Items hiện chỉ kiểm tra product/seller ID không thiếu; membership chưa
 
 Sau migration `006`, dùng `make load-warehouse SOURCE_TABLE=<table> SILVER_PREFIX='<prefix>' WAREHOUSE_RUN_ID=<id>`. CLI nhận `WAREHOUSE_DSN` hoặc `PG*` và cùng S3 environment. Chỉ valid rows được COPY/merge vào `raw_staging`; data và `audit.warehouse_load_runs` commit cùng transaction. Source sequence mới thắng, version cũ bị bỏ qua, cùng version khác business hash làm fail; retry cùng ID/input trả `NOOP`.
 
-`make dataset` tự chạy bước này và lưu `*_warehouse.json`. Xem [staging contract](docs/data_contracts/08_warehouse_staging.md); kiểm tra bằng `make test-warehouse-merge-integration` và `make test-warehouse-integration`. dbt, DAG audit và end-to-end watermark vẫn planned.
+`make dataset` tự chạy bước này và lưu `*_warehouse.json`. Xem [staging contract](docs/data_contracts/08_warehouse_staging.md); kiểm tra bằng `make test-warehouse-merge-integration` và `make test-warehouse-integration`. DAG audit và end-to-end watermark vẫn planned.
+
+## dbt analytics
+
+Sau staging, `make dataset` tự chạy dbt build/tests cho `dim_customer`, `fct_orders` và daily GMV/AOV views. Items/payments aggregate riêng theo order trước khi join. Customer dùng shopper business key, surrogate key ổn định và current Type 1 attributes. Metric tests đối soát exact với staging, kể cả many-to-many fan-out, canceled orders và zero payments.
+
+Chạy riêng bằng `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_PASSWORD`, `DBT_READER_USER`, rồi `make dbt-build`. Xem [analytics contract](docs/data_contracts/09_analytics_models.md); kiểm thử bằng `make test-dbt-integration`. Views chưa có atomic publication hoặc end-to-end watermark; chỉ coi build thành công sau khi tests pass.
 
 ## License
 

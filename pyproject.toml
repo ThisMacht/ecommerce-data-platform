@@ -29,6 +29,10 @@ olist-load-warehouse = "olist_platform.warehouse.cli:main"
 processing = [
     "pyspark==4.0.2",
 ]
+analytics = [
+    "dbt-core==1.12.6",
+    "dbt-postgres==1.11.0",
+]
 
 [dependency-groups]
 dev = ["ruff>=0.11"]

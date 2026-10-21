@@ -71,3 +71,9 @@ htmlcov/
 
 test.*
 plots/*
+
+# dbt generated artifacts
+dbt/target/
+dbt/logs/
+dbt/dbt_packages/
+dbt/.user.yml

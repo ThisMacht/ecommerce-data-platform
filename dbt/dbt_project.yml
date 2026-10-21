@@ -1,0 +1,11 @@
+name: olist_analytics
+version: '1.0.0'
+config-version: 2
+profile: olist_analytics
+model-paths: [models]
+test-paths: [tests]
+models:
+  olist_analytics:
+    +materialized: view
+    +grants:
+      select: ["{{ env_var('DBT_READER_USER') }}"]

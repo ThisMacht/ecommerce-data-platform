@@ -4,7 +4,7 @@
 | --- | --- |
 | System | Olist E-commerce Data Platform |
 | Owner | Data Engineering |
-| Status | Partially active — source, core Bronze/Silver and staging; dbt/orchestration planned |
+| Status | Partially active — source, core Bronze/Silver, staging and dbt; orchestration planned |
 | Last reviewed | 2026-10-21 |
 | Processing mode | Batch |
 
@@ -16,7 +16,7 @@ Tài liệu này là hướng dẫn vận hành bổ sung cho:
 - [Raw dataset manifest](../../data/raw/README.md)
 - [Source contracts](../data_contracts/02_source_contracts.md)
 
-PostgreSQL source, bốn core Bronze/Silver datasets và PostgreSQL staging đã được triển khai. Các mục 13–17 mô tả operations hiện có; dbt, orchestration và các commands đánh dấu **planned** vẫn là target interface, chưa khả dụng.
+PostgreSQL source, bốn core Bronze/Silver datasets, staging và dbt đã được triển khai. Các mục 13–18 mô tả operations hiện có; orchestration và các commands đánh dấu **planned** vẫn là target interface, chưa khả dụng.
 
 ## 1. Scope
 
@@ -401,9 +401,17 @@ Apply migration `006`; dùng Java 17, `WAREHOUSE_DSN` hoặc `PG*`, cùng S3 cre
 
 Đối chiếu `audit.warehouse_load_runs`: load candidates bằng Silver valid; inserted + updated + unchanged + stale ignored phải bằng candidates. Source sequence quyết định version, không dùng timestamp. Same-version khác hash là integrity failure; không sửa target để ép pass. Retry cùng input/run ID sau lỗi sẽ rollback/replay an toàn; nếu đã commit thì trả `NOOP` với counters cũ. Parent snapshot khác cần Silver ID mới và warehouse load ID mới.
 
-Data/audit commit cùng transaction, theo từng dataset; toàn bộ bốn datasets chưa atomic như một pipeline. dbt và end-to-end watermark chưa triển khai. Run ID conflict, checksum/schema mismatch hoặc conflict version phải giữ evidence để điều tra. Xem [staging contract](../data_contracts/08_warehouse_staging.md); chạy cả hai warehouse integration suites sau thay đổi.
+Data/audit commit cùng transaction, theo từng dataset; toàn bộ bốn datasets chưa atomic như một pipeline. dbt đã có ở mục 18; end-to-end watermark chưa triển khai. Run ID conflict, checksum/schema mismatch hoặc conflict version phải giữ evidence để điều tra. Xem [staging contract](../data_contracts/08_warehouse_staging.md); chạy cả hai warehouse integration suites sau thay đổi.
 
-## 18. Change control
+## 18. Implemented dbt analytics
+
+Sau migration `007`, dùng `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_PASSWORD` và `DBT_READER_USER`, rồi `make dbt-build`. Runner `make dataset` tự chạy sau bốn staging loads; build/test failure giữ pending run để retry cùng IDs. Build artifacts nằm tại `build/reports/dataset/<run_id>_dbt`.
+
+Chỉ coi analytics build đạt khi `run_results.json` không có failed/error/skipped nodes và command exit code bằng zero. Kiểm tra `orders_without_items`/`orders_without_payments` khi đọc GMV/AOV. Không so sánh GMV trực tiếp với gross paid amount như hai giá trị phải bằng nhau. AOV NULL khi không có eligible positive-payment orders.
+
+Models hiện là views, không phải atomic published snapshot; failed build không rollback mọi views. Tránh concurrent source/staging writers khi cần consistent analytics. Chưa promote end-to-end watermark. Xem [analytics contract](../data_contracts/09_analytics_models.md); chạy `make test-dbt-integration` sau thay đổi grains, joins hoặc metrics.
+
+## 19. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 

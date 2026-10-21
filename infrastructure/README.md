@@ -72,9 +72,11 @@ Migration `005` tạo Bronze control/run/page tables riêng cho `order_items` v�
 
 Migration `006` thêm bốn bảng `raw_staging` và `audit.warehouse_load_runs`, dùng existing loader/reader roles. `make load-warehouse` đọc verified Silver và merge theo `source_sequence`; retry giữ nguyên run/input. `make test-warehouse-merge-integration` chỉ cần disposable PostgreSQL; `make test-warehouse-integration` thêm MinIO/Spark. Xem [contract](../docs/data_contracts/08_warehouse_staging.md).
 
+Migration `007` tạo `analytics` schema do loader role sở hữu, cấp reader SELECT qua default privileges và dbt grants. dbt chạy trên host bằng `analytics` extra; không cần placeholder service. Xem [analytics contract](../docs/data_contracts/09_analytics_models.md).
+
 ## TODO
 
-- `TODO(phase-1)`: thêm Airflow và dbt với executable workflows/models.
+- `TODO(phase-1)`: thêm Airflow với executable workflows; dbt models đã có.
 - `TODO(phase-3)`: thêm Metabase sau khi marts và read-only grants ổn định.
 - `TODO(security)`: dùng secret manager và network policy khi có deployment ngoài local.
 

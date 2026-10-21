@@ -520,9 +520,9 @@ Phase này chỉ sử dụng `orders`, `customers`, `order_items` và `order_pay
 - [x] Ghi Silver immutable theo `run_id`.
 - [x] Upsert Silver valid vào bốn bảng `raw_staging` bằng transactional version-aware loader; xem `docs/data_contracts/08_warehouse_staging.md`.
 - [x] Tính canonical `record_hash` và ghi inserted, updated, unchanged, stale-ignored counts cùng data transaction trong `audit.warehouse_load_runs`. Planned DAG-level audit vẫn chưa triển khai.
-- [ ] Tạo `stg_orders`, `stg_customers`, `stg_order_items`, `stg_payments`.
-- [ ] Tạo `dim_customer` có surrogate key, `int_order_item_summary`, `int_payment_summary` và `fct_orders`.
-- [ ] Tạo `mart_revenue_daily` và `mart_average_order_value`.
+- [x] Tạo `stg_orders`, `stg_customers`, `stg_order_items`, `stg_payments`.
+- [x] Tạo `dim_customer` có surrogate key ổn định theo shopper ID, Type 1 attributes, `int_order_item_summary`, `int_payment_summary` và `fct_orders`.
+- [x] Tạo `mart_revenue_daily` và `mart_average_order_value` cùng exact dbt reconciliation; views chưa atomic publish. Xem `docs/data_contracts/09_analytics_models.md`.
 - [ ] Dựng dashboard GMV, gross paid amount, AOV và order status.
 - [ ] Viết README với architecture diagram, source ERD, grain, metric definitions và screenshots.
 

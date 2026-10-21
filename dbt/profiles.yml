@@ -1,0 +1,15 @@
+olist_analytics:
+  target: local
+  outputs:
+    local:
+      type: postgres
+      host: "{{ env_var('PGHOST', '127.0.0.1') }}"
+      port: "{{ env_var('PGPORT', '5432') | int }}"
+      dbname: "{{ env_var('PGDATABASE', 'olist_source') }}"
+      user: "{{ env_var('PGUSER') }}"
+      password: "{{ env_var('DBT_ENV_SECRET_PASSWORD') }}"
+      schema: analytics
+      threads: 2
+      connect_timeout: 10
+      retries: 0
+      keepalives_idle: 0

@@ -1,0 +1,106 @@
+version: 2
+sources:
+- name: raw_staging
+  schema: raw_staging
+  tables:
+  - name: customers
+  - name: orders
+  - name: order_items
+  - name: order_payments
+models:
+- name: stg_customers
+  columns:
+  - name: customer_id
+    data_tests:
+    - unique
+    - not_null
+- name: stg_orders
+  columns:
+  - name: order_id
+    data_tests:
+    - unique
+    - not_null
+  - name: customer_id
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('stg_customers')
+          field: customer_id
+- name: int_order_item_summary
+  columns:
+  - name: order_id
+    data_tests:
+    - unique
+    - not_null
+- name: int_payment_summary
+  columns:
+  - name: order_id
+    data_tests:
+    - unique
+    - not_null
+- name: dim_customer
+  columns:
+  - name: customer_key
+    data_tests:
+    - unique
+    - not_null
+  - name: customer_unique_id
+    data_tests:
+    - unique
+    - not_null
+  - name: record_hash
+    data_tests:
+    - not_null
+- name: fct_orders
+  columns:
+  - name: order_id
+    data_tests:
+    - unique
+    - not_null
+  - name: customer_key
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_customer')
+          field: customer_key
+  - name: order_purchase_date
+    data_tests:
+    - not_null
+- name: mart_revenue_daily
+  columns:
+  - name: order_purchase_date
+    data_tests:
+    - unique
+    - not_null
+- name: mart_average_order_value
+  columns:
+  - name: order_purchase_date
+    data_tests:
+    - unique
+    - not_null
+- name: stg_order_items
+  columns:
+  - name: order_id
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('stg_orders')
+          field: order_id
+  - name: order_item_id
+    data_tests:
+    - not_null
+- name: stg_payments
+  columns:
+  - name: order_id
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('stg_orders')
+          field: order_id
+  - name: payment_sequential
+    data_tests:
+    - not_null

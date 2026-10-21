@@ -23,6 +23,7 @@ BRONZE_FULL_SNAPSHOT ?=
 SILVER_PREFIX ?=
 WAREHOUSE_RUN_ID ?=
 SOURCE_TABLE ?= orders
+ANALYTICS_PYTHON ?= $(UV) run --locked --extra analytics python
 
 .DEFAULT_GOAL := help
 
@@ -35,7 +36,7 @@ SOURCE_TABLE ?= orders
 	sync-processing process-orders test-processing test-silver-integration \
 	ingest-customers process-customers test-customer-integration \
 	ingest-order-payments ingest-order-items process-order-payments process-order-items test-order-children-integration \
-	load-warehouse test-warehouse-merge-integration test-warehouse-integration
+	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration
 
 help:
 	@echo "Available targets:"
@@ -78,6 +79,8 @@ help:
 	@echo "  load-warehouse            Merge Silver valid; set SOURCE_TABLE, SILVER_PREFIX and WAREHOUSE_RUN_ID"
 	@echo "  test-warehouse-merge-integration Test PostgreSQL versions, atomic counters and replay"
 	@echo "  test-warehouse-integration Test verified Silver -> PostgreSQL staging"
+	@echo "  sync-analytics / dbt-build Install locked dbt dependencies / build models and tests"
+	@echo "  test-dbt-integration      Test marts and repeatable customer keys in disposable PostgreSQL"
 
 sync:
 	$(UV) sync --locked
@@ -269,3 +272,14 @@ test-warehouse-integration:
 	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" \
 	$(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_warehouse_silver.py' -v
+
+sync-analytics:
+	$(UV) sync --locked --extra analytics
+
+dbt-build:
+	DBT_SEND_ANONYMOUS_USAGE_STATS=false $(UV) run --locked --extra analytics dbt build --project-dir dbt --profiles-dir dbt
+
+test-dbt-integration:
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
+	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	$(ANALYTICS_PYTHON) -m unittest discover -s tests/integration -p 'test_dbt_models.py' -v

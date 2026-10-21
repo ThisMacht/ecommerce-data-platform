@@ -7,7 +7,7 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | Order | Document | Purpose | Status |
 | ---: | --- | --- | --- |
 | 00 | [Olist Source Profile](data_contracts/00_source_profile.md) | Kết quả profiling, key validation, null statistics và source relationships | Generated — Active |
-| 01 | [Batch Data Processing Runbook](runbooks/01_data_processing_runbook.md) | Quy trình vận hành, retry, backfill, reconciliation và incident recovery | Partially active — core Bronze/Silver/staging; dbt/orchestration planned |
+| 01 | [Batch Data Processing Runbook](runbooks/01_data_processing_runbook.md) | Quy trình vận hành, retry, backfill, reconciliation và incident recovery | Partially active — core Bronze/Silver/staging/dbt; orchestration planned |
 | 02 | [Source Contracts](data_contracts/02_source_contracts.md) | Source boundary, grains, keys, types, simulator metadata và seed semantics | Active |
 | 03 | [Source Simulator](data_contracts/03_source_simulator.md) | Batch format, deterministic fixtures, transactional apply và replay semantics | Active — four-table MVP |
 | 04 | [Orders Bronze](data_contracts/04_orders_bronze.md) | Bounded extraction, durable snapshot retry, MinIO publication và Bronze-only checkpoint | Active — orders CLI slice |
@@ -15,6 +15,7 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | 06 | [Customer Snapshots](data_contracts/06_customer_snapshots.md) | Full customers Bronze/Silver, orders FK routing và pinned dependency replay | Active |
 | 07 | [Order Items and Payments](data_contracts/07_order_children.md) | Composite-key Bronze/Silver, decimal money và pinned full orders dependencies | Active |
 | 08 | [Warehouse Staging](data_contracts/08_warehouse_staging.md) | Canonical hashes, version-aware PostgreSQL merges và transactional load audit | Active |
+| 09 | [Analytics Models](data_contracts/09_analytics_models.md) | dbt grains, shopper identity, Type 1 attributes và exact GMV/AOV tests | Active |
 
 ## Related documents
 
@@ -22,6 +23,7 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | --- | --- |
 | [Pipeline Implementation Plan](../ecommerce_data_warehouse_pipeline_plan_v4.md) | Kiến trúc, phases, contracts và implementation roadmap |
 | [Raw Dataset Manifest](../data/raw/README.md) | Nguồn dữ liệu, file inventory, checksums và raw-data handling rules |
+| [Customer Type 1 Decision](adr/ADR-004-use-scd-type-1.md) | Shopper identity, current attributes và giới hạn phân tích lịch sử |
 | [Local Infrastructure](../infrastructure/README.md) | Docker services, jobs, configuration và local operations |
 
 ## Naming convention

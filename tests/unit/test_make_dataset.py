@@ -73,6 +73,7 @@ class MakeDatasetTest(unittest.TestCase):
                                 "SOURCE_LOADER_PASSWORD": "space $quote'",
                             }
                         },
+                        "source-check": {"environment": {"PGUSER": "reader"}},
                         "minio": {
                             "environment": {
                                 "MINIO_ROOT_USER": "access",
@@ -161,6 +162,10 @@ class MakeDatasetTest(unittest.TestCase):
         self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 12)
         self.assertFalse(Path("build/reports/dataset/pending-run.txt").exists())
         self.assertIn("[DONE]", output)
+        self.assertEqual(os.environ["DBT_READER_USER"], "reader")
+        self.assertTrue(
+            any("dbt" in args and "build" in args for args in self.commands)
+        )
 
     def test_absent_java_skips_silver_but_extracts_all_four_tables(self):
         with (
@@ -204,6 +209,31 @@ class MakeDatasetTest(unittest.TestCase):
         def fail(*args, **kwargs):
             if "olist_platform.warehouse.cli" in args:
                 raise subprocess.CalledProcessError(1, "warehouse")
+            return self.command(*args, **kwargs)
+
+        with (
+            patch("scripts.make_dataset.run", side_effect=fail),
+            patch("scripts.make_dataset.shutil.which", return_value="java"),
+        ):
+            with self.assertRaises(subprocess.CalledProcessError):
+                self.invoke()
+        pending = Path("build/reports/dataset/pending-run.txt")
+        run_id = pending.read_text().strip()
+        self.commands.clear()
+        with (
+            patch("scripts.make_dataset.run", side_effect=self.command),
+            patch("scripts.make_dataset.shutil.which", return_value="java"),
+        ):
+            self.invoke()
+        for args in self.commands:
+            if "--run-id" in args:
+                self.assertEqual(args[args.index("--run-id") + 1], run_id)
+        self.assertFalse(pending.exists())
+
+    def test_failed_dbt_build_keeps_run_pending_and_retry_reuses_load_ids(self):
+        def fail(*args, **kwargs):
+            if "dbt" in args and "build" in args:
+                raise subprocess.CalledProcessError(1, "dbt")
             return self.command(*args, **kwargs)
 
         with (

@@ -66,6 +66,9 @@ def main() -> None:
         AWS_SECRET_ACCESS_KEY=minio["MINIO_ROOT_PASSWORD"],
         BRONZE_S3_ENDPOINT=f"http://127.0.0.1:{ports['minio']}",
         BRONZE_S3_BUCKET="olist-bronze",
+        DBT_ENV_SECRET_PASSWORD=loader["SOURCE_LOADER_PASSWORD"],
+        DBT_READER_USER=config["source-check"]["environment"]["PGUSER"],
+        DBT_SEND_ANONYMOUS_USAGE_STATS="false",
     )
     # Match the services we just configured, even if the caller exported another DSN.
     os.environ.pop("BRONZE_SOURCE_DSN", None)
@@ -85,7 +88,7 @@ def main() -> None:
     )
     silver = shutil.which(java) is not None
     if silver:
-        run("uv", "sync", "--locked", "--extra", "processing")
+        run("uv", "sync", "--locked", "--extra", "processing", "--extra", "analytics")
     else:
         print(
             "[SKIP] Silver: Java is unavailable; install Java 17 to enable it.",
@@ -179,6 +182,23 @@ def main() -> None:
             json.dumps(loaded, indent=2) + "\n"
         )
         print(f"[OK] {table} staging: {loaded['counts']}", flush=True)
+    if silver:
+        run(
+            "uv",
+            "run",
+            "--locked",
+            "--extra",
+            "analytics",
+            "dbt",
+            "build",
+            "--project-dir",
+            "dbt",
+            "--profiles-dir",
+            "dbt",
+            "--target-path",
+            str((reports / f"{run_id}_dbt").resolve()),
+        )
+        print(f"[OK] dbt models/tests: {reports}/{run_id}_dbt", flush=True)
     pending.unlink()
     print(f"[DONE] Reports: {reports}/{run_id}_*.json", flush=True)
 

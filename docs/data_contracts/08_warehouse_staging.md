@@ -84,7 +84,7 @@ load_candidate_rows = warehouse_inserted_rows + warehouse_updated_rows
 
 Audit lưu Silver routing counters và committed merge counters. Chưa thay thế
 planned DAG-level audit, failure-attempt lifecycle hoặc deferred resolution state.
-Không promote end-to-end watermark: dbt/reconciliation gates toàn pipeline chưa có.
+Không promote end-to-end watermark: dbt build/tests đã có theo [analytics contract](09_analytics_models.md), nhưng atomic publication và gates toàn pipeline chưa hoàn thiện.
 Staging không thêm FK tới current target tables: dependency membership vẫn được
 đánh giá theo pinned Silver snapshots, có thể khác current staging state.
 Product/seller membership vẫn chưa được kiểm tra.
