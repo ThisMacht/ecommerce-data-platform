@@ -29,6 +29,7 @@ MAX_DEFERRED_ATTEMPTS ?= 3
 MAX_DEFERRED_AGE_HOURS ?= 168
 ANALYTICS_PYTHON ?= $(UV) run --locked --extra analytics python
 PIPELINE_PYTHON ?= $(UV) run --locked --extra processing --extra analytics python
+PIPELINE_HEALTH_CONFIG ?= config/pipeline_health.json
 
 .DEFAULT_GOAL := help
 
@@ -43,7 +44,7 @@ PIPELINE_PYTHON ?= $(UV) run --locked --extra processing --extra analytics pytho
 	ingest-order-payments ingest-order-items process-order-payments process-order-items test-order-children-integration \
 	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration \
 	register-deferred resolve-deferred test-deferred-integration test-deferred-state-integration \
-	test-pipeline-control-integration test-pipeline-integration
+	test-pipeline-control-integration test-pipeline-integration pipeline-health
 
 help:
 	@echo "Available targets:"
@@ -93,6 +94,10 @@ help:
 	@echo "  test-deferred-state-integration / test-deferred-integration Test lifecycle transactions / verified snapshots"
 	@echo "  test-pipeline-control-integration Test atomic pipeline control and CAS failures"
 	@echo "  test-pipeline-integration Test all core receipts and dbt-gated watermark commit"
+	@echo "  pipeline-health           Check audit freshness, runtime, quality and deferred backlog (requires PG*)"
+
+pipeline-health:
+	$(PYTHON) -m olist_platform.pipeline.health --thresholds "$(PIPELINE_HEALTH_CONFIG)"
 
 sync:
 	$(UV) sync --locked

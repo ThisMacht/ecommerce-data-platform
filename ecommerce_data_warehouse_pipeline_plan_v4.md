@@ -570,11 +570,11 @@ Phase này biến pipeline từ một luồng ETL thông thường thành một 
 - [x] Cài state machine, idempotent retry, resolve và expire deferred records; pin full parent snapshot, freeze limits, atomic queue/staging/audit, bounded 1,000-record passes. Xem `docs/data_contracts/10_deferred_lifecycle.md`.
 - [ ] Thêm dbt tests: `not_null`, `unique`, `relationships`, `accepted_values`.
 - [ ] Thêm custom tests cho negative values, fact grain, fan-out và metric invariants.
-- [ ] Tạo run-, task- và dataset-level audit tables cùng `audit.pipeline_control`.
-- [ ] Ghi row counts, bounds, source versions và watermark before/candidate/after.
-- [ ] Thực thi source-to-Bronze, processing-routing và warehouse-load reconciliations.
-- [ ] Làm pipeline fail nếu reconciliation lệch một row.
-- [ ] Cấu hình freshness, runtime, deferred-age và quality-rate thresholds.
+- [x] Tạo run-, task- và dataset-level audit tables cùng `audit.pipeline_control` cho local manual namespace; Airflow callbacks còn planned.
+- [x] Ghi local full-snapshot receipts/counters và watermark before/candidate/after; bounded metadata nằm trong Bronze receipts.
+- [x] Thực thi source-to-Bronze, processing-routing và warehouse-load reconciliations trong final local gate.
+- [x] Làm local pipeline fail nếu reconciliation lệch một row.
+- [x] Cấu hình freshness, runtime, deferred-age và reject/warning-rate thresholds qua read-only `make pipeline-health`; freshness là tuổi pipeline SUCCESS, chưa đo source change lag. Scheduler/notification còn planned.
 - [ ] Dựng operational dashboard từ audit schema.
 
 Operational dashboard cần hiển thị pipeline status, duration, freshness, quarantine rate, warning rate, insert/update/unchanged/stale counts, source rows mới, lookback rows, deferred retry input, task failures và reconciliation failures.

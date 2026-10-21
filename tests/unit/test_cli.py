@@ -88,6 +88,18 @@ class InstalledCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("{register,resolve}", result.stdout)
 
+    def test_pipeline_health_help_and_invalid_config_need_no_database(self):
+        result = self.run_command("olist-pipeline-health", "--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--thresholds", result.stdout)
+        (self.workspace / "invalid.json").write_text('{"secret": "do-not-print"}')
+        result = self.run_command(
+            "olist-pipeline-health", "--thresholds", "invalid.json"
+        )
+        self.assertEqual(result.returncode, 2)
+        self.assertNotIn("do-not-print", result.stderr)
+        self.assertNotIn("Traceback", result.stderr)
+
     def test_pipeline_cli_help_does_not_require_spark_or_database(self):
         result = self.run_command("olist-pipeline", "--help")
         self.assertEqual(result.returncode, 0, result.stderr)

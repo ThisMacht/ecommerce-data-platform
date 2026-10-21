@@ -115,3 +115,37 @@ Sau lỗi, giữ pending ID và gọi lại `make dataset` bằng code/config c�
 commit nhưng mất local response, begin trả `NOOP`, giữ counters/control versions
 cũ và dọn pending file. Khi nâng cấp từ bounded runner cũ, hoàn tất unfinished runs
 với config cũ trước; không sửa prepared pages, checkpoints hoặc request hashes.
+
+## Operational health
+
+`make pipeline-health` hoặc `olist-pipeline-health --thresholds <path>` xuất JSON
+qua stdout; dùng `PG*` và chỉ cần reader role. Một transaction `REPEATABLE READ,
+READ ONLY` đọc run/dataset audit và quarantine, statement timeout 15 giây. Không
+đọc payload, không tải source/S3, không sửa retry status, attempts hoặc cursors.
+
+`config/pipeline_health.json` có `max_run_seconds` cho toàn pipeline và bốn
+dataset policies: `max_freshness_hours`, `max_reject_rate`, `max_warning_rate`,
+`max_pending_age_hours`. Mọi key/dataset bắt buộc phải có; rates thuộc `[0,1]`,
+time limits phải dương và hữu hạn. Defaults 30 phút/run, 24 giờ freshness,
+1% reject, 5% warning, 168 giờ pending là **ngưỡng vận hành local khởi đầu**,
+không phải SLA đã được chứng minh bằng benchmark.
+
+- Run đang `RUNNING` được ưu tiên; nếu không có, lấy execution hoàn tất gần nhất.
+  `FAILED` luôn tạo issue dù vẫn có một success cũ. Elapsed runtime tính từ
+  original begin tới completion/server time, gồm cả thời gian chờ resume.
+- Freshness là tuổi của **lần pipeline SUCCESS cuối**, không phải tuổi business
+  timestamps, source change lag hoặc bằng chứng source không còn thay đổi.
+- Reject/warning rates dùng counters của success đó: `rejected_rows` hoặc
+  `warning_rows` chia `processing_input_rows`, gồm source và retry occurrences.
+  Empty input có rate 0; warnings có thể trùng valid/rejected/deferred rows.
+- Backlog dùng trạng thái queue **hiện tại**: pending/expired occurrences và tuổi
+  pending lâu nhất. Đây không phải số distinct business keys. Pending đã hết
+  persisted attempts/age tạo `pending_resolution_due` kể cả khi operational
+  age threshold còn cho phép; report không tự expire hoặc retry rows.
+
+JSON ghi actual metrics, thresholds, run IDs và issue codes. Thiếu run/success
+hoặc dataset receipt là unhealthy, không thay bằng giá trị giả. Ngưỡng vượt khi
+actual **lớn hơn** limit; persisted expiry dùng `>=` theo lifecycle. Exit code `0`
+là `HEALTHY`, `1` là `UNHEALTHY`, `2` là lỗi config/connection/schema và chỉ ghi
+thông báo rút gọn vào stderr. Chưa có scheduler/notification/dashboard; command
+không phải publication gate và không thu hồi watermark đã commit.

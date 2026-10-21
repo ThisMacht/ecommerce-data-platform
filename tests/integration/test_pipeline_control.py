@@ -1,11 +1,13 @@
 import json
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import psycopg
 from postgres_case import PostgresIntegrationCase
 
 from olist_platform.bronze.storage import BronzeError
 from olist_platform.pipeline.control import TASKS, begin, fail, promote, task
+from olist_platform.pipeline.health import load_thresholds, report
 from tests.unit.test_pipeline_contract import dataset_evidence
 
 
@@ -149,3 +151,59 @@ class PipelineControlTest(PostgresIntegrationCase):
             [r["committed_cursor"] for r in after],
         )
         self.assertEqual({r["cursor_version"] for r in after}, {2})
+
+    def test_health_uses_reader_role_and_does_not_change_control_or_queue(self):
+        limits = load_thresholds(
+            Path(__file__).resolve().parents[2] / "config/pipeline_health.json"
+        )
+        self.start()
+        with self.connection() as c:
+            self.tasks(c)
+            promote(c, "first", 1, self.items(), {})
+        before = self.control()
+        self.psql("""INSERT INTO audit.quarantine_records
+            (record_uid,rule_id,logical_record_uid,run_id,source_table,
+             source_primary_key,source_version,raw_payload,payload,payload_sha256,
+             contract_sha256,origin_silver_prefix,origin_manifest_sha256,
+             first_seen_at,max_attempts,max_deferred_age_hours)
+            VALUES (repeat('a',64),'missing_order','fixture','first','order_items',
+             '{}',1,'{}','{}','hash','contract','silver/fixture','manifest',
+             CURRENT_TIMESTAMP - INTERVAL '169 hours',3,168)""")
+        with psycopg.connect(
+            host="127.0.0.1",
+            port=self.port,
+            dbname=self.database,
+            user="olist_test_reader",
+            password="isolated_test_reader",
+            autocommit=True,
+        ) as c:
+            result = report(c, limits)
+            self.assertEqual(result["status"], "UNHEALTHY")
+            self.assertEqual(result["last_success_run_id"], "first")
+            self.assertIn("order_items.pending_age_exceeded", result["issues"])
+            self.assertIn("order_items.pending_resolution_due", result["issues"])
+            self.assertEqual(result["datasets"]["order_items"]["pending_rows"], 1)
+        self.assertEqual(self.control(), before)
+        self.assertEqual(
+            self.psql("SELECT retry_status FROM audit.quarantine_records"), "PENDING"
+        )
+
+    def test_health_reports_empty_failed_and_successful_database_states(self):
+        limits = load_thresholds(
+            Path(__file__).resolve().parents[2] / "config/pipeline_health.json"
+        )
+        with self.connection() as c:
+            self.assertIn("pipeline.missing_run", report(c, limits)["issues"])
+            begin(c, "first", {"fixture": "health"})
+            fail(c, "first", 1, "verification")
+            self.assertIn("pipeline.latest_run_failed", report(c, limits)["issues"])
+            self.assertIn("orders.missing_success", report(c, limits)["issues"])
+            begin(c, "second", {"fixture": "health"})
+            fail(c, "second", 1, "verification")
+            begin(c, "first", {"fixture": "health"})
+            self.assertEqual(report(c, limits)["latest_run"]["run_id"], "first")
+            self.tasks(c, attempt=2)
+            promote(c, "first", 2, self.items(), {})
+            result = report(c, limits)
+            self.assertEqual(result["status"], "HEALTHY")
+            self.assertEqual(result["datasets"]["orders"]["processing_input_rows"], 2)

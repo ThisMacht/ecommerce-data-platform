@@ -25,6 +25,7 @@ olist-bronze-source = "olist_platform.bronze.cli:main"
 olist-silver-source = "olist_platform.silver.cli:main"
 olist-load-warehouse = "olist_platform.warehouse.cli:main"
 olist-pipeline = "olist_platform.pipeline.cli:main"
+olist-pipeline-health = "olist_platform.pipeline.health:main"
 olist-deferred = "olist_platform.deferred.cli:main"
 
 [project.optional-dependencies]

@@ -1,0 +1,9 @@
+{
+  "max_run_seconds": 1800,
+  "datasets": {
+    "customers": {"max_freshness_hours": 24, "max_reject_rate": 0.01, "max_warning_rate": 0.05, "max_pending_age_hours": 168},
+    "orders": {"max_freshness_hours": 24, "max_reject_rate": 0.01, "max_warning_rate": 0.05, "max_pending_age_hours": 168},
+    "order_items": {"max_freshness_hours": 24, "max_reject_rate": 0.01, "max_warning_rate": 0.05, "max_pending_age_hours": 168},
+    "order_payments": {"max_freshness_hours": 24, "max_reject_rate": 0.01, "max_warning_rate": 0.05, "max_pending_age_hours": 168}
+  }
+}

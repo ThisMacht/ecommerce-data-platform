@@ -427,6 +427,26 @@ Final coordinator verify remote markers/hashes cùng server-side receipts, giữ
 
 Sau failure/crash, giữ pending ID và code/config cũ rồi gọi lại `make dataset`. Task attempt cũ được giữ, resume tạo attempt mới; data-plane và deferred retries replay cùng IDs. Không chạy cùng run từ nhiều hosts/checkouts. Local namespace là manual `local_core_v1`; scheduled incremental/backfill và atomic analytics publication chưa triển khai. Xem [pipeline contract](../data_contracts/11_pipeline_control.md).
 
+### Operational health checks
+
+Sau khi export `PGHOST`, `PGPORT`, `PGDATABASE`, `PGUSER`, `PGPASSWORD` cho reader
+role, chạy `make pipeline-health`. CLI không tự export Compose `.env`. Để lưu
+JSON thuần: `uv run --locked olist-pipeline-health > build/reports/pipeline_health.json`.
+Thư mục output phải tồn tại trước khi redirect.
+
+Ngưỡng: `config/pipeline_health.json`; override bằng
+`make pipeline-health PIPELINE_HEALTH_CONFIG=<path>`. CLI exit `0` healthy, `1`
+unhealthy, `2` kiểm tra không thực hiện được; Make trả nonzero cho cả hai lỗi.
+Với CLI exit `1`, đọc `issues` cùng
+actual metrics: resume failed run bằng code/config cũ; kiểm tra nguồn reject/
+warning ở immutable Silver; xử lý pending bằng resolver với run ID mới khi
+thực hiện pass mới. Report không sửa queue hay cursors. Không chạy lại pipeline
+chỉ để xóa một issue khi chưa hiểu nguyên nhân.
+
+Freshness đo từ lần SUCCESS cuối; runtime gồm thời gian chờ resume. Defaults là
+operational limits local, chưa phải benchmark/SLA. Xem [contract](../data_contracts/11_pipeline_control.md#operational-health)
+trước khi đổi ngưỡng. Command chưa được tự lập lịch hoặc gửi thông báo.
+
 ## 21. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
