@@ -21,7 +21,7 @@ CUSTOMER_SNAPSHOT ?=
 
 .DEFAULT_GOAL := help
 
-.PHONY: help sync lint format build verify-raw profile-source validate-source-contract test-raw-tools \
+.PHONY: help dataset sync lint format build verify-raw profile-source validate-source-contract test-raw-tools \
 	test-unit test-infrastructure-config test infrastructure-up \
 	infrastructure-status infrastructure-logs infrastructure-down migrate \
 	seed-source verify-source verify-source-schema test-source-integration \
@@ -32,6 +32,7 @@ CUSTOMER_SNAPSHOT ?=
 
 help:
 	@echo "Available targets:"
+	@echo "  dataset                   Prepare local source and supported Bronze/Silver datasets automatically"
 	@echo "  sync                      Install the package and locked development tools"
 	@echo "  lint                      Check Python lint and formatting"
 	@echo "  format                    Format Python files"
@@ -67,6 +68,9 @@ help:
 
 sync:
 	$(UV) sync --locked
+
+dataset:
+	sh scripts/make_dataset.sh
 
 lint:
 	$(UV) run --locked ruff check .
@@ -106,6 +110,7 @@ test-infrastructure-config:
 	$(COMPOSE) -f $(COMPOSE_FILE) config --quiet
 	sh -n infrastructure/postgres/scripts/run_migrations.sh
 	sh -n infrastructure/postgres/scripts/run_source_seed.sh
+	sh -n scripts/make_dataset.sh
 
 test: lint validate-source-contract test-unit test-infrastructure-config
 

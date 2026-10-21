@@ -20,6 +20,16 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 
 ## Quick start
 
+Đặt đủ 9 CSV Olist canonical vào `data/raw/`, rồi chạy:
+
+```bash
+make dataset
+```
+
+[`scripts/make_dataset.sh`](scripts/make_dataset.sh) tự tạo `.env` nếu thiếu, sync dependencies, verify/seed PostgreSQL, start MinIO và chạy customers → orders Bronze/Silver, tự truyền customer snapshot cho orders FK checks. Không cần nhập run IDs, prefixes hay export local credentials; runner lấy cấu hình từ Compose và lưu kết quả trong ignored `build/reports/dataset/`. Cần Python 3.10+, uv, Docker Compose; Java 17 cho Silver (tự nhận diện JDK 17 trong `/usr/lib/jvm` nếu chưa đặt `JAVA_HOME`).
+
+Runner liệt kê cả 4 core datasets: `customers`, `orders`, `order_items`, `order_payments`. Hai bảng cuối được seed vào source nhưng Bronze/Silver chưa triển khai nên báo `SKIP`. Thiếu bất kỳ CSV nào trong snapshot 9 files thì seed/downstream được bỏ qua và liệt kê file thiếu; loader hiện không hỗ trợ partial seed. Thiếu Java thì chỉ chạy Bronze. CSV có sẵn nhưng sai checksum, migration hoặc processing lỗi sẽ dừng, không bị nuốt lỗi. Sau lỗi, gọi lại `make dataset` để resume run ID đã lưu; sau success, lần gọi tiếp tạo run mới. Chạy một runner tại một thời điểm; services/volumes được giữ lại.
+
 Prerequisites: Python `>=3.10`, [uv](https://docs.astral.sh/uv/getting-started/installation/), Docker Engine và Docker Compose.
 
 ```bash

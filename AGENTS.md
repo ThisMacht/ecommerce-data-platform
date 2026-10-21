@@ -8,7 +8,7 @@ Implemented: raw validation, PostgreSQL loading/simulation, orders/customers Bro
 - `src/olist_platform/source_simulator/`: deterministic batches and transactional apply.
 - `src/olist_platform/bronze/`: bounded extraction, durable retry and verified MinIO publication.
 - `src/olist_platform/silver/`: Spark normalization, routing and Parquet publication.
-- `scripts/`: compatibility wrappers.
+- `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
 - `tests/processing/`: Spark checks with independent expected fixtures.
 - `tests/integration/`: disposable PostgreSQL/MinIO tests. Seed tests require canonical CSVs; others use `tests/fixtures/`.
@@ -23,6 +23,7 @@ Implemented: raw validation, PostgreSQL loading/simulation, orders/customers Bro
 Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example .env`.
 
 - `make sync`: install locked dependencies.
+- `make dataset`: run available core dataset stages with automatic local configuration; skip missing inputs/unimplemented stages, fail on validation errors.
 - `make lint` / `make format`: check or format with Ruff.
 - `make build`: build wheel/sdist.
 - `make test`: Ruff, contracts, unit tests and Compose/shell checks without containers.
