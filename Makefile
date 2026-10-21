@@ -20,6 +20,9 @@ SILVER_RUN_ID ?=
 CUSTOMER_SNAPSHOT ?=
 ORDER_SNAPSHOT ?=
 BRONZE_FULL_SNAPSHOT ?=
+SILVER_PREFIX ?=
+WAREHOUSE_RUN_ID ?=
+SOURCE_TABLE ?= orders
 
 .DEFAULT_GOAL := help
 
@@ -31,7 +34,8 @@ BRONZE_FULL_SNAPSHOT ?=
 	bronze-up init-bronze ingest-orders test-bronze-integration \
 	sync-processing process-orders test-processing test-silver-integration \
 	ingest-customers process-customers test-customer-integration \
-	ingest-order-payments ingest-order-items process-order-payments process-order-items test-order-children-integration
+	ingest-order-payments ingest-order-items process-order-payments process-order-items test-order-children-integration \
+	load-warehouse test-warehouse-merge-integration test-warehouse-integration
 
 help:
 	@echo "Available targets:"
@@ -71,6 +75,9 @@ help:
 	@echo "  ingest-order-payments / ingest-order-items Extract composite-key child windows"
 	@echo "  process-order-payments / process-order-items Publish Silver; ORDER_SNAPSHOT must be full"
 	@echo "  test-order-children-integration Test items/payments publication, replay and FK routing"
+	@echo "  load-warehouse            Merge Silver valid; set SOURCE_TABLE, SILVER_PREFIX and WAREHOUSE_RUN_ID"
+	@echo "  test-warehouse-merge-integration Test PostgreSQL versions, atomic counters and replay"
+	@echo "  test-warehouse-integration Test verified Silver -> PostgreSQL staging"
 
 sync:
 	$(UV) sync --locked
@@ -244,3 +251,21 @@ test-order-children-integration:
 	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" \
 	$(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_order_children.py' -v
+
+load-warehouse:
+	@test -n "$(SILVER_PREFIX)" && test -n "$(WAREHOUSE_RUN_ID)" || (echo "Set SILVER_PREFIX and WAREHOUSE_RUN_ID" >&2; exit 2)
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m olist_platform.warehouse.cli \
+		--contract "$(SOURCE_CONTRACT)" --table "$(SOURCE_TABLE)" \
+		--silver-prefix "$(SILVER_PREFIX)" --run-id "$(WAREHOUSE_RUN_ID)"
+
+test-warehouse-merge-integration:
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
+	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	$(PYTHON) -m unittest discover -s tests/integration -p 'test_warehouse_merge.py' -v
+
+test-warehouse-integration:
+	$(COMPOSE) -f $(COMPOSE_FILE) build minio
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
+	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" \
+	$(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_warehouse_silver.py' -v

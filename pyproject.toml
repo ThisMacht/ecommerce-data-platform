@@ -23,6 +23,7 @@ olist-bronze-orders = "olist_platform.bronze.cli:main"
 olist-silver-orders = "olist_platform.silver.cli:main"
 olist-bronze-source = "olist_platform.bronze.cli:main"
 olist-silver-source = "olist_platform.silver.cli:main"
+olist-load-warehouse = "olist_platform.warehouse.cli:main"
 
 [project.optional-dependencies]
 processing = [

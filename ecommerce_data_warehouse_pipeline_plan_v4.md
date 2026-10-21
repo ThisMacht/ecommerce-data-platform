@@ -518,8 +518,8 @@ Phase này chỉ sử dụng `orders`, `customers`, `order_items` và `order_pay
 - [x] PySpark parse, cast, normalize, validate và dedupe trong batch cho bốn core datasets.
 - [x] Phân loại valid, rejected, deferred và warning; persisted deferred lifecycle còn planned.
 - [x] Ghi Silver immutable theo `run_id`.
-- [ ] Upsert Silver valid vào `raw_staging`.
-- [ ] Tính canonical `record_hash` và ghi inserted, updated, unchanged, stale-ignored counts.
+- [x] Upsert Silver valid vào bốn bảng `raw_staging` bằng transactional version-aware loader; xem `docs/data_contracts/08_warehouse_staging.md`.
+- [x] Tính canonical `record_hash` và ghi inserted, updated, unchanged, stale-ignored counts cùng data transaction trong `audit.warehouse_load_runs`. Planned DAG-level audit vẫn chưa triển khai.
 - [ ] Tạo `stg_orders`, `stg_customers`, `stg_order_items`, `stg_payments`.
 - [ ] Tạo `dim_customer` có surrogate key, `int_order_item_summary`, `int_payment_summary` và `fct_orders`.
 - [ ] Tạo `mart_revenue_daily` và `mart_average_order_value`.

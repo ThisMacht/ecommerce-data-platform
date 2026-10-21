@@ -45,7 +45,11 @@ class MakeDatasetTest(unittest.TestCase):
         Path(".env.example").write_text("POSTGRES_PASSWORD=example\n")
         environment = patch.dict(
             os.environ,
-            {"JAVA_HOME": "/fake/jdk17", "BRONZE_SOURCE_DSN": "unrelated-database"},
+            {
+                "JAVA_HOME": "/fake/jdk17",
+                "BRONZE_SOURCE_DSN": "unrelated-database",
+                "WAREHOUSE_DSN": "unrelated-warehouse",
+            },
         )
         environment.start()
         self.addCleanup(environment.stop)
@@ -83,6 +87,10 @@ class MakeDatasetTest(unittest.TestCase):
             table = args[args.index("--table") + 1]
             layer = "bronze" if "extract" in args else "silver"
             return json.dumps({"manifest": {"prefix": f"{layer}/{table}/run_id=test"}})
+        if "olist_platform.warehouse.cli" in args:
+            return json.dumps(
+                {"status": "LOADED", "counts": {"load_candidate_rows": 1}}
+            )
         return ""
 
     def invoke(self):
@@ -137,7 +145,20 @@ class MakeDatasetTest(unittest.TestCase):
         self.assertEqual(os.environ["PGPORT"], "5544")
         self.assertEqual(os.environ["PGPASSWORD"], "space $quote'")
         self.assertNotIn("BRONZE_SOURCE_DSN", os.environ)
-        self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 8)
+        self.assertNotIn("WAREHOUSE_DSN", os.environ)
+        loads = [
+            args for args in self.commands if "olist_platform.warehouse.cli" in args
+        ]
+        self.assertEqual(
+            [args[args.index("--table") + 1] for args in loads],
+            ["customers", "orders", "order_items", "order_payments"],
+        )
+        for args in loads:
+            table = args[args.index("--table") + 1]
+            self.assertEqual(
+                args[args.index("--silver-prefix") + 1], f"silver/{table}/run_id=test"
+            )
+        self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 12)
         self.assertFalse(Path("build/reports/dataset/pending-run.txt").exists())
         self.assertIn("[DONE]", output)
 
@@ -149,6 +170,9 @@ class MakeDatasetTest(unittest.TestCase):
             output = self.invoke()
         self.assertEqual(len([args for args in self.commands if "extract" in args]), 4)
         self.assertFalse(any("process" in args for args in self.commands))
+        self.assertFalse(
+            any("olist_platform.warehouse.cli" in args for args in self.commands)
+        )
         self.assertIn("[SKIP] Silver", output)
 
     def test_failed_processing_preserves_run_id_for_retry(self):
@@ -174,4 +198,29 @@ class MakeDatasetTest(unittest.TestCase):
         for args in self.commands:
             if "--run-id" in args:
                 self.assertEqual(args[args.index("--run-id") + 1], saved)
+        self.assertFalse(pending.exists())
+
+    def test_failed_warehouse_load_preserves_same_run_for_retry(self):
+        def fail(*args, **kwargs):
+            if "olist_platform.warehouse.cli" in args:
+                raise subprocess.CalledProcessError(1, "warehouse")
+            return self.command(*args, **kwargs)
+
+        with (
+            patch("scripts.make_dataset.run", side_effect=fail),
+            patch("scripts.make_dataset.shutil.which", return_value="java"),
+        ):
+            with self.assertRaises(subprocess.CalledProcessError):
+                self.invoke()
+        pending = Path("build/reports/dataset/pending-run.txt")
+        run_id = pending.read_text().strip()
+        self.commands.clear()
+        with (
+            patch("scripts.make_dataset.run", side_effect=self.command),
+            patch("scripts.make_dataset.shutil.which", return_value="java"),
+        ):
+            self.invoke()
+        for args in self.commands:
+            if "--run-id" in args:
+                self.assertEqual(args[args.index("--run-id") + 1], run_id)
         self.assertFalse(pending.exists())

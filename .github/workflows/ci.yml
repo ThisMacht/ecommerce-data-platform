@@ -68,6 +68,8 @@ jobs:
         run: make test-source-simulator-integration
       - name: Test orders Bronze ingestion with isolated PostgreSQL and MinIO
         run: make test-bronze-integration
+      - name: Test warehouse merge transactions with isolated PostgreSQL
+        run: make test-warehouse-merge-integration
 
   silver:
     name: Core datasets Spark Silver
@@ -99,3 +101,5 @@ jobs:
         run: make test-customer-integration
       - name: Test items/payments and pinned orders dependencies
         run: make test-order-children-integration
+      - name: Test verified Silver loading into PostgreSQL staging
+        run: make test-warehouse-integration

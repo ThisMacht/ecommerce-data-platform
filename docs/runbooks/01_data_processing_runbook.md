@@ -4,7 +4,7 @@
 | --- | --- |
 | System | Olist E-commerce Data Platform |
 | Owner | Data Engineering |
-| Status | Partially active — source and core Bronze/Silver; downstream planned |
+| Status | Partially active — source, core Bronze/Silver and staging; dbt/orchestration planned |
 | Last reviewed | 2026-10-21 |
 | Processing mode | Batch |
 
@@ -16,7 +16,7 @@ Tài liệu này là hướng dẫn vận hành bổ sung cho:
 - [Raw dataset manifest](../../data/raw/README.md)
 - [Source contracts](../data_contracts/02_source_contracts.md)
 
-PostgreSQL source và bốn core Bronze/Silver datasets đã được triển khai. Các mục 13–16 mô tả operations hiện có; warehouse, dbt, orchestration và các commands đánh dấu **planned** vẫn là target interface, chưa khả dụng.
+PostgreSQL source, bốn core Bronze/Silver datasets và PostgreSQL staging đã được triển khai. Các mục 13–17 mô tả operations hiện có; dbt, orchestration và các commands đánh dấu **planned** vẫn là target interface, chưa khả dụng.
 
 ## 1. Scope
 
@@ -379,7 +379,7 @@ Dùng `olist-bronze-orders verify --prefix '<manifest.prefix>'` trước khi đ�
 
 Sau verified Bronze publication, dùng Java 17, `make sync-processing` và `make process-orders BRONZE_PREFIX='<manifest.prefix>' SILVER_RUN_ID=<stable_id>`. Job đọc immutable input từ MinIO, không cần source database connection. Xác minh bằng `olist-silver-orders verify --prefix 'silver/orders/run_id=<id>'`.
 
-Retry dùng cùng run ID/input/config. Nếu chưa có sealed manifest, retry có thể compute một attempt mới; partial objects không được consumer đọc. Nếu manifest đã có, resume dùng lại sealed Parquet và hoàn tất marker; replay sau success trả `NOOP`. Không xóa/sửa request hoặc manifest để reuse ID với input khác. Customer FK/deferred routing đã có ở mục 15; persisted deferred lifecycle, warehouse và watermark promotion vẫn planned. Xem [Silver contract](../data_contracts/05_orders_silver.md); chạy `make test-processing` và `make test-silver-integration` sau thay đổi rules/publication.
+Retry dùng cùng run ID/input/config. Nếu chưa có sealed manifest, retry có thể compute một attempt mới; partial objects không được consumer đọc. Nếu manifest đã có, resume dùng lại sealed Parquet và hoàn tất marker; replay sau success trả `NOOP`. Không xóa/sửa request hoặc manifest để reuse ID với input khác. Customer FK/deferred routing đã có ở mục 15; persisted deferred lifecycle và watermark promotion vẫn planned; staging đã có ở mục 17. Xem [Silver contract](../data_contracts/05_orders_silver.md); chạy `make test-processing` và `make test-silver-integration` sau thay đổi rules/publication.
 
 ## 15. Implemented customer snapshots and FK routing
 
@@ -395,7 +395,15 @@ Truyền `ORDER_SNAPSHOT=<full orders Silver prefix>` vào `make process-order-i
 
 Retry giữ nguyên run/input/config. Parent mới cần Silver ID mới và original child Bronze; không sửa old outputs. Nếu có pending orders run của runner cũ dùng incremental mode, resume bằng config cũ trước khi chuyển full mode. Xem [contract](../data_contracts/07_order_children.md); chạy `make test-order-children-integration` sau thay đổi.
 
-## 17. Change control
+## 17. Implemented PostgreSQL staging loads
+
+Apply migration `006`; dùng Java 17, `WAREHOUSE_DSN` hoặc `PG*`, cùng S3 credentials như Bronze. Chạy `make load-warehouse SOURCE_TABLE=<table> SILVER_PREFIX=<prefix> WAREHOUSE_RUN_ID=<id>`. `make dataset` tự load sau từng Silver dataset và lưu `*_warehouse.json` cạnh reports Bronze/Silver.
+
+Đối chiếu `audit.warehouse_load_runs`: load candidates bằng Silver valid; inserted + updated + unchanged + stale ignored phải bằng candidates. Source sequence quyết định version, không dùng timestamp. Same-version khác hash là integrity failure; không sửa target để ép pass. Retry cùng input/run ID sau lỗi sẽ rollback/replay an toàn; nếu đã commit thì trả `NOOP` với counters cũ. Parent snapshot khác cần Silver ID mới và warehouse load ID mới.
+
+Data/audit commit cùng transaction, theo từng dataset; toàn bộ bốn datasets chưa atomic như một pipeline. dbt và end-to-end watermark chưa triển khai. Run ID conflict, checksum/schema mismatch hoặc conflict version phải giữ evidence để điều tra. Xem [staging contract](../data_contracts/08_warehouse_staging.md); chạy cả hai warehouse integration suites sau thay đổi.
+
+## 18. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 

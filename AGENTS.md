@@ -2,12 +2,13 @@
 
 ## Project Structure & Module Organization
 
-Implemented: raw validation, PostgreSQL loading/simulation, four core Bronze/Silver datasets and pinned customer/orders FK checks.
+Implemented: raw validation, source simulation, four core Bronze/Silver datasets, pinned FK checks and transactional PostgreSQL staging.
 
 - `src/olist_platform/raw/`: manifests, profiling, contracts.
 - `src/olist_platform/source_simulator/`: deterministic batches and transactional apply.
 - `src/olist_platform/bronze/`: bounded extraction, durable retry and verified MinIO publication.
 - `src/olist_platform/silver/`: Spark normalization, routing and Parquet publication.
+- `src/olist_platform/warehouse/`: verified Silver loading, canonical hashes and version-aware merges.
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
 - `tests/processing/`: Spark checks with independent expected fixtures.
@@ -40,6 +41,8 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make process-order-items` / `make process-order-payments`: require `ORDER_SNAPSHOT=<full orders Silver prefix>`.
 - `make ingest-orders BRONZE_RUN_ID=<id> BRONZE_FULL_SNAPSHOT=1`: full orders parent; default remains incremental.
 - `make test-order-children-integration`: verify child datasets and pinned orders dependencies.
+- `make load-warehouse SOURCE_TABLE=<table> SILVER_PREFIX=<prefix> WAREHOUSE_RUN_ID=<id>`: load staging via `WAREHOUSE_DSN`/`PG*`.
+- `make test-warehouse-merge-integration` / `make test-warehouse-integration`: transactional merge and verified Silver loading checks.
 - `make test-bronze-integration`: test disposable PostgreSQL/MinIO.
 - `make sync-processing`: install locked Spark extra; use Java 17.
 - `make process-orders BRONZE_PREFIX=<prefix> SILVER_RUN_ID=<id>`: publish/resume Silver.
@@ -67,3 +70,5 @@ Bronze: `BRONZE_SOURCE_DSN`/`PG*` and AWS credentials. Resume unfinished run IDs
 Use full customer snapshots for FK checks. Snapshot hashes are immutable per Silver run; reprocess with a new run ID when dependencies change. Deferred persistence/expiry remains planned.
 
 Child FK checks require full orders snapshots; never use a delta as a complete parent key set. Preserve composite grain and decimal money. Products/sellers membership is not yet checked.
+
+Warehouse uses authoritative `source_sequence`, versioned business hashes and atomic data/audit commits. Never overwrite newer records or change an existing load request. Staging success does not promote the pipeline watermark.

@@ -6,7 +6,7 @@ Status: **Active — orders-only extraction slice, format version 1**. Python CL
 
 Full customer snapshots dùng chung engine nhưng state/mode riêng, được mô tả trong [Customer Snapshots](06_customer_snapshots.md); orders vẫn dùng bounded lookback như contract này.
 
-Đã có [orders PySpark/Silver slice](05_orders_silver.md); Airflow, warehouse và end-to-end watermark còn planned. `audit.bronze_orders_control` chỉ xác nhận delivery vào Bronze; không thay thế `audit.pipeline_control` dự kiến commit sau downstream reconciliation. Bronze thành công chưa có nghĩa toàn pipeline thành công.
+Đã có [orders PySpark/Silver slice](05_orders_silver.md); [warehouse staging](08_warehouse_staging.md) đã có; Airflow, dbt marts và end-to-end watermark còn planned. `audit.bronze_orders_control` chỉ xác nhận delivery vào Bronze; không thay thế `audit.pipeline_control` dự kiến commit sau downstream reconciliation. Bronze thành công chưa có nghĩa toàn pipeline thành công.
 
 ## Extraction and cursor
 

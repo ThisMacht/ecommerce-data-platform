@@ -78,6 +78,11 @@ class InstalledCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("{process,verify}", result.stdout)
 
+    def test_warehouse_cli_is_installed_without_requiring_spark_for_help(self):
+        result = self.run_command("olist-load-warehouse", "--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--silver-prefix", result.stdout)
+
     def test_verify_rejects_modified_snapshot(self) -> None:
         self.csv_path.write_bytes(
             self.csv_path.read_bytes().replace(b"10.50", b"99.99")

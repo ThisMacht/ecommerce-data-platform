@@ -4,7 +4,7 @@
 
 Status: **Active — full customers Bronze/Silver và optional orders FK routing**. Source contract vẫn là `1.0.0`. Customer artifacts dùng `customers-bronze-v1` / `customers-silver-v1`; orders có parent snapshot dùng `orders-silver-v2`. Orders Bronze windows và `orders-silver-v1` local-rule mode giữ nguyên contract/replay behavior.
 
-Slice này thêm parent membership checks và explicit reprocessing khi parent xuất hiện. Persistent deferred queue, attempt/age limits, quarantine database, warehouse merge và end-to-end watermark vẫn planned.
+Slice này thêm parent membership checks và explicit reprocessing khi parent xuất hiện. Persistent deferred queue, attempt/age limits, quarantine database và end-to-end watermark vẫn planned. Warehouse staging đã có theo [contract](08_warehouse_staging.md).
 
 ## Full customer snapshots
 

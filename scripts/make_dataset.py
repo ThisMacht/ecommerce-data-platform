@@ -69,6 +69,7 @@ def main() -> None:
     )
     # Match the services we just configured, even if the caller exported another DSN.
     os.environ.pop("BRONZE_SOURCE_DSN", None)
+    os.environ.pop("WAREHOUSE_DSN", None)
     run("make", "seed-source", "verify-source")
     run("make", "bronze-up", "init-bronze")
 
@@ -155,6 +156,29 @@ def main() -> None:
         )
         snapshots[table] = output["manifest"]["prefix"]
         print(f"[OK] {table} Silver: {output['manifest']['prefix']}", flush=True)
+        loaded = json.loads(
+            run(
+                "uv",
+                "run",
+                "--locked",
+                "--extra",
+                "processing",
+                "python",
+                "-m",
+                "olist_platform.warehouse.cli",
+                "--table",
+                table,
+                "--silver-prefix",
+                output["manifest"]["prefix"],
+                "--run-id",
+                run_id,
+                capture=True,
+            )
+        )
+        (reports / f"{run_id}_{table}_warehouse.json").write_text(
+            json.dumps(loaded, indent=2) + "\n"
+        )
+        print(f"[OK] {table} staging: {loaded['counts']}", flush=True)
     pending.unlink()
     print(f"[DONE] Reports: {reports}/{run_id}_*.json", flush=True)
 

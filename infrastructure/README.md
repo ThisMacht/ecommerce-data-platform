@@ -70,6 +70,8 @@ Migration `004` thêm customer snapshot control/run/page tables riêng. `make in
 
 Migration `005` tạo Bronze control/run/page tables riêng cho `order_items` và `order_payments`. Hai bảng dùng composite cursors và cùng publication/recovery boundary. `make test-order-children-integration` kiểm tra child Silver với pinned full orders snapshots; xem [contract](../docs/data_contracts/07_order_children.md). Migrations cũ giữ nguyên checksum.
 
+Migration `006` thêm bốn bảng `raw_staging` và `audit.warehouse_load_runs`, dùng existing loader/reader roles. `make load-warehouse` đọc verified Silver và merge theo `source_sequence`; retry giữ nguyên run/input. `make test-warehouse-merge-integration` chỉ cần disposable PostgreSQL; `make test-warehouse-integration` thêm MinIO/Spark. Xem [contract](../docs/data_contracts/08_warehouse_staging.md).
+
 ## TODO
 
 - `TODO(phase-1)`: thêm Airflow và dbt với executable workflows/models.
