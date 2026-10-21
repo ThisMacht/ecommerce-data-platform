@@ -1,6 +1,6 @@
 # Olist E-commerce Data Platform
 
-Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source simulator, immutable Bronze/Silver layers, warehouse models và dashboards. Hiện đã có source validation, PostgreSQL source layer/simulator và orders Bronze/PySpark Silver slices trên MinIO; các phase sau được theo dõi trong [Pipeline Implementation Plan](ecommerce_data_warehouse_pipeline_plan_v4.md).
+Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source simulator, immutable Bronze/Silver layers, warehouse models và dashboards. Hiện đã có source validation, PostgreSQL source layer/simulator và bốn core datasets Bronze/PySpark Silver trên MinIO; các phase sau được theo dõi trong [Pipeline Implementation Plan](ecommerce_data_warehouse_pipeline_plan_v4.md).
 
 ## Current status
 
@@ -12,9 +12,10 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Dockerized PostgreSQL, migrations and source seed | Implemented |
 | Live schema contract checks and isolated source integration tests | Implemented |
 | Source simulator mutation batches | Implemented — 4 core tables |
-| Bounded orders extraction and immutable Bronze on MinIO | Implemented — orders-only CLI slice |
+| Bounded extraction and immutable Bronze on MinIO | Implemented — all four core datasets; full parent snapshots |
 | Orders PySpark normalization, routing and immutable Silver Parquet | Implemented — local rules and optional customer FK/deferred routing |
 | Full customer snapshots and normalized customer Silver | Implemented — parent manifest/hash pinned to orders runs |
+| Items/payments Silver with composite grain and decimal money | Implemented — pinned full orders FK checks; product/seller membership remains planned |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
 | Airflow, dbt and Metabase | TODO — later phases |
 
@@ -26,9 +27,9 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 make dataset
 ```
 
-[`scripts/make_dataset.sh`](scripts/make_dataset.sh) tự tạo `.env` nếu thiếu, sync dependencies, verify/seed PostgreSQL, start MinIO và chạy customers → orders Bronze/Silver, tự truyền customer snapshot cho orders FK checks. Không cần nhập run IDs, prefixes hay export local credentials; runner lấy cấu hình từ Compose và lưu kết quả trong ignored `build/reports/dataset/`. Cần Python 3.10+, uv, Docker Compose; Java 17 cho Silver (tự nhận diện JDK 17 trong `/usr/lib/jvm` nếu chưa đặt `JAVA_HOME`).
+[`scripts/make_dataset.sh`](scripts/make_dataset.sh) tự tạo `.env` nếu thiếu, sync dependencies, verify/seed PostgreSQL, start MinIO và chạy customers → full orders → order_items → order_payments Bronze/Silver, tự truyền parent snapshots cho FK checks. Không cần nhập run IDs, prefixes hay export local credentials; runner lấy cấu hình từ Compose và lưu kết quả trong ignored `build/reports/dataset/`. Cần Python 3.10+, uv, Docker Compose; Java 17 cho Silver (tự nhận diện JDK 17 trong `/usr/lib/jvm` nếu chưa đặt `JAVA_HOME`).
 
-Runner liệt kê cả 4 core datasets: `customers`, `orders`, `order_items`, `order_payments`. Hai bảng cuối được seed vào source nhưng Bronze/Silver chưa triển khai nên báo `SKIP`. Thiếu bất kỳ CSV nào trong snapshot 9 files thì seed/downstream được bỏ qua và liệt kê file thiếu; loader hiện không hỗ trợ partial seed. Thiếu Java thì chỉ chạy Bronze. CSV có sẵn nhưng sai checksum, migration hoặc processing lỗi sẽ dừng, không bị nuốt lỗi. Sau lỗi, gọi lại `make dataset` để resume run ID đã lưu; sau success, lần gọi tiếp tạo run mới. Chạy một runner tại một thời điểm; services/volumes được giữ lại.
+Runner xử lý cả 4 core datasets. Thiếu bất kỳ CSV nào trong snapshot 9 files thì seed/downstream được bỏ qua và liệt kê file thiếu; loader hiện không hỗ trợ partial seed. Thiếu Java thì chỉ chạy Bronze. CSV có sẵn nhưng sai checksum, migration hoặc processing lỗi sẽ dừng, không bị nuốt lỗi. Sau lỗi, gọi lại `make dataset` để resume run ID đã lưu; sau success, lần gọi tiếp tạo run mới. Chạy một runner tại một thời điểm; services/volumes được giữ lại. Pending orders run từ phiên bản runner cũ phải hoàn tất bằng config cũ trước khi chuyển sang full mode; xem [contract](docs/data_contracts/07_order_children.md).
 
 Prerequisites: Python `>=3.10`, [uv](https://docs.astral.sh/uv/getting-started/installation/), Docker Engine và Docker Compose.
 
@@ -160,6 +161,12 @@ Chạy `make bronze-up`, export database/S3 environment, `make init-bronze`, r�
 Sau Bronze, dùng Java 17, `make sync-processing`, rồi `make process-orders BRONZE_PREFIX='<manifest.prefix>' SILVER_RUN_ID=<stable_id>`. Spark chuẩn hóa strings/timezone, giữ version mới nhất, phân loại valid/rejected/duplicates và publish Parquet immutable có manifest/reconciliation. Warning là subset của valid.
 
 Muốn kiểm tra customer FK, tạo full customer Bronze/Silver bằng `make ingest-customers` và `make process-customers`, rồi truyền `CUSTOMER_SNAPSHOT=<customer Silver prefix>` khi process orders. Orders thiếu parent vào deferred; dùng snapshot mới và Silver run ID mới để reprocess cùng Bronze input. Xem [customer contract](docs/data_contracts/06_customer_snapshots.md). Persistent deferred/quarantine lifecycle và warehouse load vẫn planned; Silver không promote end-to-end watermark.
+
+## Order items and payments
+
+Bronze hỗ trợ composite cursors, decimal-as-string và checkpoint độc lập cho hai bảng con. Silver dùng toàn bộ business key, `decimal(18,2)` và bắt buộc full orders snapshot để kiểm tra FK; missing orders vào deferred. Tạo parent bằng `make ingest-orders BRONZE_RUN_ID=<id> BRONZE_FULL_SNAPSHOT=1`, rồi process orders và truyền `ORDER_SNAPSHOT=<orders Silver prefix>` cho `make process-order-items` / `make process-order-payments`.
+
+Items hiện chỉ kiểm tra product/seller ID không thiếu; membership chưa được xác minh. Xem [contract và commands](docs/data_contracts/07_order_children.md). Chạy `make test-order-children-integration` sau thay đổi; suite dùng fixtures và disposable services.
 
 ## License
 

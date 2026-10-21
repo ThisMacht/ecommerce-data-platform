@@ -1,4 +1,4 @@
-"""Extract orders windows or full customer snapshots into immutable Bronze."""
+"""Extract core source tables into immutable Bronze."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from botocore.exceptions import BotoCoreError, ClientError
 
 from olist_platform.raw.contracts import ContractError, load_contract
 
-from .extraction import ingest_source
+from .extraction import KEYS, ingest_source
 from .storage import BronzeError, ObjectStore, s3_client, verify_published
 
 
@@ -29,12 +29,17 @@ def main() -> int:
     parser.add_argument(
         "--bucket", default=os.environ.get("BRONZE_S3_BUCKET", "olist-bronze")
     )
-    parser.add_argument("--table", choices=("orders", "customers"), default="orders")
+    parser.add_argument("--table", choices=tuple(KEYS), default="orders")
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("init", help="Create the bucket if absent")
     extract = commands.add_parser("extract", help="Prepare or resume a named run")
     extract.add_argument("--run-id", required=True)
     extract.add_argument("--page-size", type=int, default=1000)
+    extract.add_argument(
+        "--full-snapshot",
+        action="store_true",
+        help="Full orders snapshot for child FK checks",
+    )
     verify = commands.add_parser(
         "verify", help="Verify a published manifest and all objects"
     )
@@ -56,7 +61,7 @@ def main() -> int:
                 os.environ.get("BRONZE_SOURCE_DSN", ""),
                 autocommit=True,
                 connect_timeout=10,
-                application_name="olist-bronze-orders",
+                application_name=f"olist-bronze-{arguments.table}",
             ) as connection:
                 result = ingest_source(
                     connection,
@@ -66,6 +71,7 @@ def main() -> int:
                     endpoint=arguments.endpoint,
                     page_size=arguments.page_size,
                     table=arguments.table,
+                    full_snapshot=arguments.full_snapshot,
                 )
         print(json.dumps(result, ensure_ascii=False))
         return 0

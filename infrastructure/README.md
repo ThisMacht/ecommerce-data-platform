@@ -68,6 +68,8 @@ Spark hiện chạy trên host bằng optional `processing` extra, không có pl
 
 Migration `004` thêm customer snapshot control/run/page tables riêng. `make ingest-customers` đọc full snapshot, không dùng orders lookback; `make process-customers` publish customer Silver để orders dùng qua `CUSTOMER_SNAPSHOT`. `make test-customer-integration` kiểm tra late parents và pinned snapshot recovery. Xem [contract](../docs/data_contracts/06_customer_snapshots.md).
 
+Migration `005` tạo Bronze control/run/page tables riêng cho `order_items` và `order_payments`. Hai bảng dùng composite cursors và cùng publication/recovery boundary. `make test-order-children-integration` kiểm tra child Silver với pinned full orders snapshots; xem [contract](../docs/data_contracts/07_order_children.md). Migrations cũ giữ nguyên checksum.
+
 ## TODO
 
 - `TODO(phase-1)`: thêm Airflow và dbt với executable workflows/models.

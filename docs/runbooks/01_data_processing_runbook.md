@@ -4,8 +4,8 @@
 | --- | --- |
 | System | Olist E-commerce Data Platform |
 | Owner | Data Engineering |
-| Status | Draft — pre-implementation |
-| Last reviewed | 2026-07-28 |
+| Status | Partially active — source and core Bronze/Silver; downstream planned |
+| Last reviewed | 2026-10-21 |
 | Processing mode | Batch |
 
 Runbook này định nghĩa quy trình vận hành dự kiến để xử lý snapshot nguồn Olist qua Bronze, Silver, các model warehouse PostgreSQL và analytics marts. Tài liệu mô tả các execution gates, cách xử lý lỗi, rerun và backfill. Runbook phải được cập nhật khi implementation details hoặc operational commands thay đổi.
@@ -16,7 +16,7 @@ Tài liệu này là hướng dẫn vận hành bổ sung cho:
 - [Raw dataset manifest](../../data/raw/README.md)
 - [Source contracts](../data_contracts/02_source_contracts.md)
 
-Repository hiện đang ở Phase 0. PostgreSQL source path đã được triển khai; các command được đánh dấu **planned** vẫn chỉ là target interface và không được xem là khả dụng.
+PostgreSQL source và bốn core Bronze/Silver datasets đã được triển khai. Các mục 13–16 mô tả operations hiện có; warehouse, dbt, orchestration và các commands đánh dấu **planned** vẫn là target interface, chưa khả dụng.
 
 ## 1. Scope
 
@@ -379,7 +379,7 @@ Dùng `olist-bronze-orders verify --prefix '<manifest.prefix>'` trước khi đ�
 
 Sau verified Bronze publication, dùng Java 17, `make sync-processing` và `make process-orders BRONZE_PREFIX='<manifest.prefix>' SILVER_RUN_ID=<stable_id>`. Job đọc immutable input từ MinIO, không cần source database connection. Xác minh bằng `olist-silver-orders verify --prefix 'silver/orders/run_id=<id>'`.
 
-Retry dùng cùng run ID/input/config. Nếu chưa có sealed manifest, retry có thể compute một attempt mới; partial objects không được consumer đọc. Nếu manifest đã có, resume dùng lại sealed Parquet và hoàn tất marker; replay sau success trả `NOOP`. Không xóa/sửa request hoặc manifest để reuse ID với input khác. Kiểm tra customer FK/deferred, warehouse và watermark promotion vẫn planned. Xem [Silver contract](../data_contracts/05_orders_silver.md); chạy `make test-processing` và `make test-silver-integration` sau thay đổi rules/publication.
+Retry dùng cùng run ID/input/config. Nếu chưa có sealed manifest, retry có thể compute một attempt mới; partial objects không được consumer đọc. Nếu manifest đã có, resume dùng lại sealed Parquet và hoàn tất marker; replay sau success trả `NOOP`. Không xóa/sửa request hoặc manifest để reuse ID với input khác. Customer FK/deferred routing đã có ở mục 15; persisted deferred lifecycle, warehouse và watermark promotion vẫn planned. Xem [Silver contract](../data_contracts/05_orders_silver.md); chạy `make test-processing` và `make test-silver-integration` sau thay đổi rules/publication.
 
 ## 15. Implemented customer snapshots and FK routing
 
@@ -387,7 +387,15 @@ Chạy migration `004`, `make ingest-customers BRONZE_RUN_ID=<id>` và `make pro
 
 Nếu parent tới muộn, tạo full customer snapshot mới và reprocess **original orders Bronze prefix** bằng **Silver run ID mới**. Không thay dependency của run đã seal và không sửa old deferred outputs. Parent hash/contract/counts phải được verify; locally invalid orders vẫn reject trước missing-parent routing. Đây là explicit reprocessing, chưa có persisted deferred queue/expiry. Xem [customer contract](../data_contracts/06_customer_snapshots.md); chạy `make test-customer-integration` sau thay đổi.
 
-## 16. Change control
+## 16. Implemented order items and payments
+
+Sau migration `005`, dùng `make ingest-order-items` / `make ingest-order-payments` với stable `BRONZE_RUN_ID`. Tạo full orders parent bằng `make ingest-orders BRONZE_RUN_ID=<id> BRONZE_FULL_SNAPSHOT=1`, rồi process orders. Default incremental orders không đủ làm toàn bộ parent set.
+
+Truyền `ORDER_SNAPSHOT=<full orders Silver prefix>` vào `make process-order-items` / `make process-order-payments`, cùng `BRONZE_PREFIX` và `SILVER_RUN_ID`. Runner `make dataset` tự thực hiện bốn datasets theo dependency order. Thiếu order vào deferred; locally invalid records vẫn reject. Product/seller membership chưa triển khai, được ghi rõ trong manifest.
+
+Retry giữ nguyên run/input/config. Parent mới cần Silver ID mới và original child Bronze; không sửa old outputs. Nếu có pending orders run của runner cũ dùng incremental mode, resume bằng config cũ trước khi chuyển full mode. Xem [contract](../data_contracts/07_order_children.md); chạy `make test-order-children-integration` sau thay đổi.
+
+## 17. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 

@@ -1,4 +1,4 @@
-"""Normalize verified orders batches or customer snapshots into Silver Parquet."""
+"""Normalize verified core Bronze batches into immutable Silver Parquet."""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ from pathlib import Path
 
 from botocore.exceptions import BotoCoreError, ClientError
 
+from olist_platform.bronze.extraction import KEYS
 from olist_platform.bronze.storage import BronzeError, ObjectStore, s3_client
 from olist_platform.raw.contracts import ContractError, load_contract
 
@@ -28,12 +29,16 @@ def main() -> int:
     parser.add_argument(
         "--bucket", default=os.environ.get("BRONZE_S3_BUCKET", "olist-bronze")
     )
-    parser.add_argument("--table", choices=("orders", "customers"), default="orders")
+    parser.add_argument("--table", choices=tuple(KEYS), default="orders")
     commands = parser.add_subparsers(dest="command", required=True)
     process = commands.add_parser("process")
     process.add_argument("--bronze-prefix", required=True)
     process.add_argument("--run-id", required=True)
     process.add_argument("--master", default="local[2]")
+    process.add_argument(
+        "--order-snapshot",
+        help="Verified full orders Silver prefix; required for items/payments FK routing",
+    )
     process.add_argument(
         "--customer-snapshot",
         help="Verified full customer Silver prefix; enables orders FK routing",
@@ -67,6 +72,7 @@ def main() -> int:
                 run_id=arguments.run_id,
                 table=arguments.table,
                 customer_snapshot=arguments.customer_snapshot,
+                order_snapshot=arguments.order_snapshot,
             )
         print(json.dumps(result, ensure_ascii=False))
         return 0

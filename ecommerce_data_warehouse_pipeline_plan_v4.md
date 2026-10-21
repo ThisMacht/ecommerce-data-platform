@@ -509,14 +509,15 @@ Phase này chỉ sử dụng `orders`, `customers`, `order_items` và `order_pay
 
 - [ ] Airflow extract một bounded incremental window từ PostgreSQL source.
 - [x] Implement orders CLI slice: bounded PostgreSQL snapshot → immutable JSONL Bronze trên MinIO, manifest/checksum/lineage và retry-safe Bronze-only checkpoint.
-- [x] Implement orders-only PySpark/Silver slice: timezone normalization, local validation, version dedupe, Parquet routes và immutable publication/replay; customer FK/deferred lifecycle chưa có.
+- [x] Implement orders PySpark/Silver slice: timezone normalization, local validation, version dedupe, Parquet routes và immutable publication/replay.
 - [x] Add full customers Bronze/Silver and orders customer FK/deferred routing with pinned snapshot hashes; explicit late-parent reprocessing preserves original lineage. Persisted deferred lifecycle/expiry and warehouse remain planned.
-- [ ] Ghi Bronze immutable theo `ingestion_date`, `run_id` và attempt path.
-- [ ] Tạo Bronze manifest, checksum, schema fingerprint và `_SUCCESS` marker.
-- [ ] Bổ sung physical `_record_uid`, `_logical_record_uid`, source version và ingestion metadata.
-- [ ] PySpark parse, cast, normalize, validate và dedupe trong batch.
-- [ ] Phân loại valid, rejected, deferred và warning.
-- [ ] Ghi Silver immutable theo `run_id`.
+- [x] Add `order_items`/`order_payments` Bronze/Silver: composite keys, decimal money, full orders snapshots and pinned FK checks; product/seller membership remains planned. See `docs/data_contracts/07_order_children.md`.
+- [x] Ghi Bronze immutable theo `ingestion_date`, `run_id` và attempt path cho bốn core datasets.
+- [x] Tạo Bronze manifest, checksum, schema fingerprint và `_SUCCESS` marker.
+- [x] Bổ sung physical `_record_uid`, `_logical_record_uid`, source version và ingestion metadata.
+- [x] PySpark parse, cast, normalize, validate và dedupe trong batch cho bốn core datasets.
+- [x] Phân loại valid, rejected, deferred và warning; persisted deferred lifecycle còn planned.
+- [x] Ghi Silver immutable theo `run_id`.
 - [ ] Upsert Silver valid vào `raw_staging`.
 - [ ] Tính canonical `record_hash` và ghi inserted, updated, unchanged, stale-ignored counts.
 - [ ] Tạo `stg_orders`, `stg_customers`, `stg_order_items`, `stg_payments`.
@@ -538,12 +539,13 @@ bronze/orders/
 
 Silver output có dạng:
 
-Orders slice hiện dùng `silver/orders/run_id=<id>/attempt=<uuid>/<valid|rejected|duplicates>/part-*.parquet` cùng run-level request/manifest/marker; xem `docs/data_contracts/05_orders_silver.md`. Layout bên dưới là mục tiêu cho nhiều datasets và deferred routing.
+Core datasets hiện dùng layout dưới đây cùng run-level request/manifest/marker; deferred chỉ xuất hiện khi có dependency routing. Xem contracts `05`–`07` trong `docs/data_contracts/`.
 
 ```text
-silver/orders/valid/run_id=.../
-silver/orders/rejected/run_id=.../
-silver/orders/deferred/run_id=.../
+silver/<table>/run_id=<id>/request.json
+silver/<table>/run_id=<id>/manifest.json
+silver/<table>/run_id=<id>/_SUCCESS
+silver/<table>/run_id=<id>/attempt=<uuid>/<valid|rejected|deferred|duplicates>/part-*.parquet
 ```
 
 Mỗi Silver run cũng có manifest và chỉ được downstream đọc sau `_SUCCESS`. Warning records nằm trong valid output với danh sách `warning_rule_ids`, không tạo một bản sao ở path riêng.

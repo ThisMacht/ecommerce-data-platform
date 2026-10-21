@@ -9,6 +9,38 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests/fixtures/silver"
 
 
+def child_rows(table: str) -> list[dict]:
+    base = {
+        "source_updated_at": "2020-01-01T00:00:00+00:00",
+        "source_loaded_at": "2020-01-01T00:00:00+00:00",
+        "source_operation": "INSERT",
+        "source_batch_id": "child_fixture",
+    }
+    base.update(
+        {
+            "product_id": " product ",
+            "seller_id": " seller ",
+            "shipping_limit_date": "2018-01-01T12:00:00",
+            "price": "10.50",
+            "freight_value": "1.25",
+        }
+        if table == "order_items"
+        else {
+            "payment_type": " CREDIT_CARD ",
+            "payment_installments": 1,
+            "payment_value": "10.50",
+        }
+    )
+    result = []
+    for number, value in enumerate(
+        json.loads((FIXTURES / f"{table}_dirty.json").read_text()), 1
+    ):
+        row = base | value
+        row.update(_record_uid=f"child-{number:02}", _raw_payload=encode(row).decode())
+        result.append(row)
+    return result
+
+
 def rows() -> list[dict]:
     base = {
         "customer_id": "customer_a",

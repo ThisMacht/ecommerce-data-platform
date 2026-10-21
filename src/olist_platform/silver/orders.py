@@ -60,7 +60,11 @@ def input_schema(contract: dict, table: str = "orders") -> T.StructType:
     specification = next(t for t in contract["tables"] if t["table"] == table)
     fields = []
     for column in specification["columns"] + contract["metadata_columns"]:
-        kind = T.LongType() if column["name"] == "source_sequence" else T.StringType()
+        kind = (
+            T.LongType()
+            if column["postgres_type"] in ("bigint", "integer")
+            else T.StringType()
+        )
         fields.append(T.StructField(column["name"], kind))
     fields.extend(
         T.StructField(

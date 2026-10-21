@@ -1,0 +1,15 @@
+[
+  {"order_id":" a ","order_item_id":1,"source_sequence":1},
+  {"order_id":"a","order_item_id":1,"source_sequence":2,"price":"11.25"},
+  {"order_id":"a","order_item_id":2,"source_sequence":3,"price":"0.00","freight_value":"0.00"},
+  {"order_id":"late","order_item_id":1,"source_sequence":4},
+  {"order_id":"bad_money","order_item_id":1,"source_sequence":5,"price":"1.001"},
+  {"order_id":"bad_number","order_item_id":0,"source_sequence":6},
+  {"order_id":"bad_product","order_item_id":1,"source_sequence":7,"product_id":" "},
+  {"order_id":"bad_seller","order_item_id":1,"source_sequence":8,"seller_id":null},
+  {"order_id":null,"order_item_id":1,"source_sequence":9},
+  {"order_id":"dst_gap","order_item_id":1,"source_sequence":10,"shipping_limit_date":"2018-11-04T00:30:00"},
+  {"order_id":"dst_fold","order_item_id":1,"source_sequence":11,"shipping_limit_date":"2018-02-17T23:30:00"},
+  {"order_id":"offset","order_item_id":1,"source_sequence":12,"shipping_limit_date":"2018-01-01T12:00:00Z"},
+  {"order_id":"negative","order_item_id":1,"source_sequence":13,"freight_value":"-1.00"}
+]

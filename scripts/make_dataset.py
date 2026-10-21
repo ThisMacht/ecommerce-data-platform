@@ -33,11 +33,6 @@ def main() -> None:
             f"[{'SKIP' if name in missing else 'FOUND'}] {table}: data/raw/{name}",
             flush=True,
         )
-    for table in ("order_items", "order_payments"):
-        print(
-            f"[SKIP] {table} Bronze/Silver: not implemented; included in source seed",
-            flush=True,
-        )
     if missing:
         print(
             "[SKIP] Source seed and downstream: the loader requires the complete 9-file snapshot."
@@ -48,12 +43,12 @@ def main() -> None:
 
     if not Path(".env").exists():
         shutil.copyfile(".env.example", ".env")
-    run("uv", "sync", "--locked")
+    run("uv", "sync", "--locked", "--inexact")
     compose = ("docker", "compose", "-f", "infrastructure/docker-compose.yml")
     # Let Compose parse .env; never execute its contents as shell code.
-    config = json.loads(run(*compose, "config", "--format", "json", capture=True))[
-        "services"
-    ]
+    config = json.loads(
+        run(*compose, "--profile", "*", "config", "--format", "json", capture=True)
+    )["services"]
     postgres = config["postgres"]["environment"]
     loader = config["source-loader"]["environment"]
     minio = config["minio"]["environment"]
@@ -108,10 +103,8 @@ def main() -> None:
     # shortcut: one local operator; use orchestration before concurrent wrapper runs.
     pending.write_text(run_id + "\n")
     print(f"[RUN] {run_id}; rerun make dataset after failure to resume", flush=True)
-    parent = None
+    snapshots = {}
     for table in CORE_TABLES:
-        if table not in ("customers", "orders"):
-            continue
         bronze = json.loads(
             run(
                 "uv",
@@ -125,6 +118,7 @@ def main() -> None:
                 "extract",
                 "--run-id",
                 run_id,
+                *(["--full-snapshot"] if table == "orders" else []),
                 capture=True,
             )
         )
@@ -152,13 +146,14 @@ def main() -> None:
             run_id,
         ]
         if table == "orders":
-            arguments.extend(["--customer-snapshot", parent])
+            arguments.extend(["--customer-snapshot", snapshots["customers"]])
+        elif table in ("order_items", "order_payments"):
+            arguments.extend(["--order-snapshot", snapshots["orders"]])
         output = json.loads(run(*arguments, capture=True))
         (reports / f"{run_id}_{table}_silver.json").write_text(
             json.dumps(output, indent=2) + "\n"
         )
-        if table == "customers":
-            parent = output["manifest"]["prefix"]
+        snapshots[table] = output["manifest"]["prefix"]
         print(f"[OK] {table} Silver: {output['manifest']['prefix']}", flush=True)
     pending.unlink()
     print(f"[DONE] Reports: {reports}/{run_id}_*.json", flush=True)

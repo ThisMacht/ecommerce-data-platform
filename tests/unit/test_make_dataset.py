@@ -54,6 +54,8 @@ class MakeDatasetTest(unittest.TestCase):
     def command(self, *args, capture=False):
         self.commands.append(args)
         if args[:2] == ("docker", "compose"):
+            self.assertIn("--profile", args, "Job services are hidden without profiles")
+            self.assertEqual(args[args.index("--profile") + 1], "*")
             return json.dumps(
                 {
                     "services": {
@@ -94,7 +96,7 @@ class MakeDatasetTest(unittest.TestCase):
             output = self.invoke()
         command.assert_not_called()
         self.assertIn(self.names[-1], output)
-        self.assertIn("order_items Bronze/Silver: not implemented", output)
+        self.assertIn("[FOUND] order_items", output)
         self.assertFalse(Path(".env").exists())
 
     def test_shell_entrypoint_resolves_repository_from_another_directory(self):
@@ -119,25 +121,33 @@ class MakeDatasetTest(unittest.TestCase):
         processing = [args for args in self.commands if "process" in args]
         self.assertEqual(
             [args[args.index("--table") + 1] for args in processing],
-            ["customers", "orders"],
+            ["customers", "orders", "order_items", "order_payments"],
         )
         self.assertEqual(
-            processing[-1][-2:], ("--customer-snapshot", "silver/customers/run_id=test")
+            processing[1][-2:], ("--customer-snapshot", "silver/customers/run_id=test")
         )
+        for args in processing[2:]:
+            self.assertEqual(
+                args[-2:], ("--order-snapshot", "silver/orders/run_id=test")
+            )
+        orders = next(
+            args for args in self.commands if "extract" in args and "orders" in args
+        )
+        self.assertIn("--full-snapshot", orders)
         self.assertEqual(os.environ["PGPORT"], "5544")
         self.assertEqual(os.environ["PGPASSWORD"], "space $quote'")
         self.assertNotIn("BRONZE_SOURCE_DSN", os.environ)
-        self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 4)
+        self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 8)
         self.assertFalse(Path("build/reports/dataset/pending-run.txt").exists())
         self.assertIn("[DONE]", output)
 
-    def test_absent_java_skips_silver_but_extracts_both_tables(self):
+    def test_absent_java_skips_silver_but_extracts_all_four_tables(self):
         with (
             patch("scripts.make_dataset.run", side_effect=self.command),
             patch("scripts.make_dataset.shutil.which", return_value=None),
         ):
             output = self.invoke()
-        self.assertEqual(len([args for args in self.commands if "extract" in args]), 2)
+        self.assertEqual(len([args for args in self.commands if "extract" in args]), 4)
         self.assertFalse(any("process" in args for args in self.commands))
         self.assertIn("[SKIP] Silver", output)
 

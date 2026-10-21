@@ -1,9 +1,10 @@
-"""Shared extraction for orders windows and full customer snapshots."""
+"""Shared bounded extraction and full parent snapshots for core source tables."""
 
 from __future__ import annotations
 
 import re
 from datetime import datetime, timedelta, timezone
+from decimal import Decimal
 from urllib.parse import urlsplit
 
 import psycopg
@@ -14,7 +15,12 @@ from psycopg.types.json import Jsonb
 
 from .storage import BronzeError, ObjectStore, encode, sha256, verify_published
 
-KEYS = {"orders": "order_id", "customers": "customer_id"}
+KEYS = {
+    "orders": ("order_id",),
+    "customers": ("customer_id",),
+    "order_payments": ("order_id", "payment_sequential"),
+    "order_items": ("order_id", "order_item_id"),
+}
 PIPELINE = "bronze_orders_v1"
 LOCK = "olist.bronze.orders.v1"
 CURSOR = "(source_updated_at, source_sequence, order_id)"
@@ -37,7 +43,7 @@ def cursor_value(row: dict | None, table: str = "orders") -> dict | None:
     return {
         "updated_at": row["source_updated_at"].isoformat(),
         "source_sequence": row["source_sequence"],
-        "primary_key": {KEYS[table]: row[KEYS[table]]},
+        "primary_key": {key: row[key] for key in KEYS[table]},
     }
 
 
@@ -45,7 +51,7 @@ def cursor_tuple(value: dict, table: str = "orders") -> tuple:
     return (
         datetime.fromisoformat(value["updated_at"]),
         value["source_sequence"],
-        value["primary_key"][KEYS[table]],
+        *(value["primary_key"][key] for key in KEYS[table]),
     )
 
 
@@ -55,6 +61,7 @@ def configuration(
     endpoint: str,
     page_size: int,
     table: str = "orders",
+    full_snapshot: bool = False,
 ) -> dict:
     if table not in KEYS:
         raise BronzeError("Unsupported extraction table")
@@ -77,7 +84,9 @@ def configuration(
     lookback = contract["policies"]["lateness_sla_hours"]
     if type(lookback) is not int or not 0 <= lookback <= 24 * 365:
         raise BronzeError("Invalid contract lookback hours")
-    return {
+    if full_snapshot and table != "orders":
+        raise BronzeError("Explicit full snapshots are supported for orders only")
+    config = {
         "format_version": 1,
         "extractor_version": f"{table}-bronze-v1",
         "pipeline": f"bronze_{table}_v1",
@@ -87,6 +96,9 @@ def configuration(
         "page_size": page_size,
         "lookback_hours": lookback,
     }
+    if full_snapshot:
+        config["snapshot_kind"] = "FULL"
+    return config
 
 
 def prepare(
@@ -98,7 +110,8 @@ def prepare(
 ) -> dict:
     """One transaction seals bounds and all bytes before any object is uploaded."""
     pipeline = f"bronze_{table}_v1"
-    cursor = f"(source_updated_at, source_sequence, {KEYS[table]})"
+    cursor = "(source_updated_at, source_sequence, " + ", ".join(KEYS[table]) + ")"
+    placeholders = "(" + ", ".join(["%s"] * (2 + len(KEYS[table]))) + ")"
     config_hash = sha256(encode(config))
     with connection.transaction():
         connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
@@ -169,14 +182,14 @@ def prepare(
             candidate = upper
         lower = (
             cursor_tuple(before, table)[0] - timedelta(hours=config["lookback_hours"])
-            if before and table == "orders"
+            if before and table != "customers" and config.get("snapshot_kind") != "FULL"
             else None
         )
         started = datetime.now(timezone.utc)
         prefix = f"bronze/{table}/ingestion_date={started.date()}/run_id={run_id}"
         source_count = 0
         if upper:
-            count_filter = sql.SQL(cursor + " <= (%s, %s, %s)")
+            count_filter = sql.SQL(cursor + " <= " + placeholders)
             count_parameters = list(cursor_tuple(upper, table))
             if lower is not None:
                 count_filter += sql.SQL(" AND source_updated_at >= %s")
@@ -208,7 +221,7 @@ def prepare(
             "page_count": 0,
             "objects": [],
         }
-        if table == "customers":
+        if table == "customers" or config.get("snapshot_kind") == "FULL":
             manifest["snapshot_kind"] = "FULL"
         connection.execute(
             state_sql(
@@ -219,13 +232,13 @@ def prepare(
         )
         page_cursor = None
         while upper is not None:
-            predicates = [sql.SQL(cursor + " <= (%s, %s, %s)")]
+            predicates = [sql.SQL(cursor + " <= " + placeholders)]
             parameters = list(cursor_tuple(upper, table))
             if lower is not None:
                 predicates.append(sql.SQL("source_updated_at >= %s"))
                 parameters.append(lower)
             if page_cursor is not None:
-                predicates.append(sql.SQL(cursor + " > (%s, %s, %s)"))
+                predicates.append(sql.SQL(cursor + " > " + placeholders))
                 parameters.extend(cursor_tuple(page_cursor, table))
             parameters.append(config["page_size"])
             with connection.cursor(row_factory=dict_row) as reader:
@@ -244,11 +257,17 @@ def prepare(
             for ordinal, row in enumerate(rows, 1):
                 logical = [
                     f"postgresql.{table}",
-                    row[KEYS[table]],
+                    row[KEYS[table][0]]
+                    if len(KEYS[table]) == 1
+                    else [row[k] for k in KEYS[table]],
                     row["source_sequence"],
                 ]
                 serialized = {
-                    name: value.isoformat() if isinstance(value, datetime) else value
+                    name: value.isoformat()
+                    if isinstance(value, datetime)
+                    else str(value)
+                    if isinstance(value, Decimal)
+                    else value
                     for name, value in row.items()
                 }
                 serialized.update(
@@ -300,12 +319,13 @@ def ingest_source(
     endpoint: str,
     page_size: int = 1000,
     table: str = "orders",
+    full_snapshot: bool = False,
 ) -> dict:
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", run_id):
         raise BronzeError(
             "Invalid run_id: use 1-96 letters, digits, underscores or hyphens"
         )
-    config = configuration(contract, store, endpoint, page_size, table)
+    config = configuration(contract, store, endpoint, page_size, table, full_snapshot)
     if (
         not connection.autocommit
         or connection.info.transaction_status != TransactionStatus.IDLE

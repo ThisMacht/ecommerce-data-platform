@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Implemented: raw validation, PostgreSQL loading/simulation, orders/customers Bronze/Silver and pinned customer FK checks.
+Implemented: raw validation, PostgreSQL loading/simulation, four core Bronze/Silver datasets and pinned customer/orders FK checks.
 
 - `src/olist_platform/raw/`: manifests, profiling, contracts.
 - `src/olist_platform/source_simulator/`: deterministic batches and transactional apply.
@@ -36,6 +36,10 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make bronze-up` / `make init-bronze`: start MinIO or initialize its bucket.
 - `make ingest-orders BRONZE_RUN_ID=<id>`: extract/resume orders.
 - `make ingest-customers` / `make process-customers`: publish full customer snapshots.
+- `make ingest-order-items` / `make ingest-order-payments`: extract composite-key windows.
+- `make process-order-items` / `make process-order-payments`: require `ORDER_SNAPSHOT=<full orders Silver prefix>`.
+- `make ingest-orders BRONZE_RUN_ID=<id> BRONZE_FULL_SNAPSHOT=1`: full orders parent; default remains incremental.
+- `make test-order-children-integration`: verify child datasets and pinned orders dependencies.
 - `make test-bronze-integration`: test disposable PostgreSQL/MinIO.
 - `make sync-processing`: install locked Spark extra; use Java 17.
 - `make process-orders BRONZE_PREFIX=<prefix> SILVER_RUN_ID=<id>`: publish/resume Silver.
@@ -61,3 +65,5 @@ Never commit credentials, CSVs or generated artifacts. Never edit raw snapshots;
 Bronze: `BRONZE_SOURCE_DSN`/`PG*` and AWS credentials. Resume unfinished run IDs; never edit prepared pages. Bronze delivery checkpoint is separate from the planned pipeline watermark.
 
 Use full customer snapshots for FK checks. Snapshot hashes are immutable per Silver run; reprocess with a new run ID when dependencies change. Deferred persistence/expiry remains planned.
+
+Child FK checks require full orders snapshots; never use a delta as a complete parent key set. Preserve composite grain and decimal money. Products/sellers membership is not yet checked.

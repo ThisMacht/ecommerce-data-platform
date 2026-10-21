@@ -59,7 +59,7 @@ uv run --locked olist-silver-source verify --prefix 'silver/orders/run_id=orders
 make test-customer-integration
 ```
 
-Dùng process database/S3 environment của Bronze. Source CLIs hỗ trợ `--table orders|customers`; generic aliases là `olist-bronze-source`, `olist-silver-source`. Orders aliases cũ vẫn hoạt động. Silver chỉ cần S3 credentials, không cần PostgreSQL DSN.
+Dùng process database/S3 environment của Bronze. Source CLIs hỗ trợ bốn core tables; generic aliases là `olist-bronze-source`, `olist-silver-source`. Orders aliases cũ vẫn hoạt động. Silver chỉ cần S3 credentials, không cần PostgreSQL DSN. Items/payments dùng full orders dependency theo [child contract](07_order_children.md).
 
 ## Validation evidence
 

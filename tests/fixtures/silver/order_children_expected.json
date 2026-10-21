@@ -1,0 +1,21 @@
+{
+  "order_payments": {
+    "counts":{"valid":2,"deferred":1,"rejected":8,"duplicates":1},
+    "valid_keys":[["a",1],["a",2]],
+    "rule_violations":{
+      "invalid_payment_value":3,"invalid_payment_sequential":1,"invalid_payment_type":1,
+      "invalid_payment_installments":1,"missing_order_id":1,"invalid_source_sequence":1,
+      "invalid_source_updated_at":1,"invalid_source_loaded_at":1,"missing_source_batch_id":1,
+      "invalid_source_operation":1,"undefined_payment_type":1,"zero_payment_installments":1,
+      "zero_payment_value":1,"missing_order":1
+    }
+  },
+  "order_items": {
+    "counts":{"valid":2,"deferred":1,"rejected":9,"duplicates":1},
+    "valid_keys":[["a",1],["a",2]],
+    "rule_violations":{
+      "invalid_price":1,"invalid_order_item_id":1,"missing_product_id":1,"missing_seller_id":1,
+      "missing_order_id":1,"invalid_shipping_limit_date":3,"invalid_freight_value":1,"missing_order":1
+    }
+  }
+}

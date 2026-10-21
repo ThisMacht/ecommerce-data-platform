@@ -1,0 +1,14 @@
+[
+  {"order_id":" a ","payment_sequential":1,"source_sequence":1},
+  {"order_id":"a","payment_sequential":1,"source_sequence":2,"payment_value":"11.25"},
+  {"order_id":"a","payment_sequential":2,"source_sequence":3,"payment_value":"0.00","payment_installments":0,"payment_type":"not_defined"},
+  {"order_id":"late","payment_sequential":1,"source_sequence":4},
+  {"order_id":"bad_money","payment_sequential":1,"source_sequence":5,"payment_value":"1.001"},
+  {"order_id":"bad_number","payment_sequential":0,"source_sequence":6},
+  {"order_id":"bad_type","payment_sequential":1,"source_sequence":7,"payment_type":"cash"},
+  {"order_id":"bad_installments","payment_sequential":1,"source_sequence":8,"payment_installments":-1},
+  {"order_id":null,"payment_sequential":1,"source_sequence":9},
+  {"order_id":"overflow","payment_sequential":1,"source_sequence":10,"payment_value":"10000000000000000.00"},
+  {"order_id":"negative","payment_sequential":1,"source_sequence":11,"payment_value":"-1.00"},
+  {"order_id":"bad_metadata","payment_sequential":1,"source_sequence":0,"source_updated_at":"bad","source_loaded_at":"2020-01-01T00:00:00","source_batch_id":" ","source_operation":"DELETE"}
+]

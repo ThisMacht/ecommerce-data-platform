@@ -70,7 +70,7 @@ jobs:
         run: make test-bronze-integration
 
   silver:
-    name: Orders Spark Silver
+    name: Core datasets Spark Silver
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
@@ -97,3 +97,5 @@ jobs:
         run: make test-silver-integration
       - name: Test customer snapshots and orders dependencies
         run: make test-customer-integration
+      - name: Test items/payments and pinned orders dependencies
+        run: make test-order-children-integration

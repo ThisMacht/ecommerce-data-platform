@@ -18,6 +18,8 @@ PROCESSING_PYTHON ?= $(UV) run --locked --extra processing python
 BRONZE_PREFIX ?=
 SILVER_RUN_ID ?=
 CUSTOMER_SNAPSHOT ?=
+ORDER_SNAPSHOT ?=
+BRONZE_FULL_SNAPSHOT ?=
 
 .DEFAULT_GOAL := help
 
@@ -28,7 +30,8 @@ CUSTOMER_SNAPSHOT ?=
 	generate-source-batches validate-source-batch apply-source-batch test-source-simulator-integration \
 	bronze-up init-bronze ingest-orders test-bronze-integration \
 	sync-processing process-orders test-processing test-silver-integration \
-	ingest-customers process-customers test-customer-integration
+	ingest-customers process-customers test-customer-integration \
+	ingest-order-payments ingest-order-items process-order-payments process-order-items test-order-children-integration
 
 help:
 	@echo "Available targets:"
@@ -65,6 +68,9 @@ help:
 	@echo "  ingest-customers          Extract/resume a full customer snapshot"
 	@echo "  process-customers         Publish a full validated customer Silver snapshot"
 	@echo "  test-customer-integration Test customer snapshots and orders dependency routing"
+	@echo "  ingest-order-payments / ingest-order-items Extract composite-key child windows"
+	@echo "  process-order-payments / process-order-items Publish Silver; ORDER_SNAPSHOT must be full"
+	@echo "  test-order-children-integration Test items/payments publication, replay and FK routing"
 
 sync:
 	$(UV) sync --locked
@@ -176,7 +182,8 @@ init-bronze:
 ingest-orders:
 	@test -n "$(BRONZE_RUN_ID)" || (echo "Set BRONZE_RUN_ID to a stable run identifier" >&2; exit 2)
 	$(PYTHON) -m olist_platform.bronze.cli --contract "$(SOURCE_CONTRACT)" extract \
-		--run-id "$(BRONZE_RUN_ID)" --page-size "$(BRONZE_PAGE_SIZE)"
+		--run-id "$(BRONZE_RUN_ID)" --page-size "$(BRONZE_PAGE_SIZE)" \
+		$(if $(filter 1,$(BRONZE_FULL_SNAPSHOT)),--full-snapshot,)
 
 test-bronze-integration:
 	$(COMPOSE) -f $(COMPOSE_FILE) build minio
@@ -219,3 +226,21 @@ test-customer-integration:
 	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" \
 	$(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_customers.py' -v
+
+ingest-order-payments ingest-order-items:
+	@test -n "$(BRONZE_RUN_ID)" || (echo "Set BRONZE_RUN_ID" >&2; exit 2)
+	$(PYTHON) -m olist_platform.bronze.cli --contract "$(SOURCE_CONTRACT)" --table $(subst -,_,$(@:ingest-%=%)) extract \
+		--run-id "$(BRONZE_RUN_ID)" --page-size "$(BRONZE_PAGE_SIZE)"
+
+process-order-payments process-order-items:
+	@test -n "$(BRONZE_PREFIX)" && test -n "$(SILVER_RUN_ID)" && test -n "$(ORDER_SNAPSHOT)" || (echo "Set BRONZE_PREFIX, SILVER_RUN_ID and ORDER_SNAPSHOT" >&2; exit 2)
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m olist_platform.silver.cli \
+		--contract "$(SOURCE_CONTRACT)" --table $(subst -,_,$(@:process-%=%)) process \
+		--bronze-prefix "$(BRONZE_PREFIX)" --run-id "$(SILVER_RUN_ID)" --order-snapshot "$(ORDER_SNAPSHOT)"
+
+test-order-children-integration:
+	$(COMPOSE) -f $(COMPOSE_FILE) build minio
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
+	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" \
+	$(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_order_children.py' -v
