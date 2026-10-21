@@ -130,6 +130,21 @@ class PipelineControlTest(PostgresIntegrationCase):
             results = list(workers.map(start, ["one", "two"]))
         self.assertEqual(sorted(results), ["REJECTED", "STARTED"])
 
+    def test_incremental_namespace_has_own_cursor_but_shares_execution_guard(self):
+        self.start()
+        with self.connection() as c:
+            with self.assertRaisesRegex(BronzeError, "active"):
+                begin(c, "delta", {"mode": "incremental"})
+            fail(c, "first", 1, "verification")
+            self.assertEqual(begin(c, "delta", {"mode": "incremental"})["attempt"], 1)
+            self.assertEqual(
+                c.execute(
+                    "SELECT pipeline_name,run_type FROM audit.pipeline_runs WHERE run_id='delta'"
+                ).fetchone(),
+                ("incremental_core_v1", "incremental"),
+            )
+        self.assertEqual(self.psql("SELECT COUNT(*) FROM audit.pipeline_control"), "8")
+
     def test_empty_and_backdated_upper_cursors_do_not_regress_controls(self):
         self.start()
         with self.connection() as c:

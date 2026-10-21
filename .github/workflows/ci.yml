@@ -133,3 +133,5 @@ jobs:
         run: uv sync --locked --extra processing --extra analytics
       - name: Test all core receipts and dbt-gated watermark commit
         run: make test-pipeline-integration
+      - name: Test frozen incremental windows, lookback and recovery gates
+        run: make test-incremental-integration

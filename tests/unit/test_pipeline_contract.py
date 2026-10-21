@@ -42,6 +42,23 @@ def dataset_evidence(rows=2):
 
 
 class PipelineContractTest(unittest.TestCase):
+    def test_incremental_accounting_separates_window_categories_and_parent_scan(self):
+        item = dataset_evidence(rows=3)
+        item["bronze"].update(
+            snapshot_kind="INCREMENTAL",
+            source_bootstrap_rows=0,
+            source_after_cursor_rows=1,
+            source_lookback_rows=2,
+        )
+        item["full_parent_source_rows"] = 10
+        counts = reconcile(item)
+        self.assertEqual(counts["source_rows_extracted"], 3)
+        self.assertEqual(counts["source_lookback_rows"], 2)
+        self.assertEqual(counts["full_parent_source_rows"], 10)
+        item["bronze"]["source_lookback_rows"] = 3
+        with self.assertRaisesRegex(BronzeError, "accounting"):
+            reconcile(item)
+
     def test_fingerprint_pins_airflow_code_and_lock_but_excludes_runtime_artifacts(
         self,
     ):

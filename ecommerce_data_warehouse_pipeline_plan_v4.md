@@ -416,7 +416,7 @@ Trong mỗi processing run, record cùng source key được dedupe bằng cách
 
 ### 7.3. Cursor storage và atomic commit
 
-Local full-snapshot namespace `local_core_v1` đã triển khai run/task audit, exact receipt reconciliation và atomic four-table watermark CAS qua fresh dbt gate; Airflow daily wrapper gọi cùng runner, paused mặc định, một task/cùng retry identity. Xem `docs/data_contracts/11_pipeline_control.md`. Scheduled incremental discovery, isolated backfills và distributed/production orchestration vẫn là mục tiêu của phần dưới.
+Local full-snapshot namespace `local_core_v1` đã triển khai run/task audit, exact receipt reconciliation và atomic four-table watermark CAS qua fresh dbt gate; Airflow daily wrapper gọi cùng runner, paused mặc định, một task/cùng retry identity. Xem `docs/data_contracts/11_pipeline_control.md`. Pipeline-owned incremental windows/48h lookback đã có trong contract 12. Isolated backfills và distributed/production orchestration vẫn là mục tiêu của phần dưới.
 
 `audit.pipeline_control` có một row cho mỗi `pipeline_name + source_table`, gồm `committed_cursor JSONB`, `cursor_version`, `updated_by_run_id` và `updated_at`. Cursor ví dụ:
 
@@ -509,7 +509,7 @@ Một PostgreSQL instance có thể chứa `olist_source`, `olist_warehouse` và
 
 Phase này chỉ sử dụng `orders`, `customers`, `order_items` và `order_payments` để hoàn thiện một luồng dọc từ source đến dashboard trước khi mở rộng phạm vi.
 
-- [ ] Airflow extract một bounded incremental window từ PostgreSQL source.
+- [x] Local Airflow incremental wrapper extract pipeline-owned 48h windows từ PostgreSQL, freeze deltas/full FK inputs trước publication; isolated backfill còn planned.
 - [x] Implement orders CLI slice: bounded PostgreSQL snapshot → immutable JSONL Bronze trên MinIO, manifest/checksum/lineage và retry-safe Bronze-only checkpoint.
 - [x] Implement orders PySpark/Silver slice: timezone normalization, local validation, version dedupe, Parquet routes và immutable publication/replay.
 - [x] Add full customers Bronze/Silver and orders customer FK/deferred routing with pinned snapshot hashes; explicit late-parent reprocessing preserves original lineage. Durable deferred lifecycle and staging are now implemented in contracts `08` and `10`.
@@ -589,22 +589,22 @@ Operational dashboard cần hiển thị pipeline status, duration, freshness, q
 
 Đây là phase mục tiêu chính của portfolio. Pipeline phải chứng minh rằng nó có thể chạy incremental, chạy lại an toàn và xử lý late-arriving updates.
 
-- [ ] Cấu hình ordered cursor `(updated_at, sequence, primary-key columns)` cho từng source table.
-- [ ] Tách committed cursor, page cursor và run upper cursor.
-- [ ] Chụp consistent snapshot cùng fixed lower/upper bounds cho run và retry.
+- [x] Cấu hình ordered cursor `(source_updated_at, source_sequence, primary-key columns)` cho bốn core tables.
+- [x] Tách pipeline committed cursor, Bronze delivery cursor, page cursor và frozen run upper cursor.
+- [x] Freeze bốn source deltas và hai full FK inputs cùng repeatable-read snapshot; durable bytes/fixed bounds giữ nguyên khi retry.
 - [ ] Test pagination với nhiều record có cùng `source_updated_at`.
-- [ ] Lưu committed cursor cùng compare-and-swap version trong JSONB control table.
-- [x] Promote local full-snapshot watermark candidates sau mọi receipt/dbt gates; scheduled incremental namespace vẫn planned.
+- [x] Lưu committed cursor cùng compare-and-swap version trong JSONB control table; full/incremental namespaces độc lập.
+- [x] Promote full/incremental watermark candidates sau receipt/dbt gates; xem contracts 11–12.
 - [x] Giữ local watermark cũ nếu dbt/reconciliation fail; failure injection và CAS rollback đã có tests.
-- [ ] Áp dụng lookback 48 giờ và kiểm thử cả record trong lẫn ngoài lateness SLA.
-- [ ] Hoàn thiện pipeline-wide source/lookback accounting; deferred resolution đã tách source/bronze rows (zero) khỏi retry input.
+- [x] Áp dụng inclusive lookback 48 giờ; fixtures kiểm tra trong/đúng biên/ngoài SLA và source writes sau freeze.
+- [x] Tách source bootstrap/after-cursor/lookback, full FK scans và deferred retry inputs; after-cursor không phải business growth.
 - [ ] Dedupe về latest source version trước warehouse merge.
 - [ ] Xác minh out-of-order version trở thành `stale_ignored` và không ghi đè target.
 - [ ] Làm equal-version/different-payload fail integrity check.
 - [ ] Chạy cùng batch hai lần và xác minh số dòng không đổi.
 - [ ] Kiểm tra lần chạy thứ hai chủ yếu tạo `warehouse_unchanged_rows`.
 - [ ] Failure-inject sau Bronze, Silver, warehouse load và dbt; xác minh cursor vẫn an toàn.
-- [ ] Chặn overlapping scheduled runs và test cursor compare-and-swap conflict.
+- [x] Chặn overlapping local full/incremental runs qua shared file/database guard; test cursor CAS conflict. Distributed execution leases còn planned.
 - [ ] Hỗ trợ backfill bằng `start_date` và `end_date`.
 - [ ] So sánh kết quả backfill với full reload.
 - [ ] Xác minh backfill không thay đổi scheduled watermark theo mặc định.
@@ -660,7 +660,7 @@ Unit tests tập trung vào source simulator, dirty-data injector, cursor orderi
 - [ ] Chạy DAG import test và một MinIO → Spark → PostgreSQL vertical-slice smoke test.
 - [ ] Chạy dbt grain tests, fan-out tests và reconciliation tests.
 
-CI skeleton hiện có trong `.github/workflows/ci.yml`: fast checks/build và installed-wheel tests trên Python 3.10/3.12; simulator integration trên Python 3.12 với disposable PostgreSQL, không cần raw CSV hoặc secrets. DAG, Spark, dbt và end-to-end smoke checks bên dưới là phạm vi mở rộng khi các components được triển khai.
+CI skeleton hiện có trong `.github/workflows/ci.yml`: fast checks/build và installed-wheel tests trên Python 3.10/3.12; simulator integration trên Python 3.12 với disposable PostgreSQL, không cần raw CSV hoặc secrets. CI hiện có DAG import/serialization, Spark, dbt, full/incremental gates và failure recovery suites; raw CSV không bắt buộc cho các fixture suites.
 
 GitHub Actions mục tiêu tách thành hai jobs. Fast job chạy trên mọi pull request:
 

@@ -18,12 +18,13 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Items/payments Silver with composite grain and decimal money | Implemented — pinned full orders FK checks; product/seller membership remains planned |
 | PostgreSQL raw staging and transactional load audit | Implemented — version-aware merges, canonical hashes and exact load reconciliation |
 | Durable deferred lifecycle | Implemented — bounded retry passes, pinned full snapshots, expiry and atomic staging resolution |
-| Local pipeline audit and watermarks | Implemented — full-snapshot receipts, fresh dbt gate and all-table atomic CAS commit |
+| Local pipeline audit and watermarks | Implemented — verified receipts, fresh dbt gate and all-table atomic CAS commit |
+| Incremental core pipeline | Implemented — separate cursors, atomic six-stream freeze, inclusive 48h lookback and full FK dependencies |
 | Operational health checks | Implemented — read-only audit JSON, configurable thresholds and CLI failure status |
 | Operational dashboard | Implemented — standalone HTML health snapshot; manual refresh |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
 | dbt customer dimension, order fact and daily GMV/AOV views | Implemented — exact reconciliation and relationship tests |
-| Airflow orchestration | Implemented — paused daily local full-snapshot DAG, isolated runtime and stable retry identity |
+| Airflow orchestration | Implemented — paused daily full/incremental DAGs, isolated runtime and stable retry identity |
 | Metabase | TODO — later phases |
 
 ## Quick start
@@ -179,7 +180,7 @@ Items hiện chỉ kiểm tra product/seller ID không thiếu; membership chưa
 
 Sau migration `006`, dùng `make load-warehouse SOURCE_TABLE=<table> SILVER_PREFIX='<prefix>' WAREHOUSE_RUN_ID=<id>`. CLI nhận `WAREHOUSE_DSN` hoặc `PG*` và cùng S3 environment. Chỉ valid rows được COPY/merge vào `raw_staging`; data và `audit.warehouse_load_runs` commit cùng transaction. Source sequence mới thắng, version cũ bị bỏ qua, cùng version khác business hash làm fail; retry cùng ID/input trả `NOOP`.
 
-`make dataset` tự chạy bước này và lưu `*_warehouse.json`. Xem [staging contract](docs/data_contracts/08_warehouse_staging.md); kiểm tra bằng `make test-warehouse-merge-integration` và `make test-warehouse-integration`. Local run/task audit và gated pipeline watermarks đã có ở [pipeline contract](docs/data_contracts/11_pipeline_control.md); Airflow local full-snapshot orchestration đã có; scheduled incremental còn planned.
+`make dataset` tự chạy bước này và lưu `*_warehouse.json`. Xem [staging contract](docs/data_contracts/08_warehouse_staging.md); kiểm tra bằng `make test-warehouse-merge-integration` và `make test-warehouse-integration`. Local run/task audit và gated pipeline watermarks đã có ở [pipeline contract](docs/data_contracts/11_pipeline_control.md); full/incremental Airflow wrappers đã có; isolated backfill còn planned.
 
 ## dbt analytics
 
@@ -197,7 +198,7 @@ Standalone operations: `make register-deferred SOURCE_TABLE=<table> SILVER_PREFI
 
 `make dataset` ghi run/task audit và đối chiếu server-side Bronze/Silver/warehouse/deferred receipts. Final gate khóa ghi staging trong lúc chạy fresh dbt build; chỉ sau tất cả tasks/tests/counts đạt mới commit bốn pipeline cursors bằng CAS cùng reconciliation audit. Lỗi giữ watermark cũ; committed replay trả `NOOP`.
 
-Xem [pipeline contract](docs/data_contracts/11_pipeline_control.md); chạy `make test-pipeline-control-integration` và `make test-pipeline-integration` sau thay đổi gates. Namespace hiện là manual `local_core_v1`, dùng full snapshots; Airflow có thể gọi full runner; scheduled incremental extraction và atomic analytics publication chưa triển khai.
+Xem [pipeline contract](docs/data_contracts/11_pipeline_control.md); chạy `make test-pipeline-control-integration` và `make test-pipeline-integration` sau thay đổi gates. Full mode dùng `local_core_v1`; incremental dùng `incremental_core_v1`, có Airflow wrapper riêng. Atomic analytics publication và isolated backfill chưa triển khai.
 
 `make pipeline-health` đọc audit qua `PG*` (có thể dùng reader role), xuất JSON về run đang chạy/gần nhất, lần thành công cuối, freshness, runtime, reject/warning rates và deferred backlog. Ngưỡng nằm trong `config/pipeline_health.json`; đổi bằng `PIPELINE_HEALTH_CONFIG=<path>`. CLI `olist-pipeline-health` trả exit `0` healthy, `1` vượt ngưỡng/thiếu success, `2` không thể kiểm tra; Make trả nonzero khi CLI thất bại. Command không tự đọc `.env`, không thay đổi queue/watermark và chưa tự được lập lịch. Chi tiết cách tính và giới hạn ở [operational health](docs/data_contracts/11_pipeline_control.md#operational-health).
 
@@ -209,6 +210,30 @@ code; HTML vẫn được tạo khi unhealthy. Đây là snapshot tĩnh có time
 refresh. Nếu không đọc được database hoặc ghi file thất bại, command báo lỗi;
 file cũ có thể còn tồn tại nên cần kiểm tra timestamp và exit code.
 
+## Incremental core pipeline
+
+`make dataset-incremental` bootstrap namespace riêng lần đầu, sau đó lấy window từ
+**pipeline watermark** với lookback 48 giờ inclusive. Freeze chốt đồng thời bốn
+source deltas và hai full parent snapshots trong một PostgreSQL snapshot, lưu
+bytes/bounds trước publication. Retry không lấy lại upper mới; delivery checkpoint
+không điều khiển window. Full mode `make dataset` vẫn dùng luồng cũ.
+
+Orders/items/payments FK và deferred retries luôn dùng full parents, không dùng
+delta làm key set. Customer delta là Silver v2, full customer parent vẫn v1.
+Pipeline audits 24 tasks, dùng cùng final receipt/reconciliation/dbt/CAS gates.
+Bootstrap/after-cursor/lookback, FK scans và retry inputs có counters riêng;
+after-cursor không phải net business growth. Full parent scans vẫn có chi phí.
+
+```bash
+make dataset-incremental
+make pipeline-health PIPELINE_NAMESPACE=incremental_core_v1
+make pipeline-dashboard PIPELINE_NAMESPACE=incremental_core_v1
+```
+
+Giữ cùng mode/code/config/pending ID khi resume; updates ngoài 48 giờ chưa được bảo
+đảm tự thu thập. Xem [incremental contract](docs/data_contracts/12_incremental_pipeline.md),
+kiểm tra bằng `make test-incremental-integration` với Java 17.
+
 ## Local Airflow orchestration
 
 Cài Python 3.12, uv, Docker Compose, Java 17 và đủ 9 CSV canonical, rồi chạy:
@@ -219,16 +244,16 @@ make airflow-local
 ```
 
 UI bind `127.0.0.1:8080`; credentials local được tạo trong ignored
-`build/airflow/`. DAG `olist_core_full_snapshot` mặc định paused, schedule `@daily`
+`build/airflow/`. Hai DAG `olist_core_full_snapshot` và `olist_core_incremental` mặc định paused, schedule `@daily`
 UTC, `catchup=False`, `max_active_runs=1`. Trigger thủ công để kiểm tra trước khi
-unpause. Một task gọi runner hiện có; 19 business stages vẫn audit trong PostgreSQL.
+unpause. Chỉ bật schedule của mode muốn dùng. Mỗi DAG có một task gọi runner; full/incremental audit 19/24 business tasks trong PostgreSQL.
 Dừng standalone bằng Ctrl-C; PostgreSQL/MinIO và metadata được giữ lại.
 
 Retry/Clear task của **cùng DAG run** giữ pipeline ID, replay receipts hoặc NOOP
 sau commit. Không trigger run mới để thay thế unfinished run và không sửa code/config
 trong khi run đang pending. Airflow thiếu CSV/Java sẽ fail thay vì skip. Đây là
-local standalone orchestration dùng SQLite riêng, chưa phải deployment production,
-scheduled incremental hay isolated backfill. Xem [operations](infrastructure/README.md#local-airflow).
+local standalone orchestration dùng SQLite riêng; deployment production và
+isolated backfill còn planned. Xem [operations](infrastructure/README.md#local-airflow).
 
 ## License
 

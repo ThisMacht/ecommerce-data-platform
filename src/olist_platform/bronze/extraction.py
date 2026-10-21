@@ -62,6 +62,8 @@ def configuration(
     page_size: int,
     table: str = "orders",
     full_snapshot: bool = False,
+    pipeline_run_id: str | None = None,
+    pipeline_parent: bool = False,
 ) -> dict:
     if table not in KEYS:
         raise BronzeError("Unsupported extraction table")
@@ -98,6 +100,18 @@ def configuration(
     }
     if full_snapshot:
         config["snapshot_kind"] = "FULL"
+    if pipeline_parent and pipeline_run_id is None:
+        raise BronzeError("Parent stream requires a pipeline run")
+    if pipeline_run_id is not None:
+        if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", pipeline_run_id):
+            raise BronzeError("Invalid owning pipeline run ID")
+        if full_snapshot or (pipeline_parent and table not in ("customers", "orders")):
+            raise BronzeError("Invalid incremental stream configuration")
+        config.update(
+            pipeline=f"incremental_{table}_{'parent' if pipeline_parent else 'delta'}_v1",
+            pipeline_run_id=pipeline_run_id,
+            snapshot_kind="FULL" if pipeline_parent else "INCREMENTAL",
+        )
     return config
 
 
@@ -107,14 +121,17 @@ def prepare(
     contract: dict,
     config: dict,
     table: str = "orders",
+    *,
+    snapshot_transaction: bool = False,
 ) -> dict:
     """One transaction seals bounds and all bytes before any object is uploaded."""
-    pipeline = f"bronze_{table}_v1"
+    pipeline = config["pipeline"]
     cursor = "(source_updated_at, source_sequence, " + ", ".join(KEYS[table]) + ")"
     placeholders = "(" + ", ".join(["%s"] * (2 + len(KEYS[table]))) + ")"
     config_hash = sha256(encode(config))
     with connection.transaction():
-        connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+        if not snapshot_transaction:
+            connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         connection.execute("SET LOCAL TIME ZONE 'UTC'")
         connection.execute("SET LOCAL statement_timeout = '60s'")
         previous = connection.execute(
@@ -127,6 +144,8 @@ def prepare(
             if previous[0] != config_hash:
                 raise BronzeError("Run ID already exists with different configuration")
             return previous[1]
+        if config.get("pipeline_run_id") and not snapshot_transaction:
+            raise BronzeError("Freeze all incremental streams before publishing")
         unfinished = connection.execute(
             state_sql(
                 "SELECT run_id FROM {runs} WHERE pipeline = %s AND status = 'PREPARED'",
@@ -156,6 +175,22 @@ def prepare(
             ),
             (pipeline,),
         ).fetchone()
+        delivery_before = before
+        pipeline_version = None
+        if config.get("pipeline_run_id"):
+            from olist_platform.pipeline.control import current, parent_run_id
+
+            owner = current(connection, config["pipeline_run_id"])
+            expected = (
+                parent_run_id(owner["run_id"])
+                if config["snapshot_kind"] == "FULL"
+                else owner["run_id"]
+            )
+            if owner["pipeline_name"] != "incremental_core_v1" or run_id != expected:
+                raise BronzeError("Incremental extraction requires its owning pipeline")
+            baseline = owner["control_before"][table]
+            before = baseline["committed_cursor"]
+            pipeline_version = baseline["cursor_version"]
         target = sql.Identifier(contract["database"]["source_schema"], table)
         specification = next(t for t in contract["tables"] if t["table"] == table)
         expected = specification["columns"] + contract["metadata_columns"]
@@ -182,7 +217,9 @@ def prepare(
             candidate = upper
         lower = (
             cursor_tuple(before, table)[0] - timedelta(hours=config["lookback_hours"])
-            if before and table != "customers" and config.get("snapshot_kind") != "FULL"
+            if before
+            and config.get("snapshot_kind") != "FULL"
+            and (table != "customers" or config.get("pipeline_run_id"))
             else None
         )
         started = datetime.now(timezone.utc)
@@ -221,7 +258,27 @@ def prepare(
             "page_count": 0,
             "objects": [],
         }
-        if table == "customers" or config.get("snapshot_kind") == "FULL":
+        if config.get("pipeline_run_id"):
+            delivery_candidate = candidate
+            if delivery_before is not None and (
+                delivery_candidate is None
+                or cursor_tuple(delivery_before, table)
+                > cursor_tuple(delivery_candidate, table)
+            ):
+                delivery_candidate = delivery_before
+            manifest.update(
+                snapshot_kind=config["snapshot_kind"],
+                delivery_watermark_before=delivery_before,
+                delivery_watermark_candidate=delivery_candidate,
+                pipeline_cursor_version_before=pipeline_version,
+                source_bootstrap_rows=0,
+                source_after_cursor_rows=0,
+                source_lookback_rows=0,
+                source_snapshot=connection.execute(
+                    "SELECT pg_current_snapshot()::text"
+                ).fetchone()[0],
+            )
+        elif table == "customers" or config.get("snapshot_kind") == "FULL":
             manifest["snapshot_kind"] = "FULL"
         connection.execute(
             state_sql(
@@ -255,6 +312,16 @@ def prepare(
             key = f"{prefix}/attempt=0001/part-{number:06d}.jsonl"
             lines = []
             for ordinal, row in enumerate(rows, 1):
+                if config.get("pipeline_run_id"):
+                    category = (
+                        "source_bootstrap_rows"
+                        if before is None
+                        else "source_after_cursor_rows"
+                        if cursor_tuple(cursor_value(row, table), table)
+                        > cursor_tuple(before, table)
+                        else "source_lookback_rows"
+                    )
+                    manifest[category] += 1
                 logical = [
                     f"postgresql.{table}",
                     row[KEYS[table][0]]
@@ -320,18 +387,29 @@ def ingest_source(
     page_size: int = 1000,
     table: str = "orders",
     full_snapshot: bool = False,
+    pipeline_run_id: str | None = None,
+    pipeline_parent: bool = False,
 ) -> dict:
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", run_id):
         raise BronzeError(
             "Invalid run_id: use 1-96 letters, digits, underscores or hyphens"
         )
-    config = configuration(contract, store, endpoint, page_size, table, full_snapshot)
+    config = configuration(
+        contract,
+        store,
+        endpoint,
+        page_size,
+        table,
+        full_snapshot,
+        pipeline_run_id,
+        pipeline_parent,
+    )
     if (
         not connection.autocommit
         or connection.info.transaction_status != TransactionStatus.IDLE
     ):
         raise BronzeError("Ingestion requires an idle autocommit connection")
-    pipeline = f"bronze_{table}_v1"
+    pipeline = config["pipeline"]
     lock = f"olist.bronze.{table}.v1"
     acquired = connection.execute(
         "SELECT pg_try_advisory_lock(hashtext(%s))", (lock,)
@@ -380,7 +458,12 @@ def ingest_source(
                     table,
                 ),
                 (
-                    Jsonb(manifest["watermark_candidate"]),
+                    Jsonb(
+                        manifest.get(
+                            "delivery_watermark_candidate",
+                            manifest["watermark_candidate"],
+                        )
+                    ),
                     run_id,
                     pipeline,
                     manifest["cursor_version_before"],

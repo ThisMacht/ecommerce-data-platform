@@ -18,6 +18,7 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | 09 | [Analytics Models](data_contracts/09_analytics_models.md) | dbt grains, shopper identity, Type 1 attributes và exact GMV/AOV tests | Active |
 | 10 | [Deferred Lifecycle](data_contracts/10_deferred_lifecycle.md) | Persisted quarantine, pinned dependency retries, expiry và atomic staging resolution | Active |
 | 11 | [Pipeline Control](data_contracts/11_pipeline_control.md) | Local run/task audit, receipt gates và atomic pipeline watermark commit | Active — manual full snapshots |
+| 12 | [Incremental Pipeline](data_contracts/12_incremental_pipeline.md) | Frozen four-table deltas, 48h lookback, full FK inputs và isolated completion cursors | Active |
 
 ## Related documents
 

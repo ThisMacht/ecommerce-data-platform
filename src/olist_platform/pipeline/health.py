@@ -13,7 +13,7 @@ from psycopg.rows import dict_row
 
 from olist_platform.raw.profiling import atomic_write_text
 
-from .control import PIPELINE, TABLES
+from .control import INCREMENTAL, PIPELINE, TABLES
 from .dashboard import render
 
 
@@ -49,7 +49,7 @@ def load_thresholds(path: Path) -> dict:
     return limits
 
 
-def evaluate(now, latest, success, counters, queue, limits) -> dict:
+def evaluate(now, latest, success, counters, queue, limits, pipeline=PIPELINE) -> dict:
     issues = []
     run = None
     if latest is None:
@@ -89,6 +89,15 @@ def evaluate(now, latest, success, counters, queue, limits) -> dict:
             "oldest_pending_age_hours": pending.get("oldest_pending_age_hours"),
             "due_pending_rows": pending.get("due_pending_rows", 0),
         }
+        for key in (
+            "source_rows_extracted",
+            "source_bootstrap_rows",
+            "source_after_cursor_rows",
+            "source_lookback_rows",
+            "deferred_retry_input_rows",
+            "full_parent_source_rows",
+        ):
+            metrics[key] = counts.get(key) if counts is not None else None
         if success is None:
             issues.append(f"{table}.missing_success")
         else:
@@ -116,7 +125,7 @@ def evaluate(now, latest, success, counters, queue, limits) -> dict:
     return {
         "status": "UNHEALTHY" if issues else "HEALTHY",
         "checked_at": now.isoformat(),
-        "pipeline_name": PIPELINE,
+        "pipeline_name": pipeline,
         "latest_run": run,
         "last_success_run_id": success["run_id"] if success else None,
         "thresholds": limits,
@@ -125,7 +134,9 @@ def evaluate(now, latest, success, counters, queue, limits) -> dict:
     }
 
 
-def report(connection, limits: dict) -> dict:
+def report(connection, limits: dict, pipeline=PIPELINE) -> dict:
+    if pipeline not in (PIPELINE, INCREMENTAL):
+        raise ValueError("Unsupported pipeline namespace")
     with connection.transaction():
         connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
         connection.execute("SET LOCAL statement_timeout='15s'")
@@ -133,11 +144,11 @@ def report(connection, limits: dict) -> dict:
             now = reader.execute("SELECT CURRENT_TIMESTAMP AS now").fetchone()["now"]
             latest = reader.execute(
                 "SELECT run_id,status,attempt,failed_task,started_at,completed_at FROM audit.pipeline_runs WHERE pipeline_name=%s ORDER BY (status='RUNNING') DESC,COALESCE(completed_at,started_at) DESC,run_id DESC LIMIT 1",
-                (PIPELINE,),
+                (pipeline,),
             ).fetchone()
             success = reader.execute(
                 "SELECT run_id,completed_at FROM audit.pipeline_runs WHERE pipeline_name=%s AND status='SUCCESS' ORDER BY completed_at DESC,run_id DESC LIMIT 1",
-                (PIPELINE,),
+                (pipeline,),
             ).fetchone()
             counters = {}
             if success:
@@ -164,7 +175,7 @@ def report(connection, limits: dict) -> dict:
                     FROM audit.quarantine_records GROUP BY source_table"""
                 ).fetchall()
             }
-    return evaluate(now, latest, success, counters, queue, limits)
+    return evaluate(now, latest, success, counters, queue, limits, pipeline)
 
 
 def main() -> int:
@@ -175,6 +186,7 @@ def main() -> int:
     parser.add_argument(
         "--html-output", type=Path, help="Write a standalone HTML snapshot"
     )
+    parser.add_argument("--pipeline", choices=(PIPELINE, INCREMENTAL), default=PIPELINE)
     args = parser.parse_args()
     try:
         limits = load_thresholds(args.thresholds)
@@ -184,7 +196,7 @@ def main() -> int:
             connect_timeout=10,
             application_name="olist-pipeline-health",
         ) as connection:
-            result = report(connection, limits)
+            result = report(connection, limits, args.pipeline)
         if args.html_output:
             atomic_write_text(args.html_output, render(result))
         print(json.dumps(result, ensure_ascii=False, indent=2))

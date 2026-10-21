@@ -23,9 +23,12 @@ from olist_platform.bronze.storage import (
 
 ROUTES = ("valid", "rejected", "duplicates")
 CHILDREN = ("order_items", "order_payments")
-VERSIONS = ("orders-silver-v1", "orders-silver-v2", "customers-silver-v1") + tuple(
-    f"{table}-silver-v1" for table in CHILDREN
-)
+VERSIONS = (
+    "orders-silver-v1",
+    "orders-silver-v2",
+    "customers-silver-v1",
+    "customers-silver-v2",
+) + tuple(f"{table}-silver-v1" for table in CHILDREN)
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
 
@@ -66,7 +69,14 @@ def validate_manifest(manifest: dict, contract: dict, table: str = "orders") -> 
         raise BronzeError(f"Bronze schema does not match {table} contract")
     if manifest["config"]["contract_sha256"] != sha256(encode(contract)):
         raise BronzeError("Bronze source contract hash mismatch")
-    if table == "customers" and manifest.get("snapshot_kind") != "FULL":
+    scoped_delta = manifest.get("snapshot_kind") == "INCREMENTAL" and manifest[
+        "config"
+    ].get("pipeline_run_id")
+    if (
+        table == "customers"
+        and manifest.get("snapshot_kind") != "FULL"
+        and not scoped_delta
+    ):
         raise BronzeError("Customer Silver requires a full Bronze snapshot")
     if (
         manifest.get("snapshot_kind") == "FULL"
@@ -176,6 +186,11 @@ def verify_objects(store: ObjectStore, manifest: dict) -> None:
         and manifest.get("snapshot_kind") != "FULL"
     ):
         raise BronzeError("Customer Silver must declare a full snapshot")
+    if (
+        manifest["schema_version"] == "customers-silver-v2"
+        and manifest.get("snapshot_kind") != "INCREMENTAL"
+    ):
+        raise BronzeError("Customer v2 Silver must declare an incremental window")
     routes = ROUTES + (
         ("deferred",)
         if manifest["schema_version"] == "orders-silver-v2" or child
@@ -266,6 +281,8 @@ def process_batch(
         raise BronzeError("Invalid Silver run_id")
     bronze = verify_published(store, bronze_prefix)
     validate_manifest(bronze, contract, table)
+    if table == "customers" and bronze.get("snapshot_kind") == "INCREMENTAL":
+        processor = "customers-silver-v2"
     bronze_body = store.read(f"{bronze_prefix}/manifest.json")
     if json.loads(bronze_body) != bronze or json.loads(
         store.read(f"{bronze_prefix}/_SUCCESS")
@@ -447,8 +464,8 @@ def process_batch(
                 manifest["unchecked_relationships"] = (
                     ["product_id", "seller_id"] if table == "order_items" else []
                 )
-            if bronze.get("snapshot_kind") == "FULL":
-                manifest["snapshot_kind"] = "FULL"
+            if bronze.get("snapshot_kind") in ("FULL", "INCREMENTAL"):
+                manifest["snapshot_kind"] = bronze["snapshot_kind"]
             manifest["schema_fingerprint"] = sha256(encode(manifest["output_schema"]))
             verify_objects(store, manifest)
             body = encode(manifest)

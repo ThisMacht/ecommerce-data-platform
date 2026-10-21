@@ -355,7 +355,7 @@ def load_silver(
         raise BronzeError("Warehouse reading requires a UTC Spark session")
     manifest = verify_silver(store, silver_prefix)
     versions = (f"{table}-silver-v1",) + (
-        ("orders-silver-v2",) if table == "orders" else ()
+        (f"{table}-silver-v2",) if table in ("orders", "customers") else ()
     )
     if (
         table not in KEYS

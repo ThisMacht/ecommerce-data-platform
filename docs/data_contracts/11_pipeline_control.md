@@ -5,8 +5,8 @@
 Status: **Active — local manual full-snapshot pipeline, receipt reconciliation and atomic control commit**.
 Migration `009` thêm `audit.pipeline_runs`, `pipeline_task_runs`,
 `pipeline_dataset_runs` và `pipeline_control`. Namespace là `local_core_v1`;
-Airflow có daily wrapper dùng cùng namespace; đây chưa phải scheduled incremental
-namespace hoặc backfill interface.
+Airflow có daily full wrapper dùng cùng namespace. Incremental dùng namespace riêng
+theo [contract 12](12_incremental_pipeline.md); isolated backfill chưa triển khai.
 
 Runner local dùng full snapshots cho cả bốn core tables. Full mode được bổ sung
 cho items/payments; default standalone extraction của orders/items/payments vẫn
@@ -97,8 +97,8 @@ Reject/deferred records đã được giữ và đối soát không bắt buộc
 trước promotion; original rejected Silver và durable deferred queue vẫn giữ
 evidence/recovery path. Bronze delivery checkpoint vẫn độc lập và có thể đi trước
 pipeline control. Pipeline watermark này chưa được dùng làm extraction cursor;
-runner tiếp tục full snapshots. Scheduled incremental discovery và isolated
-backfills còn planned.
+full runner tiếp tục full snapshots. Incremental namespace dùng cursors riêng theo
+[contract 12](12_incremental_pipeline.md); isolated backfills còn planned.
 
 ## Commands and recovery
 

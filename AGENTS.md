@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Implemented: core data layers, dbt analytics, deferred retries and receipt-gated local pipeline audit/watermarks.
+Implemented: core layers, dbt, deferred retries, full/incremental audit and gated watermarks.
 
 - `src/olist_platform/raw/`: manifests, profiling, contracts.
 - `src/olist_platform/source_simulator/`: deterministic batches and transactional apply.
@@ -11,7 +11,7 @@ Implemented: core data layers, dbt analytics, deferred retries and receipt-gated
 - `src/olist_platform/warehouse/`: verified Silver loading, canonical hashes and version-aware merges.
 - `src/olist_platform/deferred/`: quarantine registration, bounded retry/expiry and atomic staging resolution.
 - `src/olist_platform/pipeline/`: run/task audit, receipt reconciliation and all-table cursor CAS.
-- `airflow/`: isolated Python 3.12 runtime/lock and one local full-snapshot DAG.
+- `airflow/`: isolated Python 3.12 runtime/lock and paused full/incremental DAGs.
 - `dbt/`: staging views, customer Type 1 dimension, order fact and daily GMV/AOV marts.
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
@@ -29,6 +29,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 
 - `make sync`: install locked dependencies.
 - `make dataset`: run available core dataset stages with automatic local configuration; skip missing inputs/unimplemented stages, fail on validation errors.
+- `make dataset-incremental`: freeze four deltas/full FK inputs with 48h lookback; strict prerequisites. Resume in the same mode.
 - `make lint` / `make format`: check or format with Ruff.
 - `make build`: build wheel/sdist.
 - `make test`: Ruff, contracts, unit tests and Compose/shell checks without containers.
@@ -53,8 +54,10 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make resolve-deferred SOURCE_TABLE=<table> PARENT_SNAPSHOT=<full prefix> DEFERRED_RUN_ID=<id>`: retry at most 1,000 pending rows; use a new ID for a new pass/parent.
 - `make test-deferred-state-integration` / `make test-deferred-integration`: verify lifecycle transactions and pinned snapshots.
 - `make test-pipeline-control-integration` / `make test-pipeline-integration`: atomic controls and full receipt/dbt gates.
+- `make test-incremental-integration`: test atomic freeze, inclusive lookback, late/stale updates, retry and real dbt gates using Java 17.
 - `make pipeline-health`: read-only JSON checks using `PG*`; thresholds: `config/pipeline_health.json`. CLI exit 0 healthy, 1 unhealthy, 2 unavailable; Make fails on either error.
 - `make pipeline-dashboard`: write a static HTML health snapshot to `build/reports/pipeline_dashboard.html`; inspect its timestamp and command exit status.
+- Set `PIPELINE_NAMESPACE=incremental_core_v1` for incremental health/dashboard; default is `local_core_v1`.
 - `make sync-airflow` / `make test-airflow` / `make airflow-local`: install isolated Airflow, check real DAG import/serialization or start local standalone with paused DAG.
 - `make test-bronze-integration`: test disposable PostgreSQL/MinIO.
 - `make sync-processing`: install locked Spark extra; use Java 17.
@@ -90,6 +93,6 @@ Aggregate items/payments separately before joining orders. Customer dimension us
 
 Count retry inputs separately from source growth. Resolution must commit queue/attempts/staging/audit atomically; expired rows never load. Duplicate pending occurrences must dedupe by full business key/version before merge.
 
-Local runner uses full snapshots for all four tables and audits 19 tasks. Final gate holds staging SHARE locks through fresh dbt build and atomic watermark CAS. Resume with unchanged code/config; never bypass missing receipts. Scheduled incremental/backfill orchestration is not implemented.
+Full runner audits 19 tasks; incremental runner audits 24 with separate `incremental_core_v1` controls. Freeze four deltas plus two full FK snapshots atomically before publication; bounds use pipeline cursors, never Bronze delivery cursors. Customer delta Silver v2 is not an FK parent. Source bootstrap/after-cursor/lookback, auxiliary FK scans and deferred retry counts are separate; after-cursor rows are not business growth. Final gate holds staging SHARE locks through fresh dbt and atomic CAS. Resume with unchanged code/config/mode; never bypass receipts. Isolated backfill is not implemented.
 
 Airflow retries must retain original DAG/run context; clear the same task instance, never replace an unfinished run. Missing CSV/Java fails orchestration. Standalone SQLite metadata is local-only; don't install Airflow into the root environment.

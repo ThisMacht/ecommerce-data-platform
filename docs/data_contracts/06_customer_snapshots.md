@@ -2,6 +2,11 @@
 
 ## Scope and versions
 
+Incremental pipeline bổ sung `customers-silver-v2` với `snapshot_kind=INCREMENTAL`
+cho staging loads. V2 không được dùng làm FK parent. Các full snapshots và parent
+checks bên dưới giữ `customers-silver-v1`; xem [incremental contract](12_incremental_pipeline.md)
+về frozen windows và hai full FK inputs.
+
 Status: **Active — full customers Bronze/Silver và optional orders FK routing**. Source contract vẫn là `1.0.0`. Customer artifacts dùng `customers-bronze-v1` / `customers-silver-v1`; orders có parent snapshot dùng `orders-silver-v2`. Orders Bronze windows và `orders-silver-v1` local-rule mode giữ nguyên contract/replay behavior.
 
 Slice này thêm parent membership checks và explicit reprocessing khi parent xuất hiện. Durable deferred queue và attempt/age limits đã có theo [lifecycle contract](10_deferred_lifecycle.md); generic rejects quarantine còn planned. Local pipeline watermarks đã có theo [pipeline contract](11_pipeline_control.md); Silver tự nó không promote cursors. Warehouse staging đã có theo [contract](08_warehouse_staging.md).

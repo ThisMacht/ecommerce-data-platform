@@ -21,6 +21,7 @@ with DAG(
         bash_command="exec python3 scripts/make_dataset.py",
         cwd=str(Path(__file__).resolve().parents[2]),
         env={
+            "DATASET_MODE": "full",
             "OLIST_AIRFLOW_DAG_ID": "{{ dag.dag_id }}",
             "OLIST_AIRFLOW_RUN_ID": "{{ run_id }}",
         },

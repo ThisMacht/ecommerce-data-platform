@@ -88,6 +88,8 @@ class MakeDatasetTest(unittest.TestCase):
                 }
             )
         if "olist_platform.pipeline.cli" in args:
+            if "freeze" in args:
+                return json.dumps({"parent_run_id": "fk_fixture"})
             return json.dumps(
                 {"status": "STARTED" if "begin" in args else "SUCCESS", "attempt": 1}
             )
@@ -118,6 +120,59 @@ class MakeDatasetTest(unittest.TestCase):
         self.assertIn(self.names[-1], output)
         self.assertIn("[FOUND] order_items", output)
         self.assertFalse(Path(".env").exists())
+
+    def test_incremental_freezes_first_and_pins_full_parents_for_delta_and_retry(self):
+        def command(*args, capture=False):
+            if "extract" in args or "process" in args:
+                self.commands.append(args)
+                table = args[args.index("--table") + 1]
+                identity = args[args.index("--run-id") + 1]
+                layer = "bronze" if "extract" in args else "silver"
+                return json.dumps(
+                    {"manifest": {"prefix": f"{layer}/{table}/run_id={identity}"}}
+                )
+            return self.command(*args, capture=capture)
+
+        with (
+            patch.dict(os.environ, {"DATASET_MODE": "incremental"}),
+            patch("scripts.make_dataset.run", side_effect=command),
+            patch("scripts.make_dataset.shutil.which", return_value="java"),
+        ):
+            self.invoke()
+        freezes = [a for a in self.commands if "freeze" in a]
+        self.assertEqual(len(freezes), 1)
+        extracts = [a for a in self.commands if "extract" in a]
+        self.assertEqual(len(extracts), 6)
+        self.assertLess(
+            self.commands.index(freezes[0]), self.commands.index(extracts[0])
+        )
+        self.assertTrue(all("--pipeline-parent" in a for a in extracts[:2]))
+        self.assertTrue(all("--pipeline-run-id" in a for a in extracts))
+        self.assertFalse(any("--full-snapshot" in a for a in extracts))
+        loads = [a for a in self.commands if "olist_platform.warehouse.cli" in a]
+        self.assertEqual(len(loads), 4)
+        self.assertFalse(any("fk_fixture" in a for a in loads))
+        dependent = [
+            a
+            for a in self.commands
+            if "--customer-snapshot" in a
+            or "--order-snapshot" in a
+            or "--parent-snapshot" in a
+        ]
+        self.assertTrue(dependent)
+        self.assertTrue(
+            all(any("run_id=fk_fixture" in value for value in a) for a in dependent)
+        )
+
+    def test_incremental_missing_java_fails_without_airflow_context(self):
+        with (
+            patch.dict(os.environ, {"DATASET_MODE": "incremental"}),
+            patch("scripts.make_dataset.shutil.which", return_value=None),
+            patch("scripts.make_dataset.run") as command,
+        ):
+            with self.assertRaisesRegex(ValueError, "requires Java"):
+                self.invoke()
+            command.assert_not_called()
 
     def test_airflow_identity_is_stable_scoped_and_not_shell_input(self):
         with patch.dict(

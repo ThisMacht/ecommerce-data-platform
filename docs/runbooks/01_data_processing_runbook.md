@@ -472,7 +472,32 @@ checkout. UI/API bind loopback, SQLite metadata và standalone chỉ dành cho l
 Không coi logical date là extraction window; scheduled incremental/backfill còn
 planned. Chi tiết [local Airflow](../../infrastructure/README.md#local-airflow).
 
-## 21. Change control
+## 21. Incremental execution and recovery
+
+Chạy `make dataset-incremental` với Java 17 và raw/Compose config hiện có. Namespace
+`incremental_core_v1` bootstrap riêng lần đầu, không lấy cursor từ `local_core_v1`
+hoặc Bronze checkpoints. Sau đó mỗi window bắt đầu từ committed pipeline source
+timestamp trừ 48 giờ inclusive, có fixed upper và durable bytes.
+
+`source.freeze` chốt bốn deltas cùng hai full FK inputs trong một transaction;
+24 audited tasks xử lý/publish/load/resolve trước fresh dbt/CAS. Full parents chỉ
+phục vụ FK; không coi chi phí đọc parent là source growth hay delta processing.
+Xem [contract](../data_contracts/12_incremental_pipeline.md) để đọc counters.
+
+Sau lỗi, gọi lại **cùng command/mode**; giữ pending ID và code/config/contract.
+Không sửa source pages, cursor/hash để ép chạy. Scoped publication đòi đã freeze.
+Airflow dùng DAG `olist_core_incremental`, paused mặc định; Retry/Clear cùng DAG
+run giữ context, không dùng run mới hoặc logical date khác để thay batch.
+Chỉ bật schedule của một mode trên local checkout; guards chặn overlap nhưng run
+cạnh tranh có thể fail. Health/dashboard thêm `PIPELINE_NAMESPACE=incremental_core_v1`;
+queue metrics vẫn là backlog chung.
+
+Kiểm tra source_after_cursor/lookback/bootstrap/retry/auxiliary-FK counters và
+reconciliation status, rồi xác minh cả bốn controls chỉ tiến sau success. Updates
+ngoài SLA cần đối chiếu và chuẩn bị repair riêng; chưa có isolated backfill CLI.
+Full FK snapshot không chứng minh row ngoài window đã được load vào warehouse.
+
+## 22. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 

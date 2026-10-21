@@ -31,6 +31,7 @@ ANALYTICS_PYTHON ?= $(UV) run --locked --extra analytics python
 PIPELINE_PYTHON ?= $(UV) run --locked --extra processing --extra analytics python
 PIPELINE_HEALTH_CONFIG ?= config/pipeline_health.json
 PIPELINE_DASHBOARD_OUTPUT ?= build/reports/pipeline_dashboard.html
+PIPELINE_NAMESPACE ?= local_core_v1
 
 .DEFAULT_GOAL := help
 
@@ -46,7 +47,7 @@ PIPELINE_DASHBOARD_OUTPUT ?= build/reports/pipeline_dashboard.html
 	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration \
 	register-deferred resolve-deferred test-deferred-integration test-deferred-state-integration \
 	test-pipeline-control-integration test-pipeline-integration pipeline-health pipeline-dashboard \
-	sync-airflow airflow-local test-airflow
+	sync-airflow airflow-local test-airflow dataset-incremental test-incremental-integration
 
 help:
 	@echo "Available targets:"
@@ -100,6 +101,11 @@ help:
 	@echo "  pipeline-dashboard        Write a standalone HTML health snapshot (requires PG*)"
 	@echo "  sync-airflow / airflow-local Install isolated Airflow / start local standalone (paused DAG)"
 	@echo "  test-airflow              Import/serialize the real DAG and check retry wiring"
+	@echo "  dataset-incremental       Process frozen deltas with 48h lookback and full FK snapshots"
+	@echo "  test-incremental-integration Test frozen windows, late updates, replay and final gates"
+
+dataset-incremental:
+	DATASET_MODE=incremental sh scripts/make_dataset.sh
 
 sync-airflow:
 	$(UV) sync --project airflow --locked
@@ -112,10 +118,14 @@ test-airflow:
 		$(UV) run --project airflow --locked python -m unittest discover -s tests/orchestration -p 'test_*.py' -v
 
 pipeline-dashboard:
-	$(PYTHON) -m olist_platform.pipeline.health --thresholds "$(PIPELINE_HEALTH_CONFIG)" --html-output "$(PIPELINE_DASHBOARD_OUTPUT)"
+	$(PYTHON) -m olist_platform.pipeline.health --pipeline "$(PIPELINE_NAMESPACE)" --thresholds "$(PIPELINE_HEALTH_CONFIG)" --html-output "$(PIPELINE_DASHBOARD_OUTPUT)"
 
 pipeline-health:
-	$(PYTHON) -m olist_platform.pipeline.health --thresholds "$(PIPELINE_HEALTH_CONFIG)"
+	$(PYTHON) -m olist_platform.pipeline.health --pipeline "$(PIPELINE_NAMESPACE)" --thresholds "$(PIPELINE_HEALTH_CONFIG)"
+
+test-incremental-integration:
+	$(COMPOSE) -f $(COMPOSE_FILE) build minio
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PIPELINE_PYTHON) -m unittest discover -s tests/integration -p 'test_incremental*.py' -v
 
 sync:
 	$(UV) sync --locked

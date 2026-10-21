@@ -97,10 +97,10 @@ và bind API/UI vào `127.0.0.1:8080`. Standalone khởi tạo metadata/auth loc
 chạy các components; Ctrl-C dừng components nhưng giữ metadata và data services.
 Không commit password files/logs. Không dùng deployment này ngoài máy local.
 
-DAG `olist_core_full_snapshot`: daily UTC, paused upon creation, no catchup,
+DAGs `olist_core_full_snapshot` và `olist_core_incremental`: daily UTC, paused upon creation, no catchup,
 max active runs 1; task `run_core_pipeline` retries 2 lần, delay 1 phút, timeout
 1 giờ. Một task dùng `BashOperator` gọi runner; business logic/audit 19 stages
-không sao chép vào DAG. UI cho thấy execution tổng, PostgreSQL audit cho thấy stages.
+không sao chép vào DAG. Incremental wrapper thêm source freeze/full FK stages (24 tasks). UI cho thấy execution tổng, PostgreSQL audit cho thấy stages.
 Chưa có stage-level Airflow graph, callbacks hoặc notification integration.
 
 Trigger thủ công qua UI, kiểm tra audit/report trước khi bật schedule. Thiếu raw
@@ -118,10 +118,11 @@ export `OLIST_AIRFLOW_DAG_ID` và `OLIST_AIRFLOW_RUN_ID` đúng original context
 reject. Resume phải giữ code/config cũ. Completed run retry trả NOOP kể cả khi
 pending file đã được dọn. Crash có thể để audit RUNNING tới lần resume.
 
-Run vẫn là local full snapshot trong `local_core_v1` với `run_type=manual`, kể cả
-khi được Airflow timer kích hoạt. Nó không sử dụng logical date làm source bounds,
-không thay đổi extraction cursor và không cung cấp backfill interface. Namespace
-scheduled incremental riêng, lookback SLA và PostgreSQL Airflow metadata còn planned.
+Full DAG giữ `local_core_v1`/manual. Incremental DAG đặt `DATASET_MODE=incremental`,
+dùng `incremental_core_v1`/incremental và pipeline-owned 48h windows. Cả hai không
+sử dụng logical date làm backfill bounds; chỉ unpause một mode trên local checkout.
+Isolated backfill và PostgreSQL Airflow metadata còn planned. Chi tiết:
+[incremental contract](../docs/data_contracts/12_incremental_pipeline.md).
 
 Khi chủ động nâng Airflow, resolve lại với official constraints rồi commit cả lock:
 
@@ -135,7 +136,7 @@ và [BashOperator env guidance](https://airflow.apache.org/docs/apache-airflow-p
 
 ## TODO
 
-- `TODO(orchestration)`: scheduled incremental discovery, isolated backfill và deployment metadata PostgreSQL.
+- `TODO(orchestration)`: isolated backfill và deployment metadata PostgreSQL.
 - `TODO(phase-3)`: thêm Metabase sau khi marts và read-only grants ổn định.
 - `TODO(security)`: dùng secret manager và network policy khi có deployment ngoài local.
 

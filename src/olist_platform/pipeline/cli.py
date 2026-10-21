@@ -38,6 +38,7 @@ from .control import (
 def configuration(root: Path, contract: dict) -> dict:
     return {
         "processor_version": "local-core-v1",
+        "mode": os.environ.get("DATASET_MODE", "full"),
         "code_sha256": code_hash(root),
         "contract_sha256": sha256(encode(contract)),
         "database": {
@@ -128,6 +129,8 @@ def main() -> int:
     parser.add_argument("--run-id", required=True)
     commands = parser.add_subparsers(dest="command", required=True)
     commands.add_parser("begin")
+    frozen = commands.add_parser("freeze")
+    frozen.add_argument("--attempt", type=int, required=True)
     event = commands.add_parser("task")
     event.add_argument("--attempt", type=int, required=True)
     event.add_argument("--name", required=True)
@@ -162,16 +165,42 @@ def main() -> int:
                     ),
                     os.environ.get("BRONZE_S3_BUCKET", "olist-bronze"),
                 )
-                result = finish(
-                    connection,
-                    store,
-                    contract,
-                    root,
-                    args.run_id,
-                    args.attempt,
-                    configuration(root, contract),
-                    args.dbt_target.resolve(),
-                )
+                if args.command == "freeze":
+                    from .incremental import freeze
+
+                    task(
+                        connection,
+                        args.run_id,
+                        args.attempt,
+                        "source.freeze",
+                        "RUNNING",
+                    )
+                    result = freeze(
+                        connection,
+                        store,
+                        contract,
+                        args.run_id,
+                        args.attempt,
+                        os.environ.get("BRONZE_S3_ENDPOINT", "http://127.0.0.1:9000"),
+                    )
+                    task(
+                        connection,
+                        args.run_id,
+                        args.attempt,
+                        "source.freeze",
+                        "SUCCESS",
+                    )
+                else:
+                    result = finish(
+                        connection,
+                        store,
+                        contract,
+                        root,
+                        args.run_id,
+                        args.attempt,
+                        configuration(root, contract),
+                        args.dbt_target.resolve(),
+                    )
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except (BronzeError, ContractError) as error:

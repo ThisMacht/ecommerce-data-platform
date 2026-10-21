@@ -62,7 +62,12 @@ def run(*arguments: str, capture: bool = False) -> str:
                 ),
                 "load",
             )
-            name = f"{table}.{module}.{verb}"
+            parent = (
+                RUN_CONTEXT.get("mode") == "incremental"
+                and "--run-id" in arguments
+                and arguments[arguments.index("--run-id") + 1] != RUN_CONTEXT["run_id"]
+            )
+            name = f"{table}.{'parent.' if parent else ''}{module}.{verb}"
         if name:
             CURRENT_TASK = name
             audit(
@@ -125,6 +130,10 @@ def main() -> None:
 
 def execute() -> None:
     global RUN_CONTEXT, CURRENT_TASK
+    mode = os.environ.get("DATASET_MODE", "full")
+    if mode not in ("full", "incremental"):
+        raise ValueError("DATASET_MODE must be full or incremental")
+    incremental = mode == "incremental"
     requested = airflow_run_id()
     reports = Path("build/reports/dataset")
     pending = reports / "pending-run.txt"
@@ -151,8 +160,8 @@ def execute() -> None:
         )
         for name in missing:
             print(f"  Missing: data/raw/{name}")
-        if requested:
-            raise ValueError("Airflow requires the complete raw snapshot")
+        if requested or incremental:
+            raise ValueError("Airflow/incremental requires the complete raw snapshot")
         return
 
     java_home = os.environ.get("JAVA_HOME")
@@ -166,8 +175,10 @@ def execute() -> None:
         else "java"
     )
     silver = shutil.which(java) is not None
-    if requested and not silver:
-        raise ValueError("Airflow requires Java 17 and the complete pipeline")
+    if (requested or incremental) and not silver:
+        raise ValueError(
+            "Airflow/incremental requires Java 17 and the complete pipeline"
+        )
 
     if not Path(".env").exists():
         shutil.copyfile(".env.example", ".env")
@@ -214,7 +225,11 @@ def execute() -> None:
     os.environ.setdefault("SPARK_LOCAL_IP", "127.0.0.1")
 
     reports.mkdir(parents=True, exist_ok=True)
-    run_id = saved or requested or f"dataset_{uuid4().hex}"
+    run_id = (
+        saved
+        or requested
+        or f"{'incremental' if incremental else 'dataset'}_{uuid4().hex}"
+    )
     pending.write_text(run_id + "\n")
     print(f"[RUN] {run_id}; rerun make dataset after failure to resume", flush=True)
     if silver:
@@ -223,9 +238,10 @@ def execute() -> None:
             pending.unlink()
             print(f"[DONE] Pipeline already committed: {run_id}", flush=True)
             return
-        RUN_CONTEXT = {"run_id": run_id, "attempt": started["attempt"]}
+        RUN_CONTEXT = {"run_id": run_id, "attempt": started["attempt"], "mode": mode}
     snapshots = {}
-    for table in CORE_TABLES:
+
+    def publish(table, identity, parent=False):
         bronze = json.loads(
             run(
                 "uv",
@@ -238,17 +254,24 @@ def execute() -> None:
                 table,
                 "extract",
                 "--run-id",
-                run_id,
-                *(["--full-snapshot"] if table != "customers" else []),
+                identity,
+                *(
+                    ["--pipeline-run-id", run_id]
+                    + (["--pipeline-parent"] if parent else [])
+                    if incremental
+                    else ["--full-snapshot"]
+                    if table != "customers"
+                    else []
+                ),
                 capture=True,
             )
         )
-        (reports / f"{run_id}_{table}_bronze.json").write_text(
+        (reports / f"{identity}_{table}_bronze.json").write_text(
             json.dumps(bronze, indent=2) + "\n"
         )
         print(f"[OK] {table} Bronze: {bronze['manifest']['prefix']}", flush=True)
         if not silver:
-            continue
+            return None
         arguments = [
             "uv",
             "run",
@@ -264,18 +287,32 @@ def execute() -> None:
             "--bronze-prefix",
             bronze["manifest"]["prefix"],
             "--run-id",
-            run_id,
+            identity,
         ]
         if table == "orders":
             arguments.extend(["--customer-snapshot", snapshots["customers"]])
         elif table in ("order_items", "order_payments"):
             arguments.extend(["--order-snapshot", snapshots["orders"]])
         output = json.loads(run(*arguments, capture=True))
-        (reports / f"{run_id}_{table}_silver.json").write_text(
+        (reports / f"{identity}_{table}_silver.json").write_text(
             json.dumps(output, indent=2) + "\n"
         )
-        snapshots[table] = output["manifest"]["prefix"]
         print(f"[OK] {table} Silver: {output['manifest']['prefix']}", flush=True)
+        return output["manifest"]
+
+    if incremental:
+        CURRENT_TASK = "source.freeze"
+        frozen = audit("freeze", "--attempt", str(RUN_CONTEXT["attempt"]))
+        CURRENT_TASK = None
+        for table in CORE_TABLES[:2]:
+            parent = publish(table, frozen["parent_run_id"], parent=True)
+            snapshots[table] = parent["prefix"]
+    for table in CORE_TABLES:
+        output = publish(table, run_id)
+        if not silver:
+            continue
+        if not incremental:
+            snapshots[table] = output["prefix"]
         loaded = json.loads(
             run(
                 "uv",
@@ -289,7 +326,7 @@ def execute() -> None:
                 "--table",
                 table,
                 "--silver-prefix",
-                output["manifest"]["prefix"],
+                output["prefix"],
                 "--run-id",
                 run_id,
                 capture=True,
@@ -317,7 +354,7 @@ def execute() -> None:
                     *deferred_cli,
                     "register",
                     "--silver-prefix",
-                    output["manifest"]["prefix"],
+                    output["prefix"],
                     "--run-id",
                     run_id,
                     capture=True,

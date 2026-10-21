@@ -103,7 +103,7 @@ class InstalledCliTest(unittest.TestCase):
     def test_pipeline_cli_help_does_not_require_spark_or_database(self):
         result = self.run_command("olist-pipeline", "--help")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("{begin,task,fail,finish}", result.stdout)
+        self.assertIn("{begin,freeze,task,fail,finish}", result.stdout)
 
     def test_verify_rejects_modified_snapshot(self) -> None:
         self.csv_path.write_bytes(

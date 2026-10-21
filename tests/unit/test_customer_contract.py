@@ -63,6 +63,23 @@ class CustomerContractTest(unittest.TestCase):
             with self.subTest(change=change), self.assertRaises(BronzeError):
                 validate_manifest(manifest | change, self.contract, "customers")
 
+    def test_customer_delta_requires_pipeline_scope_and_full_flag_remains_strict(self):
+        manifest = {
+            "schema_version": "1.0.0",
+            "source": "postgresql.customers",
+            "source_schema": source_columns(self.contract, "customers"),
+            "config": {"contract_sha256": sha256(encode(self.contract))},
+            "snapshot_kind": "INCREMENTAL",
+            "extract_lower_bound": "2020-01-08T00:00:00Z",
+        }
+        with self.assertRaisesRegex(BronzeError, "full Bronze"):
+            validate_manifest(manifest, self.contract, "customers")
+        manifest["config"]["pipeline_run_id"] = "incremental"
+        validate_manifest(manifest, self.contract, "customers")
+        manifest["snapshot_kind"] = "FULL"
+        with self.assertRaisesRegex(BronzeError, "lower bound"):
+            validate_manifest(manifest, self.contract, "customers")
+
     def test_fk_manifest_requires_a_pinned_parent_and_full_customer_kind(self):
         manifest = {
             "prefix": "silver/orders/run_id=one",

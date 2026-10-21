@@ -61,6 +61,33 @@ def render(result: dict) -> str:
         ],
     )
     run = result["latest_run"] or {}
+    accounting = table(
+        "Input accounting (last successful run)",
+        [
+            "Dataset",
+            "Source window",
+            "Bootstrap",
+            "After cursor",
+            "Lookback",
+            "Retry inputs",
+            "Full FK source scans",
+        ],
+        [
+            [value(name)]
+            + [
+                value(data.get(key))
+                for key in (
+                    "source_rows_extracted",
+                    "source_bootstrap_rows",
+                    "source_after_cursor_rows",
+                    "source_lookback_rows",
+                    "deferred_retry_input_rows",
+                    "full_parent_source_rows",
+                )
+            ]
+            for name, data in result["datasets"].items()
+        ],
+    )
     run_table = table(
         "Latest execution (active run takes priority)",
         ["Run ID", "Status", "Attempt", "Failed task", "Elapsed (s)", "Limit (s)"],
@@ -105,12 +132,16 @@ th{background:#e9eff5}li{overflow-wrap:anywhere}
         + run_table
         + metrics
         + thresholds
+        + accounting
         + "<h2>Metric interpretation</h2><p>Freshness measures time since the last "
         "successful pipeline completion, not source change lag. Quality rates use "
         "processing occurrences from that success, including retries. Backlog uses "
         "the current queue; occurrences are not distinct business keys. Runtime "
         "includes time waiting for resume. Resolution due uses persisted retry "
         "limits. Unavailable values are not zero.</p>"
+        "<p>After-cursor rows count source versions beyond the previous ordered cursor, "
+        "not business inserts or net source growth. Bootstrap, after-cursor and "
+        "lookback partition the source window. Full FK scans are separate auxiliary inputs.</p>"
         "<p>This read-only snapshot does not verify live source or object storage "
         "and does not publish analytics or change watermarks.</p></main></body></html>"
     )

@@ -36,6 +36,10 @@ def main() -> int:
     extract.add_argument("--run-id", required=True)
     extract.add_argument("--page-size", type=int, default=1000)
     extract.add_argument(
+        "--pipeline-run-id", help="Publish a previously frozen incremental stream"
+    )
+    extract.add_argument("--pipeline-parent", action="store_true")
+    extract.add_argument(
         "--full-snapshot",
         action="store_true",
         help="Full source snapshot for parent checks or pipeline gates",
@@ -72,6 +76,8 @@ def main() -> int:
                     page_size=arguments.page_size,
                     table=arguments.table,
                     full_snapshot=arguments.full_snapshot,
+                    pipeline_run_id=arguments.pipeline_run_id,
+                    pipeline_parent=arguments.pipeline_parent,
                 )
         print(json.dumps(result, ensure_ascii=False))
         return 0
