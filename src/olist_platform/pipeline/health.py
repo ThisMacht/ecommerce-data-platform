@@ -11,7 +11,10 @@ from pathlib import Path
 import psycopg
 from psycopg.rows import dict_row
 
+from olist_platform.raw.profiling import atomic_write_text
+
 from .control import PIPELINE, TABLES
+from .dashboard import render
 
 
 def load_thresholds(path: Path) -> dict:
@@ -169,6 +172,9 @@ def main() -> int:
     parser.add_argument(
         "--thresholds", type=Path, default=Path("config/pipeline_health.json")
     )
+    parser.add_argument(
+        "--html-output", type=Path, help="Write a standalone HTML snapshot"
+    )
     args = parser.parse_args()
     try:
         limits = load_thresholds(args.thresholds)
@@ -179,6 +185,8 @@ def main() -> int:
             application_name="olist-pipeline-health",
         ) as connection:
             result = report(connection, limits)
+        if args.html_output:
+            atomic_write_text(args.html_output, render(result))
         print(json.dumps(result, ensure_ascii=False, indent=2))
         return 0 if result["status"] == "HEALTHY" else 1
     except (OSError, ValueError, psycopg.Error) as error:

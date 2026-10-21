@@ -149,3 +149,18 @@ actual **lớn hơn** limit; persisted expiry dùng `>=` theo lifecycle. Exit co
 là `HEALTHY`, `1` là `UNHEALTHY`, `2` là lỗi config/connection/schema và chỉ ghi
 thông báo rút gọn vào stderr. Chưa có scheduler/notification/dashboard; command
 không phải publication gate và không thu hồi watermark đã commit.
+
+### HTML dashboard
+
+`make pipeline-dashboard` ghi `build/reports/pipeline_dashboard.html`; override bằng
+`PIPELINE_DASHBOARD_OUTPUT=<path>`. Tương đương CLI
+`olist-pipeline-health --html-output <path>`. JSON stdout và health exit codes giữ
+nguyên; unhealthy vẫn tạo HTML. Renderer dùng cùng snapshot/thresholds, escape
+audit text, không JavaScript, CDN, network requests hoặc raw record payload.
+File UTF-8 được replace atomically bằng helper hiện có; parent folders được tạo.
+
+Dashboard hiển thị run/attempt/failure/runtime, last success ID, issue codes,
+dataset metrics và ngưỡng kèm định nghĩa metric. Đây là **snapshot tĩnh**, không
+phải live monitoring. Khi read/write lỗi, CLI trả `2`; file cũ có thể còn tồn tại.
+Luôn kiểm tra `Snapshot checked at` và exit code trước khi dùng làm evidence.
+Chưa có historical trends, scheduler hoặc notifications.

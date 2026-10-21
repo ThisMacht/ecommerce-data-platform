@@ -20,6 +20,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Durable deferred lifecycle | Implemented — bounded retry passes, pinned full snapshots, expiry and atomic staging resolution |
 | Local pipeline audit and watermarks | Implemented — full-snapshot receipts, fresh dbt gate and all-table atomic CAS commit |
 | Operational health checks | Implemented — read-only audit JSON, configurable thresholds and CLI failure status |
+| Operational dashboard | Implemented — standalone HTML health snapshot; manual refresh |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
 | dbt customer dimension, order fact and daily GMV/AOV views | Implemented — exact reconciliation and relationship tests |
 | Airflow and Metabase | TODO — later phases |
@@ -198,6 +199,14 @@ Standalone operations: `make register-deferred SOURCE_TABLE=<table> SILVER_PREFI
 Xem [pipeline contract](docs/data_contracts/11_pipeline_control.md); chạy `make test-pipeline-control-integration` và `make test-pipeline-integration` sau thay đổi gates. Namespace hiện là manual `local_core_v1`, dùng full snapshots; Airflow, scheduled incremental extraction và atomic analytics publication chưa triển khai.
 
 `make pipeline-health` đọc audit qua `PG*` (có thể dùng reader role), xuất JSON về run đang chạy/gần nhất, lần thành công cuối, freshness, runtime, reject/warning rates và deferred backlog. Ngưỡng nằm trong `config/pipeline_health.json`; đổi bằng `PIPELINE_HEALTH_CONFIG=<path>`. CLI `olist-pipeline-health` trả exit `0` healthy, `1` vượt ngưỡng/thiếu success, `2` không thể kiểm tra; Make trả nonzero khi CLI thất bại. Command không tự đọc `.env`, không thay đổi queue/watermark và chưa tự được lập lịch. Chi tiết cách tính và giới hạn ở [operational health](docs/data_contracts/11_pipeline_control.md#operational-health).
+
+`make pipeline-dashboard` tạo `build/reports/pipeline_dashboard.html` từ cùng health
+snapshot (export `PG*` như trên), mở trực tiếp bằng browser. Override path bằng
+`PIPELINE_DASHBOARD_OUTPUT=<path>`. Dashboard hiển thị run/attempt, issues, actual
+metrics và thresholds; không cần web server. CLI vẫn xuất JSON và trả health exit
+code; HTML vẫn được tạo khi unhealthy. Đây là snapshot tĩnh có timestamp, không tự
+refresh. Nếu không đọc được database hoặc ghi file thất bại, command báo lỗi;
+file cũ có thể còn tồn tại nên cần kiểm tra timestamp và exit code.
 
 ## License
 

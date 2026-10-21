@@ -30,6 +30,7 @@ MAX_DEFERRED_AGE_HOURS ?= 168
 ANALYTICS_PYTHON ?= $(UV) run --locked --extra analytics python
 PIPELINE_PYTHON ?= $(UV) run --locked --extra processing --extra analytics python
 PIPELINE_HEALTH_CONFIG ?= config/pipeline_health.json
+PIPELINE_DASHBOARD_OUTPUT ?= build/reports/pipeline_dashboard.html
 
 .DEFAULT_GOAL := help
 
@@ -44,7 +45,7 @@ PIPELINE_HEALTH_CONFIG ?= config/pipeline_health.json
 	ingest-order-payments ingest-order-items process-order-payments process-order-items test-order-children-integration \
 	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration \
 	register-deferred resolve-deferred test-deferred-integration test-deferred-state-integration \
-	test-pipeline-control-integration test-pipeline-integration pipeline-health
+	test-pipeline-control-integration test-pipeline-integration pipeline-health pipeline-dashboard
 
 help:
 	@echo "Available targets:"
@@ -95,6 +96,10 @@ help:
 	@echo "  test-pipeline-control-integration Test atomic pipeline control and CAS failures"
 	@echo "  test-pipeline-integration Test all core receipts and dbt-gated watermark commit"
 	@echo "  pipeline-health           Check audit freshness, runtime, quality and deferred backlog (requires PG*)"
+	@echo "  pipeline-dashboard        Write a standalone HTML health snapshot (requires PG*)"
+
+pipeline-dashboard:
+	$(PYTHON) -m olist_platform.pipeline.health --thresholds "$(PIPELINE_HEALTH_CONFIG)" --html-output "$(PIPELINE_DASHBOARD_OUTPUT)"
 
 pipeline-health:
 	$(PYTHON) -m olist_platform.pipeline.health --thresholds "$(PIPELINE_HEALTH_CONFIG)"

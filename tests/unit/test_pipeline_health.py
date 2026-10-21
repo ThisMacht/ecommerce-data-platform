@@ -11,6 +11,7 @@ from unittest.mock import patch
 import psycopg
 
 from olist_platform.pipeline.control import TABLES
+from olist_platform.pipeline.dashboard import render
 from olist_platform.pipeline.health import evaluate, load_thresholds, main
 
 CONFIG = Path(__file__).resolve().parents[2] / "config/pipeline_health.json"
@@ -120,6 +121,67 @@ class PipelineHealthTest(unittest.TestCase):
             ):
                 self.assertEqual(main(), 2)
             self.assertNotIn("private", error.getvalue())
+
+    def test_dashboard_escapes_audit_values_and_distinguishes_missing_from_zero(self):
+        self.counts["customers"]["rejected_rows"] = 0
+        result = self.check()
+        result["latest_run"]["run_id"] = '<script>alert("audit")</script>'
+        result["issues"] = ['<img src=x onerror="alert(1)">']
+        html = render(result)
+        self.assertNotIn("<script", html)
+        self.assertNotIn("<img", html)
+        self.assertIn("&lt;script&gt;", html)
+        self.assertIn("Unavailable", html)
+        self.assertIn("0.000%", html)
+        self.assertIn("1.000%", html)
+        self.assertIn("5.000%", html)
+        self.assertIn("100", html)
+        self.assertIn("Static report", html)
+        missing = evaluate(self.now, None, None, {}, {}, self.limits)
+        self.assertIn("orders.missing_success", render(missing))
+        self.assertIn("UNHEALTHY", render(missing))
+
+    def test_cli_writes_unhealthy_dashboard_and_preserves_previous_on_read_failure(
+        self,
+    ):
+        result = evaluate(self.now, None, None, {}, {}, self.limits)
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "nested" / "report.html"
+            with (
+                patch(
+                    "sys.argv",
+                    [
+                        "health",
+                        "--thresholds",
+                        str(CONFIG),
+                        "--html-output",
+                        str(target),
+                    ],
+                ),
+                patch("olist_platform.pipeline.health.psycopg.connect"),
+                patch("olist_platform.pipeline.health.report", return_value=result),
+                redirect_stdout(io.StringIO()),
+            ):
+                self.assertEqual(main(), 1)
+                original = target.read_text()
+                self.assertIn("UNHEALTHY", original)
+                with (
+                    patch(
+                        "olist_platform.pipeline.health.report",
+                        side_effect=psycopg.OperationalError("private"),
+                    ),
+                    redirect_stderr(io.StringIO()),
+                ):
+                    self.assertEqual(main(), 2)
+                self.assertEqual(target.read_text(), original)
+                with (
+                    patch(
+                        "olist_platform.pipeline.health.atomic_write_text",
+                        side_effect=OSError("private"),
+                    ),
+                    redirect_stderr(io.StringIO()),
+                ):
+                    self.assertEqual(main(), 2)
 
     def test_thresholds_reject_missing_unknown_boolean_nonfinite_and_bad_ranges(self):
         with tempfile.TemporaryDirectory() as directory:

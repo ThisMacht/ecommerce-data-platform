@@ -53,6 +53,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make test-deferred-state-integration` / `make test-deferred-integration`: verify lifecycle transactions and pinned snapshots.
 - `make test-pipeline-control-integration` / `make test-pipeline-integration`: atomic controls and full receipt/dbt gates.
 - `make pipeline-health`: read-only JSON checks using `PG*`; thresholds: `config/pipeline_health.json`. CLI exit 0 healthy, 1 unhealthy, 2 unavailable; Make fails on either error.
+- `make pipeline-dashboard`: write a static HTML health snapshot to `build/reports/pipeline_dashboard.html`; inspect its timestamp and command exit status.
 - `make test-bronze-integration`: test disposable PostgreSQL/MinIO.
 - `make sync-processing`: install locked Spark extra; use Java 17.
 - `make process-orders BRONZE_PREFIX=<prefix> SILVER_RUN_ID=<id>`: publish/resume Silver.

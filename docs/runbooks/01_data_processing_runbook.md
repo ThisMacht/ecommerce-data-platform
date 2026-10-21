@@ -447,6 +447,13 @@ Freshness đo từ lần SUCCESS cuối; runtime gồm thời gian chờ resume.
 operational limits local, chưa phải benchmark/SLA. Xem [contract](../data_contracts/11_pipeline_control.md#operational-health)
 trước khi đổi ngưỡng. Command chưa được tự lập lịch hoặc gửi thông báo.
 
+Chạy `make pipeline-dashboard` để tạo HTML tại
+`build/reports/pipeline_dashboard.html`, rồi mở bằng browser. `PG*`/thresholds như
+health CLI; `PIPELINE_DASHBOARD_OUTPUT=<path>` đổi vị trí. HTML vẫn được ghi khi
+unhealthy. File là snapshot tĩnh: kiểm tra timestamp và command exit status;
+nếu database/ghi file lỗi, file cũ có thể vẫn tồn tại. Không dùng file cũ làm bằng
+chứng cho lần kiểm tra vừa thất bại.
+
 ## 21. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:

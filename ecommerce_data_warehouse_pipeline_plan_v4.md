@@ -575,7 +575,7 @@ Phase này biến pipeline từ một luồng ETL thông thường thành một 
 - [x] Thực thi source-to-Bronze, processing-routing và warehouse-load reconciliations trong final local gate.
 - [x] Làm local pipeline fail nếu reconciliation lệch một row.
 - [x] Cấu hình freshness, runtime, deferred-age và reject/warning-rate thresholds qua read-only `make pipeline-health`; freshness là tuổi pipeline SUCCESS, chưa đo source change lag. Scheduler/notification còn planned.
-- [ ] Dựng operational dashboard từ audit schema.
+- [x] Dựng static HTML operational health dashboard từ audit schema qua `make pipeline-dashboard`; live refresh, historical trends và source/lookback accounting còn planned.
 
 Operational dashboard cần hiển thị pipeline status, duration, freshness, quarantine rate, warning rate, insert/update/unchanged/stale counts, source rows mới, lookback rows, deferred retry input, task failures và reconciliation failures.
 
