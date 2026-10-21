@@ -23,6 +23,7 @@ from olist_platform.raw.contracts import ContractError, load_contract
 
 from .control import (
     TABLES,
+    backfill_window,
     begin,
     code_hash,
     current,
@@ -39,6 +40,15 @@ def configuration(root: Path, contract: dict) -> dict:
     return {
         "processor_version": "local-core-v1",
         "mode": os.environ.get("DATASET_MODE", "full"),
+        **(
+            {
+                "backfill_window": backfill_window(
+                    os.environ.get("BACKFILL_START"), os.environ.get("BACKFILL_END")
+                )
+            }
+            if os.environ.get("DATASET_MODE") == "backfill"
+            else {}
+        ),
         "code_sha256": code_hash(root),
         "contract_sha256": sha256(encode(contract)),
         "database": {

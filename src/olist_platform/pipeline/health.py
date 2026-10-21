@@ -13,7 +13,7 @@ from psycopg.rows import dict_row
 
 from olist_platform.raw.profiling import atomic_write_text
 
-from .control import INCREMENTAL, PIPELINE, TABLES
+from .control import BACKFILL, INCREMENTAL, PIPELINE, TABLES
 from .dashboard import render
 
 
@@ -92,6 +92,7 @@ def evaluate(now, latest, success, counters, queue, limits, pipeline=PIPELINE) -
         for key in (
             "source_rows_extracted",
             "source_bootstrap_rows",
+            "source_backfill_rows",
             "source_after_cursor_rows",
             "source_lookback_rows",
             "deferred_retry_input_rows",
@@ -135,7 +136,7 @@ def evaluate(now, latest, success, counters, queue, limits, pipeline=PIPELINE) -
 
 
 def report(connection, limits: dict, pipeline=PIPELINE) -> dict:
-    if pipeline not in (PIPELINE, INCREMENTAL):
+    if pipeline not in (PIPELINE, INCREMENTAL, BACKFILL):
         raise ValueError("Unsupported pipeline namespace")
     with connection.transaction():
         connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY")
@@ -186,7 +187,9 @@ def main() -> int:
     parser.add_argument(
         "--html-output", type=Path, help="Write a standalone HTML snapshot"
     )
-    parser.add_argument("--pipeline", choices=(PIPELINE, INCREMENTAL), default=PIPELINE)
+    parser.add_argument(
+        "--pipeline", choices=(PIPELINE, INCREMENTAL, BACKFILL), default=PIPELINE
+    )
     args = parser.parse_args()
     try:
         limits = load_thresholds(args.thresholds)

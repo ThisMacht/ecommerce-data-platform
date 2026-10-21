@@ -20,11 +20,12 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Durable deferred lifecycle | Implemented — bounded retry passes, pinned full snapshots, expiry and atomic staging resolution |
 | Local pipeline audit and watermarks | Implemented — verified receipts, fresh dbt gate and all-table atomic CAS commit |
 | Incremental core pipeline | Implemented — separate cursors, atomic six-stream freeze, inclusive 48h lookback and full FK dependencies |
+| Isolated backfill | Implemented — explicit UTC window, frozen retry, origin-scoped queue and unchanged scheduled cursors |
 | Operational health checks | Implemented — read-only audit JSON, configurable thresholds and CLI failure status |
 | Operational dashboard | Implemented — standalone HTML health snapshot; manual refresh |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
 | dbt customer dimension, order fact and daily GMV/AOV views | Implemented — exact reconciliation and relationship tests |
-| Airflow orchestration | Implemented — paused daily full/incremental DAGs, isolated runtime and stable retry identity |
+| Airflow orchestration | Implemented — paused daily full/incremental and manual backfill DAGs, isolated runtime and stable retry identity |
 | Metabase | TODO — later phases |
 
 ## Quick start
@@ -180,7 +181,7 @@ Items hiện chỉ kiểm tra product/seller ID không thiếu; membership chưa
 
 Sau migration `006`, dùng `make load-warehouse SOURCE_TABLE=<table> SILVER_PREFIX='<prefix>' WAREHOUSE_RUN_ID=<id>`. CLI nhận `WAREHOUSE_DSN` hoặc `PG*` và cùng S3 environment. Chỉ valid rows được COPY/merge vào `raw_staging`; data và `audit.warehouse_load_runs` commit cùng transaction. Source sequence mới thắng, version cũ bị bỏ qua, cùng version khác business hash làm fail; retry cùng ID/input trả `NOOP`.
 
-`make dataset` tự chạy bước này và lưu `*_warehouse.json`. Xem [staging contract](docs/data_contracts/08_warehouse_staging.md); kiểm tra bằng `make test-warehouse-merge-integration` và `make test-warehouse-integration`. Local run/task audit và gated pipeline watermarks đã có ở [pipeline contract](docs/data_contracts/11_pipeline_control.md); full/incremental Airflow wrappers đã có; isolated backfill còn planned.
+`make dataset` tự chạy bước này và lưu `*_warehouse.json`. Xem [staging contract](docs/data_contracts/08_warehouse_staging.md); kiểm tra bằng `make test-warehouse-merge-integration` và `make test-warehouse-integration`. Local run/task audit và gated pipeline watermarks đã có ở [pipeline contract](docs/data_contracts/11_pipeline_control.md); full/incremental/manual-backfill Airflow wrappers đã có.
 
 ## dbt analytics
 
@@ -198,7 +199,7 @@ Standalone operations: `make register-deferred SOURCE_TABLE=<table> SILVER_PREFI
 
 `make dataset` ghi run/task audit và đối chiếu server-side Bronze/Silver/warehouse/deferred receipts. Final gate khóa ghi staging trong lúc chạy fresh dbt build; chỉ sau tất cả tasks/tests/counts đạt mới commit bốn pipeline cursors bằng CAS cùng reconciliation audit. Lỗi giữ watermark cũ; committed replay trả `NOOP`.
 
-Xem [pipeline contract](docs/data_contracts/11_pipeline_control.md); chạy `make test-pipeline-control-integration` và `make test-pipeline-integration` sau thay đổi gates. Full mode dùng `local_core_v1`; incremental dùng `incremental_core_v1`, có Airflow wrapper riêng. Atomic analytics publication và isolated backfill chưa triển khai.
+Xem [pipeline contract](docs/data_contracts/11_pipeline_control.md); chạy `make test-pipeline-control-integration` và `make test-pipeline-integration` sau thay đổi gates. Full mode dùng `local_core_v1`; incremental dùng `incremental_core_v1`, có Airflow wrapper riêng. Backfill dùng `backfill_core_v1`, giữ nguyên scheduled cursors. Atomic analytics publication chưa triển khai.
 
 `make pipeline-health` đọc audit qua `PG*` (có thể dùng reader role), xuất JSON về run đang chạy/gần nhất, lần thành công cuối, freshness, runtime, reject/warning rates và deferred backlog. Ngưỡng nằm trong `config/pipeline_health.json`; đổi bằng `PIPELINE_HEALTH_CONFIG=<path>`. CLI `olist-pipeline-health` trả exit `0` healthy, `1` vượt ngưỡng/thiếu success, `2` không thể kiểm tra; Make trả nonzero khi CLI thất bại. Command không tự đọc `.env`, không thay đổi queue/watermark và chưa tự được lập lịch. Chi tiết cách tính và giới hạn ở [operational health](docs/data_contracts/11_pipeline_control.md#operational-health).
 
@@ -234,6 +235,22 @@ Giữ cùng mode/code/config/pending ID khi resume; updates ngoài 48 giờ chư
 đảm tự thu thập. Xem [incremental contract](docs/data_contracts/12_incremental_pipeline.md),
 kiểm tra bằng `make test-incremental-integration` với Java 17.
 
+## Isolated backfill
+
+Repair theo `source_updated_at` trong khoảng UTC **[start, end)**, giữ nguyên
+watermark full/incremental. Chạy lại cùng command/bounds để resume sau lỗi:
+
+```bash
+make dataset-backfill BACKFILL_START=2020-01-01T00:00:00Z BACKFILL_END=2020-02-01T00:00:00Z
+```
+
+Bốn deltas và hai full FK snapshots được freeze cùng transaction. Backfill chỉ
+retry queue thuộc run đó; merge không ghi đè newer source versions. Final gate
+vẫn chạy fresh dbt và reconciliation. Dữ liệu sửa đi vào staging/marts dùng chung;
+đây không phải historical restore của source versions đã bị overwrite.
+Xem [backfill contract](docs/data_contracts/13_backfill_pipeline.md), kiểm tra bằng
+`make test-backfill-integration`. Health/dashboard dùng `PIPELINE_NAMESPACE=backfill_core_v1`.
+
 ## Local Airflow orchestration
 
 Cài Python 3.12, uv, Docker Compose, Java 17 và đủ 9 CSV canonical, rồi chạy:
@@ -247,13 +264,13 @@ UI bind `127.0.0.1:8080`; credentials local được tạo trong ignored
 `build/airflow/`. Hai DAG `olist_core_full_snapshot` và `olist_core_incremental` mặc định paused, schedule `@daily`
 UTC, `catchup=False`, `max_active_runs=1`. Trigger thủ công để kiểm tra trước khi
 unpause. Chỉ bật schedule của mode muốn dùng. Mỗi DAG có một task gọi runner; full/incremental audit 19/24 business tasks trong PostgreSQL.
+DAG `olist_core_backfill` manual-only nhận conf `start`/`end`, truyền bounds qua environment; Retry/Clear cùng DAG run để resume.
 Dừng standalone bằng Ctrl-C; PostgreSQL/MinIO và metadata được giữ lại.
 
 Retry/Clear task của **cùng DAG run** giữ pipeline ID, replay receipts hoặc NOOP
 sau commit. Không trigger run mới để thay thế unfinished run và không sửa code/config
 trong khi run đang pending. Airflow thiếu CSV/Java sẽ fail thay vì skip. Đây là
-local standalone orchestration dùng SQLite riêng; deployment production và
-isolated backfill còn planned. Xem [operations](infrastructure/README.md#local-airflow).
+local standalone orchestration dùng SQLite riêng; deployment production còn planned. Xem [operations](infrastructure/README.md#local-airflow).
 
 ## License
 

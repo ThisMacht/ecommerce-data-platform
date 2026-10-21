@@ -4,7 +4,7 @@
 | --- | --- |
 | System | Olist E-commerce Data Platform |
 | Owner | Data Engineering |
-| Status | Partially active — core pipeline and local Airflow full-snapshot wrapper active; incremental/backfill planned |
+| Status | Active — core full/incremental/backfill and local Airflow wrappers |
 | Last reviewed | 2026-10-21 |
 | Processing mode | Batch |
 
@@ -16,7 +16,7 @@ Tài liệu này là hướng dẫn vận hành bổ sung cho:
 - [Raw dataset manifest](../../data/raw/README.md)
 - [Source contracts](../data_contracts/02_source_contracts.md)
 
-PostgreSQL source, bốn core Bronze/Silver datasets, staging, dbt và deferred lifecycle đã được triển khai. Các mục 13–20 mô tả operations hiện có; local Airflow full wrapper đã có; incremental/backfill và các commands đánh dấu **planned** vẫn là target interface, chưa khả dụng.
+PostgreSQL source, bốn core Bronze/Silver datasets, staging, dbt và deferred lifecycle đã được triển khai. Các mục 13–20 mô tả operations hiện có; local Airflow full/incremental/manual-backfill wrappers đã có; các commands đánh dấu **planned** vẫn là target interface.
 
 ## 1. Scope
 
@@ -283,10 +283,10 @@ Không bao giờ recovery incident bằng cách chỉnh sửa thủ công raw CS
 
 1. Ghi `start_date`, `end_date`, reason và operator được yêu cầu vào audit run.
 2. Xác nhận range có giới hạn và không vô tình chọn toàn bộ source history.
-3. Sử dụng `run_type=backfill` và object-storage namespace riêng.
+3. Sử dụng `run_type=backfill`, control/delivery streams riêng và unique object run IDs.
 4. Đọc range cụ thể mà không thay đổi scheduled extraction bounds.
 5. Áp dụng cùng validation, merge, dbt và reconciliation gates như scheduled run.
-6. Giữ scheduled cursor không đổi, trừ khi một configuration đã được review riêng cho phép promotion rõ ràng.
+6. Giữ scheduled cursor không đổi; backfill implementation không hỗ trợ promotion.
 7. So sánh kết quả với full-reload fixture tương đương hoặc aggregate invariants.
 8. Ghi affected row counts và đính kèm reconciliation report vào backfill run.
 
@@ -347,10 +347,10 @@ Các pipeline commands sau vẫn ở trạng thái **planned** và chỉ trở t
 make run-pipeline
 ```
 
-Backfill interface dự kiến:
+Backfill interface đã triển khai (source update timestamps, end exclusive):
 
 ```bash
-make run-pipeline RUN_TYPE=backfill START_DATE=2018-01-01 END_DATE=2018-01-31
+make dataset-backfill BACKFILL_START=2020-01-01T00:00:00Z BACKFILL_END=2020-02-01T00:00:00Z
 ```
 
 ## 12. Definition of a successful run
@@ -425,7 +425,7 @@ Sau migration `009`, `make dataset` ghi `pipeline_runs`, task attempts và per-d
 
 Final coordinator verify remote markers/hashes cùng server-side receipts, giữ staging SHARE locks, chạy fresh dbt build và đối soát exact counters. Chỉ sau mọi gates đạt mới CAS cả bốn controls cùng dataset audit và run SUCCESS trong một transaction. Một lỗi, missing receipt hoặc CAS conflict giữ controls cũ. Source scan counts của full snapshot không được gọi là new-source growth.
 
-Sau failure/crash, giữ pending ID và code/config cũ rồi gọi lại `make dataset`. Task attempt cũ được giữ, resume tạo attempt mới; data-plane và deferred retries replay cùng IDs. Không chạy cùng run từ nhiều hosts/checkouts. Local namespace là manual `local_core_v1`; scheduled incremental/backfill và atomic analytics publication chưa triển khai. Xem [pipeline contract](../data_contracts/11_pipeline_control.md).
+Sau failure/crash, giữ pending ID và code/config cũ rồi gọi lại `make dataset`. Task attempt cũ được giữ, resume tạo attempt mới; data-plane và deferred retries replay cùng IDs. Không chạy cùng run từ nhiều hosts/checkouts. Local namespace là manual `local_core_v1`; incremental/backfill ở mục 21–22; atomic analytics publication chưa triển khai. Xem [pipeline contract](../data_contracts/11_pipeline_control.md).
 
 ### Operational health checks
 
@@ -469,8 +469,7 @@ mới, không dùng `dags test` để resume, không xóa pending ID và không 
 
 Local file lock và PostgreSQL guard vẫn áp dụng; không chạy cùng run từ nhiều
 checkout. UI/API bind loopback, SQLite metadata và standalone chỉ dành cho local.
-Không coi logical date là extraction window; scheduled incremental/backfill còn
-planned. Chi tiết [local Airflow](../../infrastructure/README.md#local-airflow).
+Không coi logical date là extraction window; incremental/backfill dùng explicit mode/bounds theo mục 21–22. Chi tiết [local Airflow](../../infrastructure/README.md#local-airflow).
 
 ## 21. Incremental execution and recovery
 
@@ -494,10 +493,31 @@ queue metrics vẫn là backlog chung.
 
 Kiểm tra source_after_cursor/lookback/bootstrap/retry/auxiliary-FK counters và
 reconciliation status, rồi xác minh cả bốn controls chỉ tiến sau success. Updates
-ngoài SLA cần đối chiếu và chuẩn bị repair riêng; chưa có isolated backfill CLI.
+ngoài SLA cần đối chiếu và repair bằng isolated backfill ở mục 22.
 Full FK snapshot không chứng minh row ngoài window đã được load vào warehouse.
 
-## 22. Change control
+## 22. Isolated backfill and recovery
+
+Chạy `make dataset-backfill BACKFILL_START=<ISO-with-offset> BACKFILL_END=<ISO-with-offset>`.
+Window dùng `source_updated_at`, start inclusive/end exclusive; không dùng purchase date.
+Migration `011` và namespace `backfill_core_v1` tách controls/delivery khỏi scheduled modes.
+Bốn deltas và hai full FK inputs được freeze cùng transaction, 24 tasks và dbt gates.
+
+Sau lỗi giữ pending ID/bounds/code/config, gọi lại cùng command; không đổi khoảng thời gian.
+Kiểm tra `source_backfill_rows`, `full_parent_source_rows`, retry/remaining-pending counters,
+load outcomes, reconciliation và xác minh full/incremental controls không thay đổi.
+Backfill resolver chỉ retry/expire queue có original Silver run ID tương ứng; queue run
+khác giữ nguyên. Staging dùng chung, newer source sequence thắng; failed final gate
+không rollback dataset loads đã commit. Không sửa watermark/hash để ép success.
+
+Airflow: trigger paused/manual-only `olist_core_backfill` với JSON conf `start`/`end`
+(offset-aware ISO), Retry/Clear cùng DAG run. Không dùng logical date làm bounds.
+Health/dashboard thêm `PIPELINE_NAMESPACE=backfill_core_v1`; backlog vẫn là global.
+Xem [backfill contract](../data_contracts/13_backfill_pipeline.md) và chạy
+`make test-backfill-integration` sau thay đổi. Mutable source không phục hồi historical
+versions đã overwrite; analytics views chưa atomic publish.
+
+## 23. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 

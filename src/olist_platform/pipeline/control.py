@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 import re
+from datetime import datetime, timezone
 from pathlib import Path
 
 from psycopg.rows import dict_row
@@ -15,6 +16,7 @@ from olist_platform.silver.batch import validate_manifest, verify_silver
 
 PIPELINE = "local_core_v1"
 INCREMENTAL = "incremental_core_v1"
+BACKFILL = "backfill_core_v1"
 TABLES = ("customers", "orders", "order_items", "order_payments")
 TASKS = (
     tuple(
@@ -43,7 +45,29 @@ def parent_run_id(run_id: str) -> str:
 
 
 def required_tasks(row: dict) -> tuple:
-    return INCREMENTAL_TASKS if row["pipeline_name"] == INCREMENTAL else TASKS
+    return (
+        INCREMENTAL_TASKS if row["pipeline_name"] in (INCREMENTAL, BACKFILL) else TASKS
+    )
+
+
+def backfill_window(start: str, end: str) -> dict:
+    try:
+        dates = [
+            datetime.fromisoformat(value.replace("Z", "+00:00"))
+            for value in (start, end)
+        ]
+    except (ValueError, TypeError, AttributeError) as error:
+        raise BronzeError(
+            "Backfill needs start/end ISO timestamps with explicit offsets"
+        ) from error
+    if any(value.utcoffset() is None for value in dates) or dates[0] >= dates[1]:
+        raise BronzeError("Backfill requires offset-aware start < end")
+    return dict(
+        zip(
+            ("start", "end"),
+            (value.astimezone(timezone.utc).isoformat() for value in dates),
+        )
+    )
 
 
 def code_hash(root: Path) -> str:
@@ -106,9 +130,19 @@ def begin(connection, run_id: str, request: dict) -> dict:
         raise BronzeError("Invalid pipeline run ID")
     digest = sha256(encode(request))
     mode = request.get("mode", "full")
-    if mode not in ("full", "incremental"):
+    if mode not in ("full", "incremental", "backfill"):
         raise BronzeError("Unsupported pipeline mode")
-    pipeline = INCREMENTAL if mode == "incremental" else PIPELINE
+    if mode == "backfill":
+        window = request.get("backfill_window", {})
+        if (
+            not isinstance(window, dict)
+            or set(window) != {"start", "end"}
+            or window != backfill_window(window["start"], window["end"])
+        ):
+            raise BronzeError("Backfill needs a canonical UTC window")
+    pipeline = {"full": PIPELINE, "incremental": INCREMENTAL, "backfill": BACKFILL}[
+        mode
+    ]
     with connection.transaction():
         lock(connection)
         previous = one(
@@ -159,7 +193,7 @@ def begin(connection, run_id: str, request: dict) -> dict:
                 (
                     run_id,
                     pipeline,
-                    "incremental" if mode == "incremental" else "manual",
+                    mode if mode != "full" else "manual",
                     Jsonb(request),
                     digest,
                     Jsonb(before),
@@ -212,7 +246,8 @@ def evidence(connection, store, contract: dict, run_id: str) -> dict:
     from datetime import timedelta
 
     row = current(connection, run_id)
-    incremental = row["pipeline_name"] == INCREMENTAL
+    incremental = row["pipeline_name"] in (INCREMENTAL, BACKFILL)
+    backfill = row["pipeline_name"] == BACKFILL
 
     def stream(table, identity, kind):
         receipt = one(
@@ -254,10 +289,14 @@ def evidence(connection, store, contract: dict, run_id: str) -> dict:
         ):
             raise BronzeError("Pipeline manifest dependency/contract mismatch")
         expected_lower = None
+        expected_end = None
         if incremental:
             baseline = row["control_before"][table]
             before = baseline["committed_cursor"]
-            if kind == "INCREMENTAL" and before is not None:
+            if kind == "INCREMENTAL" and backfill:
+                expected_lower = row["request"]["backfill_window"]["start"]
+                expected_end = row["request"]["backfill_window"]["end"]
+            elif kind == "INCREMENTAL" and before is not None:
                 expected_lower = (
                     cursor_tuple(before, table)[0] - timedelta(hours=48)
                 ).isoformat()
@@ -267,11 +306,15 @@ def evidence(connection, store, contract: dict, run_id: str) -> dict:
                 or bronze["pipeline_cursor_version_before"]
                 != baseline["cursor_version"]
                 or bronze["config"].get("pipeline_run_id") != run_id
-                or bronze["config"]["pipeline"] != f"incremental_{table}_{role}_v1"
+                or bronze["config"]["pipeline"]
+                != f"{'backfill' if backfill else 'incremental'}_{table}_{role}_v1"
                 or bronze["config"]["lookback_hours"] != 48
             ):
                 raise BronzeError("Incremental receipt does not use pipeline control")
-        if bronze.get("extract_lower_bound") != expected_lower:
+        if (
+            bronze.get("extract_lower_bound") != expected_lower
+            or bronze.get("extract_end_bound") != expected_end
+        ):
             raise BronzeError("Pipeline extraction bounds mismatch")
         return {
             "bronze": bronze,
@@ -362,6 +405,10 @@ def evidence(connection, store, contract: dict, run_id: str) -> dict:
             != pin["manifest_sha256"]
         ):
             raise BronzeError("Missing or mismatched deferred receipts")
+        if backfill and resolution["request"].get("origin_run_id") != run_id:
+            raise BronzeError(
+                "Backfill resolution must be restricted to its own queue rows"
+            )
         retry = resolution["result"]
         retry_load = one(
             connection,
@@ -400,6 +447,7 @@ def reconcile(item: dict) -> dict:
         "source_rule_violation_count": sum(silver["rule_violations"].values()),
     }
     if bronze.get("snapshot_kind") == "INCREMENTAL":
+        counts["source_backfill_rows"] = bronze.get("source_backfill_rows", 0)
         for key in (
             "source_bootstrap_rows",
             "source_after_cursor_rows",
@@ -413,6 +461,7 @@ def reconcile(item: dict) -> dict:
                     "source_bootstrap_rows",
                     "source_after_cursor_rows",
                     "source_lookback_rows",
+                    "source_backfill_rows",
                 )
             )
             or sum(
@@ -421,6 +470,7 @@ def reconcile(item: dict) -> dict:
                     "source_bootstrap_rows",
                     "source_after_cursor_rows",
                     "source_lookback_rows",
+                    "source_backfill_rows",
                 )
             )
             != counts["source_rows_extracted"]
@@ -531,16 +581,25 @@ def promote(connection, run_id: str, attempt: int, items: dict, dbt: dict) -> di
                 or cursor_tuple(upper, table) > cursor_tuple(before, table)
             ):
                 candidate = upper
-            changed = connection.execute(
-                "UPDATE audit.pipeline_control SET committed_cursor=%s,cursor_version=cursor_version+1,updated_by_run_id=%s,updated_at=clock_timestamp() WHERE pipeline_name=%s AND source_table=%s AND cursor_version=%s",
-                (
-                    Jsonb(candidate),
-                    run_id,
-                    row["pipeline_name"],
-                    table,
-                    previous["cursor_version"],
-                ),
-            ).rowcount
+            after = before if row["pipeline_name"] == BACKFILL else candidate
+            if row["pipeline_name"] == BACKFILL:
+                actual = one(
+                    connection,
+                    "SELECT committed_cursor,cursor_version FROM audit.pipeline_control WHERE pipeline_name=%s AND source_table=%s FOR UPDATE",
+                    (BACKFILL, table),
+                )
+                changed = int(actual == previous)
+            else:
+                changed = connection.execute(
+                    "UPDATE audit.pipeline_control SET committed_cursor=%s,cursor_version=cursor_version+1,updated_by_run_id=%s,updated_at=clock_timestamp() WHERE pipeline_name=%s AND source_table=%s AND cursor_version=%s",
+                    (
+                        Jsonb(candidate),
+                        run_id,
+                        row["pipeline_name"],
+                        table,
+                        previous["cursor_version"],
+                    ),
+                ).rowcount
             if changed != 1:
                 raise BronzeError("Pipeline watermark compare-and-swap conflict")
             proof = {
@@ -560,7 +619,7 @@ def promote(connection, run_id: str, attempt: int, items: dict, dbt: dict) -> di
                     Jsonb(counters[table]),
                     Jsonb(before),
                     Jsonb(candidate),
-                    Jsonb(candidate),
+                    Jsonb(after),
                 ),
             )
         result = {

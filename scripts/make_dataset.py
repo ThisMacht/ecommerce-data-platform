@@ -63,7 +63,7 @@ def run(*arguments: str, capture: bool = False) -> str:
                 "load",
             )
             parent = (
-                RUN_CONTEXT.get("mode") == "incremental"
+                RUN_CONTEXT.get("mode") in ("incremental", "backfill")
                 and "--run-id" in arguments
                 and arguments[arguments.index("--run-id") + 1] != RUN_CONTEXT["run_id"]
             )
@@ -131,9 +131,13 @@ def main() -> None:
 def execute() -> None:
     global RUN_CONTEXT, CURRENT_TASK
     mode = os.environ.get("DATASET_MODE", "full")
-    if mode not in ("full", "incremental"):
-        raise ValueError("DATASET_MODE must be full or incremental")
-    incremental = mode == "incremental"
+    if mode not in ("full", "incremental", "backfill"):
+        raise ValueError("DATASET_MODE must be full, incremental or backfill")
+    incremental = mode in ("incremental", "backfill")
+    if mode == "backfill" and (
+        not os.environ.get("BACKFILL_START") or not os.environ.get("BACKFILL_END")
+    ):
+        raise ValueError("Backfill requires BACKFILL_START and BACKFILL_END")
     requested = airflow_run_id()
     reports = Path("build/reports/dataset")
     pending = reports / "pending-run.txt"
@@ -225,11 +229,7 @@ def execute() -> None:
     os.environ.setdefault("SPARK_LOCAL_IP", "127.0.0.1")
 
     reports.mkdir(parents=True, exist_ok=True)
-    run_id = (
-        saved
-        or requested
-        or f"{'incremental' if incremental else 'dataset'}_{uuid4().hex}"
-    )
+    run_id = saved or requested or f"{mode if incremental else 'dataset'}_{uuid4().hex}"
     pending.write_text(run_id + "\n")
     print(f"[RUN] {run_id}; rerun make dataset after failure to resume", flush=True)
     if silver:
@@ -256,7 +256,7 @@ def execute() -> None:
                 "--run-id",
                 identity,
                 *(
-                    ["--pipeline-run-id", run_id]
+                    ["--pipeline-run-id", run_id, "--pipeline-mode", mode]
                     + (["--pipeline-parent"] if parent else [])
                     if incremental
                     else ["--full-snapshot"]
@@ -369,6 +369,7 @@ def execute() -> None:
                     parent,
                     "--run-id",
                     run_id,
+                    *(["--origin-run-id", run_id] if mode == "backfill" else []),
                     capture=True,
                 )
             )

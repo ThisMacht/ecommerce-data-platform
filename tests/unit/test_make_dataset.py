@@ -164,6 +164,46 @@ class MakeDatasetTest(unittest.TestCase):
             all(any("run_id=fk_fixture" in value for value in a) for a in dependent)
         )
 
+    def test_backfill_requires_bounds_before_starting_services(self):
+        with (
+            patch.dict(
+                os.environ,
+                {"DATASET_MODE": "backfill", "BACKFILL_START": "", "BACKFILL_END": ""},
+            ),
+            patch("scripts.make_dataset.run") as command,
+        ):
+            with self.assertRaisesRegex(ValueError, "BACKFILL_START and BACKFILL_END"):
+                self.invoke()
+        command.assert_not_called()
+        self.assertFalse(Path("build/reports/dataset/pending-run.txt").exists())
+
+    def test_backfill_wires_scoped_streams_and_original_silver_retry_filter(self):
+        with (
+            patch.dict(
+                os.environ,
+                {
+                    "DATASET_MODE": "backfill",
+                    "BACKFILL_START": "2020-01-01T00:00:00Z",
+                    "BACKFILL_END": "2020-01-02T00:00:00Z",
+                },
+            ),
+            patch("scripts.make_dataset.run", side_effect=self.command),
+            patch("scripts.make_dataset.shutil.which", return_value="java"),
+        ):
+            self.invoke()
+        extracts = [a for a in self.commands if "extract" in a]
+        self.assertEqual(len(extracts), 6)
+        self.assertTrue(
+            all(a[a.index("--pipeline-mode") + 1] == "backfill" for a in extracts)
+        )
+        resolvers = [a for a in self.commands if "resolve" in a]
+        self.assertEqual(len(resolvers), 3)
+        for args in resolvers:
+            self.assertEqual(
+                args[args.index("--origin-run-id") + 1],
+                args[args.index("--run-id") + 1],
+            )
+
     def test_incremental_missing_java_fails_without_airflow_context(self):
         with (
             patch.dict(os.environ, {"DATASET_MODE": "incremental"}),

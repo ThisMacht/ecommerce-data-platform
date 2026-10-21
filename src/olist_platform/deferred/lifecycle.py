@@ -182,9 +182,10 @@ def resolve_rows(
                 raise BronzeError("Deferred resolution run ID request conflict")
             return previous[1] | {"status": "NOOP"}
         now = connection.execute("SELECT clock_timestamp()").fetchone()[0]
+        origin = request.get("origin_run_id")
         pending = connection.execute(
-            "SELECT record_uid, rule_id, payload, payload_sha256, contract_sha256, first_seen_at, attempt_count, max_attempts, max_deferred_age_hours FROM audit.quarantine_records WHERE source_table=%s AND retry_status='PENDING' ORDER BY first_seen_at, record_uid LIMIT 1000 FOR UPDATE",
-            (table,),
+            "SELECT record_uid, rule_id, payload, payload_sha256, contract_sha256, first_seen_at, attempt_count, max_attempts, max_deferred_age_hours FROM audit.quarantine_records WHERE source_table=%s AND retry_status='PENDING' AND (%s::text IS NULL OR run_id=%s) ORDER BY first_seen_at, record_uid LIMIT 1000 FOR UPDATE",
+            (table, origin, origin),
         ).fetchall()
         resolved = []
         version_hashes = {}
@@ -310,8 +311,8 @@ def resolve_rows(
             "warehouse_run_id": load_run_id,
             "warehouse_counts": loaded["counts"],
             "remaining_pending_rows": connection.execute(
-                "SELECT COUNT(*) FROM audit.quarantine_records WHERE source_table=%s AND retry_status='PENDING'",
-                (table,),
+                "SELECT COUNT(*) FROM audit.quarantine_records WHERE source_table=%s AND retry_status='PENDING' AND (%s::text IS NULL OR run_id=%s)",
+                (table, origin, origin),
             ).fetchone()[0],
         }
         connection.execute(
@@ -383,6 +384,7 @@ def resolve_snapshot(
     table: str,
     run_id: str,
     parent_snapshot: str,
+    origin_run_id: str | None = None,
 ) -> dict:
     if table not in DEPENDENCIES:
         raise BronzeError("Unsupported deferred dependency table")
@@ -406,6 +408,10 @@ def resolve_snapshot(
         "parent_manifest_sha256": digest,
         "contract_sha256": sha256(encode(contract)),
     }
+    if origin_run_id is not None:
+        if re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", origin_run_id) is None:
+            raise BronzeError("Invalid deferred origin run ID")
+        request["origin_run_id"] = origin_run_id
     with tempfile.TemporaryDirectory(prefix="olist-deferred-parent-") as directory:
         frame = load_parent_keys(
             spark, store, parent, Path(directory) / "keys", key=key

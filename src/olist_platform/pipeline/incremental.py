@@ -1,9 +1,9 @@
-"""Freeze all incremental source bytes and full FK inputs in one source snapshot."""
+"""Freeze all bounded source bytes and full FK inputs in one source snapshot."""
 
 from olist_platform.bronze.extraction import configuration, prepare
 from olist_platform.bronze.storage import BronzeError
 
-from .control import INCREMENTAL, TABLES, current, lock, parent_run_id
+from .control import BACKFILL, INCREMENTAL, TABLES, current, lock, parent_run_id
 
 
 def freeze(connection, store, contract, run_id, attempt, endpoint):
@@ -11,8 +11,8 @@ def freeze(connection, store, contract, run_id, attempt, endpoint):
         connection.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         lock(connection)
         row = current(connection, run_id, attempt)
-        if row["pipeline_name"] != INCREMENTAL:
-            raise BronzeError("Only incremental pipelines freeze source streams")
+        if row["pipeline_name"] not in (INCREMENTAL, BACKFILL):
+            raise BronzeError("Only bounded pipelines freeze source streams")
         if contract["policies"]["lateness_sla_hours"] != 48:
             raise BronzeError("Incremental core v1 requires the 48-hour contract")
         for table in TABLES:
@@ -34,6 +34,7 @@ def freeze(connection, store, contract, run_id, attempt, endpoint):
                 table,
                 pipeline_run_id=run_id,
                 pipeline_parent=parent,
+                pipeline_mode=row["request"]["mode"],
             )
             manifests[f"{table}.{'parent' if parent else 'delta'}"] = prepare(
                 connection,

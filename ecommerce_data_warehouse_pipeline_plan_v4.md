@@ -509,7 +509,7 @@ Một PostgreSQL instance có thể chứa `olist_source`, `olist_warehouse` và
 
 Phase này chỉ sử dụng `orders`, `customers`, `order_items` và `order_payments` để hoàn thiện một luồng dọc từ source đến dashboard trước khi mở rộng phạm vi.
 
-- [x] Local Airflow incremental wrapper extract pipeline-owned 48h windows từ PostgreSQL, freeze deltas/full FK inputs trước publication; isolated backfill còn planned.
+- [x] Local Airflow incremental wrapper extract pipeline-owned 48h windows từ PostgreSQL, freeze deltas/full FK inputs trước publication; manual backfill nhận explicit UTC bounds; xem contract 13.
 - [x] Implement orders CLI slice: bounded PostgreSQL snapshot → immutable JSONL Bronze trên MinIO, manifest/checksum/lineage và retry-safe Bronze-only checkpoint.
 - [x] Implement orders PySpark/Silver slice: timezone normalization, local validation, version dedupe, Parquet routes và immutable publication/replay.
 - [x] Add full customers Bronze/Silver and orders customer FK/deferred routing with pinned snapshot hashes; explicit late-parent reprocessing preserves original lineage. Durable deferred lifecycle and staging are now implemented in contracts `08` and `10`.
@@ -605,9 +605,9 @@ Operational dashboard cần hiển thị pipeline status, duration, freshness, q
 - [ ] Kiểm tra lần chạy thứ hai chủ yếu tạo `warehouse_unchanged_rows`.
 - [ ] Failure-inject sau Bronze, Silver, warehouse load và dbt; xác minh cursor vẫn an toàn.
 - [x] Chặn overlapping local full/incremental runs qua shared file/database guard; test cursor CAS conflict. Distributed execution leases còn planned.
-- [ ] Hỗ trợ backfill bằng `start_date` và `end_date`.
-- [ ] So sánh kết quả backfill với full reload.
-- [ ] Xác minh backfill không thay đổi scheduled watermark theo mặc định.
+- [x] Hỗ trợ isolated backfill bằng `BACKFILL_START`/`BACKFILL_END` offset-aware, source-updated-at [start,end); manual Airflow DAG.
+- [x] So sánh exact business staging/hashes và marts với full reload database độc lập bằng integration fixtures.
+- [x] Xác minh backfill giữ nguyên full/incremental cursors/versions/timestamps, cô lập queue của run khác; dbt failure/retry và empty-window tests.
 - [x] Cấu hình local Airflow wrapper retry 2 lần, delay 1 phút; failure callback riêng vẫn planned, runner giữ audit hiện có.
 - [x] Ghi business-stage failures vào `audit.pipeline_task_runs` qua runner; Airflow crash/kill có thể giữ RUNNING tới resume.
 

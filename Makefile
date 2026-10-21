@@ -32,6 +32,8 @@ PIPELINE_PYTHON ?= $(UV) run --locked --extra processing --extra analytics pytho
 PIPELINE_HEALTH_CONFIG ?= config/pipeline_health.json
 PIPELINE_DASHBOARD_OUTPUT ?= build/reports/pipeline_dashboard.html
 PIPELINE_NAMESPACE ?= local_core_v1
+BACKFILL_START ?=
+BACKFILL_END ?=
 
 .DEFAULT_GOAL := help
 
@@ -47,7 +49,7 @@ PIPELINE_NAMESPACE ?= local_core_v1
 	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration \
 	register-deferred resolve-deferred test-deferred-integration test-deferred-state-integration \
 	test-pipeline-control-integration test-pipeline-integration pipeline-health pipeline-dashboard \
-	sync-airflow airflow-local test-airflow dataset-incremental test-incremental-integration
+	sync-airflow airflow-local test-airflow dataset-incremental test-incremental-integration dataset-backfill test-backfill-integration
 
 help:
 	@echo "Available targets:"
@@ -103,6 +105,17 @@ help:
 	@echo "  test-airflow              Import/serialize the real DAG and check retry wiring"
 	@echo "  dataset-incremental       Process frozen deltas with 48h lookback and full FK snapshots"
 	@echo "  test-incremental-integration Test frozen windows, late updates, replay and final gates"
+	@echo "  dataset-backfill          Repair a UTC [BACKFILL_START,BACKFILL_END) window without cursor promotion"
+	@echo "  test-backfill-integration Test range isolation, full reload equivalence and retry gates"
+
+dataset-backfill:
+	@test -n "$(BACKFILL_START)" && test -n "$(BACKFILL_END)" || (echo "Set BACKFILL_START and BACKFILL_END (offset-aware timestamps)" >&2; exit 2)
+	DATASET_MODE=backfill BACKFILL_START="$(BACKFILL_START)" BACKFILL_END="$(BACKFILL_END)" sh scripts/make_dataset.sh
+
+test-backfill-integration:
+	$(COMPOSE) -f $(COMPOSE_FILE) build minio
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PIPELINE_PYTHON) -m unittest discover -s tests/integration -p 'test_backfill*.py' -v
 
 dataset-incremental:
 	DATASET_MODE=incremental sh scripts/make_dataset.sh

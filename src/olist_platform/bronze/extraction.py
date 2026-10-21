@@ -64,6 +64,7 @@ def configuration(
     full_snapshot: bool = False,
     pipeline_run_id: str | None = None,
     pipeline_parent: bool = False,
+    pipeline_mode: str = "incremental",
 ) -> dict:
     if table not in KEYS:
         raise BronzeError("Unsupported extraction table")
@@ -100,6 +101,10 @@ def configuration(
     }
     if full_snapshot:
         config["snapshot_kind"] = "FULL"
+    if pipeline_mode not in ("incremental", "backfill") or (
+        pipeline_mode == "backfill" and pipeline_run_id is None
+    ):
+        raise BronzeError("Invalid pipeline stream mode")
     if pipeline_parent and pipeline_run_id is None:
         raise BronzeError("Parent stream requires a pipeline run")
     if pipeline_run_id is not None:
@@ -108,7 +113,7 @@ def configuration(
         if full_snapshot or (pipeline_parent and table not in ("customers", "orders")):
             raise BronzeError("Invalid incremental stream configuration")
         config.update(
-            pipeline=f"incremental_{table}_{'parent' if pipeline_parent else 'delta'}_v1",
+            pipeline=f"{pipeline_mode}_{table}_{'parent' if pipeline_parent else 'delta'}_v1",
             pipeline_run_id=pipeline_run_id,
             snapshot_kind="FULL" if pipeline_parent else "INCREMENTAL",
         )
@@ -178,7 +183,12 @@ def prepare(
         delivery_before = before
         pipeline_version = None
         if config.get("pipeline_run_id"):
-            from olist_platform.pipeline.control import current, parent_run_id
+            from olist_platform.pipeline.control import (
+                BACKFILL,
+                INCREMENTAL,
+                current,
+                parent_run_id,
+            )
 
             owner = current(connection, config["pipeline_run_id"])
             expected = (
@@ -186,7 +196,12 @@ def prepare(
                 if config["snapshot_kind"] == "FULL"
                 else owner["run_id"]
             )
-            if owner["pipeline_name"] != "incremental_core_v1" or run_id != expected:
+            if (
+                owner["pipeline_name"] not in (INCREMENTAL, BACKFILL)
+                or run_id != expected
+                or config["pipeline"]
+                != f"{owner['request']['mode']}_{table}_{'parent' if config['snapshot_kind'] == 'FULL' else 'delta'}_v1"
+            ):
                 raise BronzeError("Incremental extraction requires its owning pipeline")
             baseline = owner["control_before"][table]
             before = baseline["committed_cursor"]
@@ -203,11 +218,27 @@ def prepare(
         specs = {c["name"]: (c["postgres_type"], c["nullable"]) for c in expected}
         if {name: (kind, nullable) for name, kind, nullable in actual} != specs:
             raise BronzeError(f"{table} source schema differs from the contract")
+        window = (
+            owner["request"]["backfill_window"]
+            if config.get("pipeline_run_id")
+            and owner["pipeline_name"] == BACKFILL
+            and config["snapshot_kind"] != "FULL"
+            else None
+        )
         with connection.cursor(row_factory=dict_row) as reader:
             reader.execute(
-                sql.SQL("SELECT * FROM {} ORDER BY " + cursor + " DESC LIMIT 1").format(
-                    target
-                )
+                sql.SQL(
+                    "SELECT * FROM {} "
+                    + (
+                        "WHERE source_updated_at >= %s AND source_updated_at < %s "
+                        if window
+                        else ""
+                    )
+                    + "ORDER BY "
+                    + cursor
+                    + " DESC LIMIT 1"
+                ).format(target),
+                (window["start"], window["end"]) if window else (),
             )
             upper = cursor_value(reader.fetchone(), table)
         candidate = before
@@ -222,6 +253,8 @@ def prepare(
             and (table != "customers" or config.get("pipeline_run_id"))
             else None
         )
+        if window:
+            lower = datetime.fromisoformat(window["start"])
         started = datetime.now(timezone.utc)
         prefix = f"bronze/{table}/ingestion_date={started.date()}/run_id={run_id}"
         source_count = 0
@@ -250,6 +283,7 @@ def prepare(
             "source_schema": expected,
             "watermark_before": before,
             "extract_lower_bound": lower.isoformat() if lower else None,
+            **({"extract_end_bound": window["end"]} if window else {}),
             "run_upper_cursor": upper,
             "watermark_candidate": candidate,
             "cursor_version_before": version,
@@ -271,6 +305,7 @@ def prepare(
                 delivery_watermark_before=delivery_before,
                 delivery_watermark_candidate=delivery_candidate,
                 pipeline_cursor_version_before=pipeline_version,
+                source_backfill_rows=0,
                 source_bootstrap_rows=0,
                 source_after_cursor_rows=0,
                 source_lookback_rows=0,
@@ -314,7 +349,9 @@ def prepare(
             for ordinal, row in enumerate(rows, 1):
                 if config.get("pipeline_run_id"):
                     category = (
-                        "source_bootstrap_rows"
+                        "source_backfill_rows"
+                        if window
+                        else "source_bootstrap_rows"
                         if before is None
                         else "source_after_cursor_rows"
                         if cursor_tuple(cursor_value(row, table), table)
@@ -389,6 +426,7 @@ def ingest_source(
     full_snapshot: bool = False,
     pipeline_run_id: str | None = None,
     pipeline_parent: bool = False,
+    pipeline_mode: str = "incremental",
 ) -> dict:
     if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", run_id):
         raise BronzeError(
@@ -403,6 +441,7 @@ def ingest_source(
         full_snapshot,
         pipeline_run_id,
         pipeline_parent,
+        pipeline_mode,
     )
     if (
         not connection.autocommit

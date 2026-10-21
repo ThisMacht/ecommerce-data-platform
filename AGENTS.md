@@ -2,7 +2,7 @@
 
 ## Project Structure & Module Organization
 
-Implemented: core layers, dbt, deferred retries, full/incremental audit and gated watermarks.
+Implemented: core layers, dbt, deferred retries, full/incremental audit, isolated backfill and gated watermarks.
 
 - `src/olist_platform/raw/`: manifests, profiling, contracts.
 - `src/olist_platform/source_simulator/`: deterministic batches and transactional apply.
@@ -11,7 +11,7 @@ Implemented: core layers, dbt, deferred retries, full/incremental audit and gate
 - `src/olist_platform/warehouse/`: verified Silver loading, canonical hashes and version-aware merges.
 - `src/olist_platform/deferred/`: quarantine registration, bounded retry/expiry and atomic staging resolution.
 - `src/olist_platform/pipeline/`: run/task audit, receipt reconciliation and all-table cursor CAS.
-- `airflow/`: isolated Python 3.12 runtime/lock and paused full/incremental DAGs.
+- `airflow/`: isolated Python 3.12 runtime/lock and paused full/incremental and manual backfill DAGs.
 - `dbt/`: staging views, customer Type 1 dimension, order fact and daily GMV/AOV marts.
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
@@ -30,6 +30,8 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make sync`: install locked dependencies.
 - `make dataset`: run available core dataset stages with automatic local configuration; skip missing inputs/unimplemented stages, fail on validation errors.
 - `make dataset-incremental`: freeze four deltas/full FK inputs with 48h lookback; strict prerequisites. Resume in the same mode.
+- `make dataset-backfill BACKFILL_START=<offset-aware ISO> BACKFILL_END=<offset-aware ISO>`: repair source-updated-at [start,end); resume unchanged bounds, preserve scheduled cursors.
+- `make test-backfill-integration`: range/empty-window, frozen retries, queue/cursor isolation and independent full reload equivalence.
 - `make lint` / `make format`: check or format with Ruff.
 - `make build`: build wheel/sdist.
 - `make test`: Ruff, contracts, unit tests and Compose/shell checks without containers.
@@ -93,6 +95,6 @@ Aggregate items/payments separately before joining orders. Customer dimension us
 
 Count retry inputs separately from source growth. Resolution must commit queue/attempts/staging/audit atomically; expired rows never load. Duplicate pending occurrences must dedupe by full business key/version before merge.
 
-Full runner audits 19 tasks; incremental runner audits 24 with separate `incremental_core_v1` controls. Freeze four deltas plus two full FK snapshots atomically before publication; bounds use pipeline cursors, never Bronze delivery cursors. Customer delta Silver v2 is not an FK parent. Source bootstrap/after-cursor/lookback, auxiliary FK scans and deferred retry counts are separate; after-cursor rows are not business growth. Final gate holds staging SHARE locks through fresh dbt and atomic CAS. Resume with unchanged code/config/mode; never bypass receipts. Isolated backfill is not implemented.
+Full runner audits 19 tasks; incremental runner audits 24 with separate `incremental_core_v1` controls. Freeze four deltas plus two full FK snapshots atomically before publication; bounds use pipeline cursors, never Bronze delivery cursors. Customer delta Silver v2 is not an FK parent. Source bootstrap/after-cursor/lookback, auxiliary FK scans and deferred retry counts are separate; after-cursor rows are not business growth. Final gate holds staging SHARE locks through fresh dbt and atomic CAS. Resume with unchanged code/config/mode; never bypass receipts. Backfill uses `backfill_core_v1`, the same 24-task freeze/gates, explicit UTC [start,end) bounds and origin-scoped deferred retries. Never promote any pipeline cursors on backfill. Staging/marts remain shared; mutable source cannot restore overwritten historical versions.
 
 Airflow retries must retain original DAG/run context; clear the same task instance, never replace an unfinished run. Missing CSV/Java fails orchestration. Standalone SQLite metadata is local-only; don't install Airflow into the root environment.

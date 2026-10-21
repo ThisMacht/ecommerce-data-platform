@@ -40,6 +40,9 @@ def main() -> int:
     )
     extract.add_argument("--pipeline-parent", action="store_true")
     extract.add_argument(
+        "--pipeline-mode", choices=("incremental", "backfill"), default="incremental"
+    )
+    extract.add_argument(
         "--full-snapshot",
         action="store_true",
         help="Full source snapshot for parent checks or pipeline gates",
@@ -78,6 +81,7 @@ def main() -> int:
                     full_snapshot=arguments.full_snapshot,
                     pipeline_run_id=arguments.pipeline_run_id,
                     pipeline_parent=arguments.pipeline_parent,
+                    pipeline_mode=arguments.pipeline_mode,
                 )
         print(json.dumps(result, ensure_ascii=False))
         return 0

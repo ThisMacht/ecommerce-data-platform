@@ -108,6 +108,6 @@ với older timestamp, ngoài SLA, source writes giữa tables/sau freeze, atomi
 rollback, delivery cursor đi trước, dbt failure, retry manifests và stale merges.
 
 Updates quá 48 giờ không được bảo đảm tự thu thập; full FK presence không đồng
-nghĩa row ngoài window đã vào staging. Chưa có isolated backfill/repair interface,
+nghĩa row ngoài window đã vào staging. Repair ngoài SLA dùng [isolated backfill](13_backfill_pipeline.md). Chưa có
 delete propagation hoặc CDC. Analytics vẫn là views, không atomic published
 snapshots. SQLite Airflow deployment vẫn local-only; chưa có stage-level DAG graph.

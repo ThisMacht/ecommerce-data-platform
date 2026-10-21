@@ -7,7 +7,7 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | Order | Document | Purpose | Status |
 | ---: | --- | --- | --- |
 | 00 | [Olist Source Profile](data_contracts/00_source_profile.md) | Kết quả profiling, key validation, null statistics và source relationships | Generated — Active |
-| 01 | [Batch Data Processing Runbook](runbooks/01_data_processing_runbook.md) | Quy trình vận hành, retry, backfill, reconciliation và incident recovery | Active for manual core pipeline — Airflow orchestration planned |
+| 01 | [Batch Data Processing Runbook](runbooks/01_data_processing_runbook.md) | Quy trình vận hành, retry, backfill, reconciliation và incident recovery | Active — full, incremental and isolated backfill |
 | 02 | [Source Contracts](data_contracts/02_source_contracts.md) | Source boundary, grains, keys, types, simulator metadata và seed semantics | Active |
 | 03 | [Source Simulator](data_contracts/03_source_simulator.md) | Batch format, deterministic fixtures, transactional apply và replay semantics | Active — four-table MVP |
 | 04 | [Orders Bronze](data_contracts/04_orders_bronze.md) | Bounded extraction, durable snapshot retry, MinIO publication và Bronze-only checkpoint | Active — orders CLI slice |
@@ -19,6 +19,8 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | 10 | [Deferred Lifecycle](data_contracts/10_deferred_lifecycle.md) | Persisted quarantine, pinned dependency retries, expiry và atomic staging resolution | Active |
 | 11 | [Pipeline Control](data_contracts/11_pipeline_control.md) | Local run/task audit, receipt gates và atomic pipeline watermark commit | Active — manual full snapshots |
 | 12 | [Incremental Pipeline](data_contracts/12_incremental_pipeline.md) | Frozen four-table deltas, 48h lookback, full FK inputs và isolated completion cursors | Active |
+
+| 13 | [Isolated Backfill](data_contracts/13_backfill_pipeline.md) | Explicit UTC repair window, frozen retry, queue isolation and unchanged scheduled controls | Active |
 
 ## Related documents
 

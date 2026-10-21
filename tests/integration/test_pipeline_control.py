@@ -145,6 +145,29 @@ class PipelineControlTest(PostgresIntegrationCase):
             )
         self.assertEqual(self.psql("SELECT COUNT(*) FROM audit.pipeline_control"), "8")
 
+    def test_backfill_requires_canonical_bounds_and_shares_execution_guard(self):
+        from olist_platform.pipeline.control import backfill_window
+
+        with self.connection() as c:
+            for window in (None, {}, {"start": "2020-01-01", "end": "2020-02-01"}):
+                with self.subTest(window=window), self.assertRaises(BronzeError):
+                    begin(c, "repair", {"mode": "backfill", "backfill_window": window})
+            request = {
+                "mode": "backfill",
+                "backfill_window": backfill_window(
+                    "2020-01-01T00:00:00Z", "2020-02-01T00:00:00Z"
+                ),
+            }
+            begin(c, "repair", request)
+            with self.assertRaisesRegex(BronzeError, "active"):
+                begin(c, "delta", {"mode": "incremental"})
+            self.assertEqual(
+                c.execute(
+                    "SELECT pipeline_name,run_type FROM audit.pipeline_runs WHERE run_id='repair'"
+                ).fetchone(),
+                ("backfill_core_v1", "backfill"),
+            )
+
     def test_empty_and_backdated_upper_cursors_do_not_regress_controls(self):
         self.start()
         with self.connection() as c:

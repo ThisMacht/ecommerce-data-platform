@@ -98,7 +98,7 @@ jobs:
   silver:
     name: Core datasets Spark Silver
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -135,3 +135,5 @@ jobs:
         run: make test-pipeline-integration
       - name: Test frozen incremental windows, lookback and recovery gates
         run: make test-incremental-integration
+      - name: Test isolated bounded backfills and full reload equivalence
+        run: make test-backfill-integration

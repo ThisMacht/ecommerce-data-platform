@@ -121,7 +121,10 @@ pending file đã được dọn. Crash có thể để audit RUNNING tới lầ
 Full DAG giữ `local_core_v1`/manual. Incremental DAG đặt `DATASET_MODE=incremental`,
 dùng `incremental_core_v1`/incremental và pipeline-owned 48h windows. Cả hai không
 sử dụng logical date làm backfill bounds; chỉ unpause một mode trên local checkout.
-Isolated backfill và PostgreSQL Airflow metadata còn planned. Chi tiết:
+Manual DAG `olist_core_backfill` nhận explicit `start`/`end` conf, không có schedule.
+Migration `011` thêm namespace/delivery streams riêng và giữ scheduled controls khi repair;
+xem [backfill contract](../docs/data_contracts/13_backfill_pipeline.md).
+PostgreSQL Airflow metadata còn planned. Chi tiết:
 [incremental contract](../docs/data_contracts/12_incremental_pipeline.md).
 
 Khi chủ động nâng Airflow, resolve lại với official constraints rồi commit cả lock:
@@ -136,7 +139,7 @@ và [BashOperator env guidance](https://airflow.apache.org/docs/apache-airflow-p
 
 ## TODO
 
-- `TODO(orchestration)`: isolated backfill và deployment metadata PostgreSQL.
+- `TODO(orchestration)`: deployment metadata PostgreSQL.
 - `TODO(phase-3)`: thêm Metabase sau khi marts và read-only grants ổn định.
 - `TODO(security)`: dùng secret manager và network policy khi có deployment ngoài local.
 

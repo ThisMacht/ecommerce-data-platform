@@ -6,7 +6,7 @@ Status: **Active — local manual full-snapshot pipeline, receipt reconciliation
 Migration `009` thêm `audit.pipeline_runs`, `pipeline_task_runs`,
 `pipeline_dataset_runs` và `pipeline_control`. Namespace là `local_core_v1`;
 Airflow có daily full wrapper dùng cùng namespace. Incremental dùng namespace riêng
-theo [contract 12](12_incremental_pipeline.md); isolated backfill chưa triển khai.
+theo [contract 12](12_incremental_pipeline.md); isolated backfill theo [contract 13](13_backfill_pipeline.md).
 
 Runner local dùng full snapshots cho cả bốn core tables. Full mode được bổ sung
 cho items/payments; default standalone extraction của orders/items/payments vẫn
@@ -17,7 +17,7 @@ làm bằng chứng rằng toàn source snapshot đã được xử lý.
 
 `make dataset` giữ filesystem lock trong `build/reports/dataset/runner.lock` cho
 toàn runner. PostgreSQL advisory transaction lock serialize control operations;
-chỉ một run ID được `RUNNING` trong namespace. Pending run ID nằm trong file cũ;
+chỉ một run ID được `RUNNING` trên cả ba namespaces. Pending run ID nằm trong file cũ;
 không tự đổi ID để bỏ qua unfinished Bronze/state.
 
 Begin pin SHA-256 của source/scripts/config/dbt/lockfile/Makefile cùng Airflow DAG/
@@ -98,7 +98,7 @@ trước promotion; original rejected Silver và durable deferred queue vẫn gi
 evidence/recovery path. Bronze delivery checkpoint vẫn độc lập và có thể đi trước
 pipeline control. Pipeline watermark này chưa được dùng làm extraction cursor;
 full runner tiếp tục full snapshots. Incremental namespace dùng cursors riêng theo
-[contract 12](12_incremental_pipeline.md); isolated backfills còn planned.
+[contract 12](12_incremental_pipeline.md); isolated backfills theo [contract 13](13_backfill_pipeline.md).
 
 ## Commands and recovery
 

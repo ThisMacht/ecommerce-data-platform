@@ -40,6 +40,9 @@ def main() -> int:
     resolve = commands.add_parser("resolve")
     resolve.add_argument("--parent-snapshot", required=True)
     resolve.add_argument("--run-id", required=True)
+    resolve.add_argument(
+        "--origin-run-id", help="Restrict pending rows to one original Silver run"
+    )
     args = parser.parse_args()
     spark = None
     try:
@@ -74,6 +77,7 @@ def main() -> int:
                     contract,
                     **options,
                     parent_snapshot=args.parent_snapshot,
+                    origin_run_id=args.origin_run_id,
                 )
         print(json.dumps(result, ensure_ascii=False))
         return 0

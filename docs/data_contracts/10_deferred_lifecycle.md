@@ -50,6 +50,13 @@ Mỗi pass chọn tối đa 1.000 PENDING rows/bảng, theo first-seen và UID; 
 `remaining_pending_rows`. Các snapshots/selected payloads hiện xử lý trong memory
 của local MVP; cần distributed processing trước khi mở rộng quy mô.
 
+Backfill resolver thêm `--origin-run-id <original Silver run ID>`: selection và
+`remaining_pending_rows` chỉ tính queue có `run_id` đó. Filter được pin trong
+resolution request; thay origin cần resolution run ID mới. Backfill final gate
+bắt buộc origin bằng owning pipeline ID, giữ queue của run khác nguyên trạng.
+Standalone/full/incremental không truyền filter tiếp tục xử lý global queue.
+Health/dashboard luôn đo backlog chung. Xem [contract 13](13_backfill_pipeline.md).
+
 ## Duplicate occurrences and version safety
 
 Các Bronze runs khác nhau có thể tạo nhiều physical UIDs cho cùng business key/

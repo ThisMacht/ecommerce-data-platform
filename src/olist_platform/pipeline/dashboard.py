@@ -67,6 +67,7 @@ def render(result: dict) -> str:
             "Dataset",
             "Source window",
             "Bootstrap",
+            "Backfill",
             "After cursor",
             "Lookback",
             "Retry inputs",
@@ -79,6 +80,7 @@ def render(result: dict) -> str:
                 for key in (
                     "source_rows_extracted",
                     "source_bootstrap_rows",
+                    "source_backfill_rows",
                     "source_after_cursor_rows",
                     "source_lookback_rows",
                     "deferred_retry_input_rows",
@@ -140,7 +142,7 @@ th{background:#e9eff5}li{overflow-wrap:anywhere}
         "includes time waiting for resume. Resolution due uses persisted retry "
         "limits. Unavailable values are not zero.</p>"
         "<p>After-cursor rows count source versions beyond the previous ordered cursor, "
-        "not business inserts or net source growth. Bootstrap, after-cursor and "
+        "not business inserts or net source growth. Bootstrap, backfill, after-cursor and "
         "lookback partition the source window. Full FK scans are separate auxiliary inputs.</p>"
         "<p>This read-only snapshot does not verify live source or object storage "
         "and does not publish analytics or change watermarks.</p></main></body></html>"
