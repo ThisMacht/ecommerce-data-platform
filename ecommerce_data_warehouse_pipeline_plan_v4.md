@@ -575,7 +575,7 @@ Phase này biến pipeline từ một luồng ETL thông thường thành một 
 - [x] Thực thi source-to-Bronze, processing-routing và warehouse-load reconciliations trong final local gate.
 - [x] Làm local pipeline fail nếu reconciliation lệch một row.
 - [x] Cấu hình freshness, runtime, deferred-age và reject/warning-rate thresholds qua read-only `make pipeline-health`; freshness là tuổi pipeline SUCCESS, chưa đo source change lag. Scheduler/notification còn planned.
-- [x] Dựng static HTML operational health dashboard từ audit schema qua `make pipeline-dashboard`; live refresh, historical trends và source/lookback accounting còn planned.
+- [x] Dựng static HTML operational health dashboard từ audit schema qua `make pipeline-dashboard`; source/lookback/backfill/retry accounting đã có; live refresh và historical trends còn planned.
 
 Operational dashboard cần hiển thị pipeline status, duration, freshness, quarantine rate, warning rate, insert/update/unchanged/stale counts, source rows mới, lookback rows, deferred retry input, task failures và reconciliation failures.
 
@@ -592,24 +592,43 @@ Operational dashboard cần hiển thị pipeline status, duration, freshness, q
 - [x] Cấu hình ordered cursor `(source_updated_at, source_sequence, primary-key columns)` cho bốn core tables.
 - [x] Tách pipeline committed cursor, Bronze delivery cursor, page cursor và frozen run upper cursor.
 - [x] Freeze bốn source deltas và hai full FK inputs cùng repeatable-read snapshot; durable bytes/fixed bounds giữ nguyên khi retry.
-- [ ] Test pagination với nhiều record có cùng `source_updated_at`.
+- [x] Test pagination với nhiều record có cùng `source_updated_at`.
 - [x] Lưu committed cursor cùng compare-and-swap version trong JSONB control table; full/incremental namespaces độc lập.
 - [x] Promote full/incremental watermark candidates sau receipt/dbt gates; xem contracts 11–12.
 - [x] Giữ local watermark cũ nếu dbt/reconciliation fail; failure injection và CAS rollback đã có tests.
 - [x] Áp dụng inclusive lookback 48 giờ; fixtures kiểm tra trong/đúng biên/ngoài SLA và source writes sau freeze.
 - [x] Tách source bootstrap/after-cursor/lookback, full FK scans và deferred retry inputs; after-cursor không phải business growth.
-- [ ] Dedupe về latest source version trước warehouse merge.
-- [ ] Xác minh out-of-order version trở thành `stale_ignored` và không ghi đè target.
-- [ ] Làm equal-version/different-payload fail integrity check.
-- [ ] Chạy cùng batch hai lần và xác minh số dòng không đổi.
-- [ ] Kiểm tra lần chạy thứ hai chủ yếu tạo `warehouse_unchanged_rows`.
-- [ ] Failure-inject sau Bronze, Silver, warehouse load và dbt; xác minh cursor vẫn an toàn.
+- [x] Dedupe về latest source version trước warehouse merge.
+- [x] Xác minh out-of-order version trở thành `stale_ignored` và không ghi đè target.
+- [x] Làm equal-version/different-payload fail integrity check.
+- [x] Chạy cùng batch hai lần và xác minh số dòng không đổi.
+- [x] Warehouse integration: batch ID mới với cùng source versions ghi toàn bộ `warehouse_unchanged_rows`, không insert/update và giữ row counts cho cả bốn grains.
+- [x] Incremental/backfill recovery matrix: lỗi sau committed Bronze, Silver, warehouse và sau dbt/CAS trước transaction commit; cùng run ID resume ở attempt 5, giữ frozen bytes/receipts và không double-count retry.
 - [x] Chặn overlapping local full/incremental runs qua shared file/database guard; test cursor CAS conflict. Distributed execution leases còn planned.
 - [x] Hỗ trợ isolated backfill bằng `BACKFILL_START`/`BACKFILL_END` offset-aware, source-updated-at [start,end); manual Airflow DAG.
 - [x] So sánh exact business staging/hashes và marts với full reload database độc lập bằng integration fixtures.
 - [x] Xác minh backfill giữ nguyên full/incremental cursors/versions/timestamps, cô lập queue của run khác; dbt failure/retry và empty-window tests.
 - [x] Cấu hình local Airflow wrapper retry 2 lần, delay 1 phút; failure callback riêng vẫn planned, runner giữ audit hiện có.
 - [x] Ghi business-stage failures vào `audit.pipeline_task_runs` qua runner; Airflow crash/kill có thể giữ RUNNING tới resume.
+
+**Verification evidence (local core):**
+
+| Requirement | Automated evidence |
+| --- | --- |
+| Same-timestamp pagination, immutable publication/replay | `tests/integration/test_bronze_orders.py` |
+| Latest-version dedupe and conflicting versions | `tests/processing/test_orders_silver.py` |
+| All-grain stale/equal-version handling, unchanged batch and audit rollback | `tests/integration/test_warehouse_merge.py` |
+| Frozen windows, late updates and atomic freeze | `tests/integration/test_incremental_pipeline.py` |
+| Four failure boundaries, frozen retry, deferred attempts and final CAS rollback | `tests/integration/test_pipeline_recovery.py` |
+| Range repair, scheduled/queue isolation and full reload comparison | `tests/integration/test_backfill_pipeline.py` |
+| Runner pending identity and exact failure-stage audit | `tests/unit/test_make_dataset.py` |
+| Shared execution guard and all-table CAS conflicts | `tests/integration/test_pipeline_control.py` |
+
+Recovery integration dùng PostgreSQL/MinIO/Spark/dbt thật với controlled exceptions,
+không phải SIGKILL hoặc network-partition tests. Runner subprocess dispatch được
+kiểm tra bằng unit tests. Distributed leases, Airflow failure callbacks và atomic
+analytics snapshot publication vẫn ngoài local implementation hiện tại. Checklist
+không khẳng định CI đã chạy trên GitHub hoặc các phases trước đã hoàn tất.
 
 **Milestone 3:** Pipeline incremental, idempotent và version-aware; bounded lookback, out-of-order data, retry, failure recovery, concurrency guard và backfill đều được chứng minh bằng automated tests, không chỉ bằng happy-path demo.
 
@@ -645,20 +664,20 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 Unit tests tập trung vào source simulator, dirty-data injector, cursor ordering/serialization, parsing, row classification, canonical record hashing, source-version comparison và reconciliation logic. Integration tests sử dụng một deterministic fixture nhỏ với expected results được chốt độc lập, không tái sử dụng chính logic production để sinh expected output.
 
 - [ ] Chạy cùng batch hai lần và xác minh row count không đổi.
-- [ ] Update một order và xác minh record được update thay vì insert mới.
-- [ ] Xác minh newer-same-hash được đếm unchanged nhưng source version vẫn advance.
-- [ ] Xác minh older version bị stale-ignore và equal-version/different-hash làm run fail.
-- [ ] Kiểm tra same-timestamp pagination không thiếu hoặc lặp record.
+- [x] Update một order và xác minh record được update thay vì insert mới.
+- [x] Xác minh newer-same-hash được đếm unchanged nhưng source version vẫn advance.
+- [x] Xác minh older version bị stale-ignore và equal-version/different-hash làm run fail.
+- [x] Kiểm tra same-timestamp pagination không thiếu hoặc lặp record.
 - [x] Kiểm tra customer/order FK được deferred đúng policy; product/seller membership chưa có.
 - [x] Kiểm tra deferred record được resolve khi dependency xuất hiện, giữ original lineage và source-version safety.
 - [x] Kiểm tra deferred record expire đúng max age/attempts, terminal states và replay không double count.
-- [ ] So sánh backfill với full reload.
-- [ ] Kiểm tra duplicate không đi vào warehouse.
+- [x] So sánh backfill với full reload.
+- [x] Kiểm tra duplicate không đi vào warehouse.
 - [ ] Kiểm tra schema evolution matrix, manifest checksum và incomplete batch marker.
-- [ ] Failure-inject tại từng stage và xác minh watermark không commit sớm.
-- [ ] Kiểm tra concurrent-run guard và cursor compare-and-swap.
-- [ ] Chạy DAG import test và một MinIO → Spark → PostgreSQL vertical-slice smoke test.
-- [ ] Chạy dbt grain tests, fan-out tests và reconciliation tests.
+- [x] Failure-inject tại từng stage và xác minh watermark không commit sớm.
+- [x] Kiểm tra concurrent-run guard và cursor compare-and-swap.
+- [x] Chạy DAG import test và một MinIO → Spark → PostgreSQL vertical-slice smoke test.
+- [x] Chạy dbt grain tests, fan-out tests và reconciliation tests.
 
 CI skeleton hiện có trong `.github/workflows/ci.yml`: fast checks/build và installed-wheel tests trên Python 3.10/3.12; simulator integration trên Python 3.12 với disposable PostgreSQL, không cần raw CSV hoặc secrets. CI hiện có DAG import/serialization, Spark, dbt, full/incremental gates và failure recovery suites; raw CSV không bắt buộc cho các fixture suites.
 

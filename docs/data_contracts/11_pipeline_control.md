@@ -179,3 +179,29 @@ dataset metrics và ngưỡng kèm định nghĩa metric. Đây là **snapshot t
 phải live monitoring. Khi read/write lỗi, CLI trả `2`; file cũ có thể còn tồn tại.
 Luôn kiểm tra `Snapshot checked at` và exit code trước khi dùng làm evidence.
 Chưa có historical trends, scheduler hoặc notifications.
+
+## Failure recovery verification
+
+`make test-recovery-integration` dùng fixture nhỏ và PostgreSQL/MinIO/Spark/dbt
+thật cho incremental và backfill. Mỗi mode đi qua cùng bốn failure boundaries rồi
+resume cùng run ID ở attempt 5:
+
+| Failure boundary | Durable state | Required recovery behavior |
+| --- | --- | --- |
+| After Bronze commit, before task success | Remote objects/marker, delivery checkpoint | Pipeline controls giữ nguyên; reuse sealed pages và manifest |
+| After Silver publication, before task success | Verified Parquet/manifest/marker | Chưa load orders staging; artifacts giữ nguyên bytes khi retry |
+| After warehouse commit, before task success | Staging rows and load receipt | Replay cùng load ID; không thêm rows hoặc load audit |
+| After dbt and CAS writes, before outer transaction commit | Dataset loads and deferred receipts | Rollback mọi control/dataset-audit writes; run FAILED; fresh dbt bắt buộc khi resume |
+
+Tests thay đổi live source sau lần lỗi đầu, đối chiếu sáu frozen manifests/pages,
+remote object hashes, staging grains/metrics và deferred queue/attempt count.
+Final incremental success advance controls đúng một lần; backfill giữ nguyên
+controls. Replay committed run trả NOOP. Warehouse tests riêng dùng batch ID mới
+với cùng source versions để xác minh unchanged counts cho cả bốn grains.
+
+`tests/unit/test_make_dataset.py` kiểm tra actual runner `run/main` với subprocess
+responses giả lập: exact failed task, giữ pending ID, reset in-memory context và
+resume cùng ID. Integration inject controlled exceptions ở production stage
+functions; chưa mô phỏng OS process kill, mất điện hoặc network partition.
+Dữ liệu staging đã commit trước final gate được giữ; dbt views vẫn chưa atomic
+publication. Tests không coi failed final gate là rollback toàn bộ data plane.

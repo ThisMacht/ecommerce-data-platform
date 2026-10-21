@@ -137,3 +137,5 @@ jobs:
         run: make test-incremental-integration
       - name: Test isolated bounded backfills and full reload equivalence
         run: make test-backfill-integration
+      - name: Test recovery after committed stages and final gate rollback
+        run: make test-recovery-integration

@@ -49,7 +49,7 @@ BACKFILL_END ?=
 	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration \
 	register-deferred resolve-deferred test-deferred-integration test-deferred-state-integration \
 	test-pipeline-control-integration test-pipeline-integration pipeline-health pipeline-dashboard \
-	sync-airflow airflow-local test-airflow dataset-incremental test-incremental-integration dataset-backfill test-backfill-integration
+	sync-airflow airflow-local test-airflow dataset-incremental test-incremental-integration dataset-backfill test-backfill-integration test-recovery-integration
 
 help:
 	@echo "Available targets:"
@@ -105,8 +105,14 @@ help:
 	@echo "  test-airflow              Import/serialize the real DAG and check retry wiring"
 	@echo "  dataset-incremental       Process frozen deltas with 48h lookback and full FK snapshots"
 	@echo "  test-incremental-integration Test frozen windows, late updates, replay and final gates"
+	@echo "  test-recovery-integration Test committed-stage failures and final transaction rollback/resume"
 	@echo "  dataset-backfill          Repair a UTC [BACKFILL_START,BACKFILL_END) window without cursor promotion"
 	@echo "  test-backfill-integration Test range isolation, full reload equivalence and retry gates"
+
+test-recovery-integration:
+	$(COMPOSE) -f $(COMPOSE_FILE) build minio
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PIPELINE_PYTHON) -m unittest discover -s tests/integration -p 'test_pipeline_recovery.py' -v
 
 dataset-backfill:
 	@test -n "$(BACKFILL_START)" && test -n "$(BACKFILL_END)" || (echo "Set BACKFILL_START and BACKFILL_END (offset-aware timestamps)" >&2; exit 2)

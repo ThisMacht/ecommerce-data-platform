@@ -132,6 +132,36 @@ class WarehouseMergeTest(PostgresIntegrationCase):
         )
         self.assertEqual(result["counts"]["warehouse_inserted_rows"], 1)
 
+    def test_new_load_of_unchanged_versions_keeps_rows_and_reports_only_unchanged(self):
+        for table in ("customers", "orders", "order_items", "order_payments"):
+            with self.subTest(table=table):
+                rows = [
+                    valid_row(table, key, sequence)
+                    for sequence, key in enumerate(("a", "b"), 1)
+                ]
+                self.load(table, rows, "initial")
+                result = self.load(table, rows, "next_batch")
+                self.assertEqual(
+                    result["counts"],
+                    {
+                        "load_candidate_rows": 2,
+                        "warehouse_inserted_rows": 0,
+                        "warehouse_updated_rows": 0,
+                        "warehouse_unchanged_rows": 2,
+                        "warehouse_stale_ignored_rows": 0,
+                    },
+                )
+                actual = json.loads(self.dump(table))
+                self.assertEqual(len(actual), 2)
+                self.assertEqual(sorted(r["source_sequence"] for r in actual), [1, 2])
+                self.assertTrue(
+                    all(
+                        r["first_seen_run_id"] == "initial"
+                        and r["last_seen_run_id"] == "next_batch"
+                        for r in actual
+                    )
+                )
+
     def test_reconciliation_duplicate_keys_and_uids_fail_without_data_or_audit(self):
         for rows, expected in (
             ([valid_row()], 2),

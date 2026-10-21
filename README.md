@@ -201,6 +201,11 @@ Standalone operations: `make register-deferred SOURCE_TABLE=<table> SILVER_PREFI
 
 Xem [pipeline contract](docs/data_contracts/11_pipeline_control.md); chạy `make test-pipeline-control-integration` và `make test-pipeline-integration` sau thay đổi gates. Full mode dùng `local_core_v1`; incremental dùng `incremental_core_v1`, có Airflow wrapper riêng. Backfill dùng `backfill_core_v1`, giữ nguyên scheduled cursors. Atomic analytics publication chưa triển khai.
 
+Kiểm thử recovery bằng `make test-recovery-integration` với Java 17: lỗi sau
+Bronze/Silver/warehouse commit và sau dbt/CAS trước final commit, cho incremental
+và backfill. Suite xác minh frozen bytes, receipts, queue attempts, row counts và
+watermarks khi resume; xem [failure recovery evidence](docs/data_contracts/11_pipeline_control.md#failure-recovery-verification).
+
 `make pipeline-health` đọc audit qua `PG*` (có thể dùng reader role), xuất JSON về run đang chạy/gần nhất, lần thành công cuối, freshness, runtime, reject/warning rates và deferred backlog. Ngưỡng nằm trong `config/pipeline_health.json`; đổi bằng `PIPELINE_HEALTH_CONFIG=<path>`. CLI `olist-pipeline-health` trả exit `0` healthy, `1` vượt ngưỡng/thiếu success, `2` không thể kiểm tra; Make trả nonzero khi CLI thất bại. Command không tự đọc `.env`, không thay đổi queue/watermark và chưa tự được lập lịch. Chi tiết cách tính và giới hạn ở [operational health](docs/data_contracts/11_pipeline_control.md#operational-health).
 
 `make pipeline-dashboard` tạo `build/reports/pipeline_dashboard.html` từ cùng health

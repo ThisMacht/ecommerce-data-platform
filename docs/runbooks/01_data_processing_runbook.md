@@ -5,7 +5,7 @@
 | System | Olist E-commerce Data Platform |
 | Owner | Data Engineering |
 | Status | Active — core full/incremental/backfill and local Airflow wrappers |
-| Last reviewed | 2026-10-21 |
+| Last reviewed | 2026-10-22 |
 | Processing mode | Batch |
 
 Runbook này định nghĩa quy trình vận hành dự kiến để xử lý snapshot nguồn Olist qua Bronze, Silver, các model warehouse PostgreSQL và analytics marts. Tài liệu mô tả các execution gates, cách xử lý lỗi, rerun và backfill. Runbook phải được cập nhật khi implementation details hoặc operational commands thay đổi.
@@ -426,6 +426,19 @@ Sau migration `009`, `make dataset` ghi `pipeline_runs`, task attempts và per-d
 Final coordinator verify remote markers/hashes cùng server-side receipts, giữ staging SHARE locks, chạy fresh dbt build và đối soát exact counters. Chỉ sau mọi gates đạt mới CAS cả bốn controls cùng dataset audit và run SUCCESS trong một transaction. Một lỗi, missing receipt hoặc CAS conflict giữ controls cũ. Source scan counts của full snapshot không được gọi là new-source growth.
 
 Sau failure/crash, giữ pending ID và code/config cũ rồi gọi lại `make dataset`. Task attempt cũ được giữ, resume tạo attempt mới; data-plane và deferred retries replay cùng IDs. Không chạy cùng run từ nhiều hosts/checkouts. Local namespace là manual `local_core_v1`; incremental/backfill ở mục 21–22; atomic analytics publication chưa triển khai. Xem [pipeline contract](../data_contracts/11_pipeline_control.md).
+
+### Recovery verification
+
+Chạy `make test-recovery-integration` với Java 17 sau thay đổi orchestration/gates.
+Suite kiểm tra lỗi sau Bronze/Silver/warehouse commit và sau dbt/CAS trước final
+transaction commit cho incremental/backfill. Recovery phải dùng cùng run ID,
+frozen bytes và dependency hashes; warehouse/deferred receipts không được ghi
+lặp, retry attempts không tăng khi replay. Chi tiết/bằng chứng tại
+[pipeline contract](../data_contracts/11_pipeline_control.md#failure-recovery-verification).
+
+Failure sau load không rollback staging đã commit. Sau lỗi gọi lại đúng command
+với mode/bounds/code/config cũ; đọc failed task và counters trước khi đổi gì khác.
+Tests dùng controlled exceptions, chưa thay thế OS-kill/network-failure drills.
 
 ### Operational health checks
 

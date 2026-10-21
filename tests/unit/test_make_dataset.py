@@ -338,6 +338,64 @@ class MakeDatasetTest(unittest.TestCase):
                 )
             )
 
+    def test_committed_stage_response_failures_audit_and_resume_pending_run(self):
+        for module, verb, stage in (
+            ("bronze", "extract", "orders.bronze.extract"),
+            ("silver", "process", "orders.silver.process"),
+            ("warehouse", None, "orders.warehouse.load"),
+            ("pipeline", "finish", "dbt.build"),
+        ):
+            with self.subTest(stage=stage):
+                self.commands.clear()
+                failed = False
+
+                def respond(args, **kwargs):
+                    nonlocal failed
+                    body = self.command(
+                        *args, capture=kwargs.get("stdout") == subprocess.PIPE
+                    )
+                    selected = (
+                        f"olist_platform.{module}.cli" in args
+                        and (verb is None or verb in args)
+                        and (
+                            module == "pipeline"
+                            or args[args.index("--table") + 1] == "orders"
+                        )
+                        and "--pipeline-parent" not in args
+                        and args[args.index("--run-id") + 1] != "fk_fixture"
+                    )
+                    if selected and not failed:
+                        failed = True
+                        raise subprocess.CalledProcessError(1, args)
+                    return subprocess.CompletedProcess(args, 0, stdout=body)
+
+                with (
+                    patch.dict(os.environ, {"DATASET_MODE": "incremental"}),
+                    patch("scripts.make_dataset.subprocess.run", side_effect=respond),
+                    patch("scripts.make_dataset.shutil.which", return_value="java"),
+                ):
+                    with self.assertRaises(subprocess.CalledProcessError):
+                        self.invoke()
+                    pending = Path("build/reports/dataset/pending-run.txt")
+                    identity = pending.read_text().strip()
+                    failures = [a for a in self.commands if "fail" in a]
+                    self.assertEqual(len(failures), 1)
+                    self.assertEqual(
+                        failures[0][failures[0].index("--name") + 1], stage
+                    )
+                    self.assertEqual(
+                        failures[0][failures[0].index("--run-id") + 1], identity
+                    )
+                    self.assertIsNone(make_dataset.RUN_CONTEXT)
+                    self.assertIsNone(make_dataset.CURRENT_TASK)
+                    self.invoke()
+                    self.assertFalse(pending.exists())
+                    begins = [a for a in self.commands if "begin" in a]
+                    self.assertEqual(len(begins), 2)
+                    self.assertTrue(
+                        all(a[a.index("--run-id") + 1] == identity for a in begins)
+                    )
+
     def test_shell_entrypoint_resolves_repository_from_another_directory(self):
         source = Path(__file__).resolve().parents[2] / "scripts"
         Path("scripts").mkdir()

@@ -56,6 +56,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make resolve-deferred SOURCE_TABLE=<table> PARENT_SNAPSHOT=<full prefix> DEFERRED_RUN_ID=<id>`: retry at most 1,000 pending rows; use a new ID for a new pass/parent.
 - `make test-deferred-state-integration` / `make test-deferred-integration`: verify lifecycle transactions and pinned snapshots.
 - `make test-pipeline-control-integration` / `make test-pipeline-integration`: atomic controls and full receipt/dbt gates.
+- `make test-recovery-integration`: test committed Bronze/Silver/warehouse failures and rollback after real dbt/CAS; incremental/backfill resume without duplicate loads/retries.
 - `make test-incremental-integration`: test atomic freeze, inclusive lookback, late/stale updates, retry and real dbt gates using Java 17.
 - `make pipeline-health`: read-only JSON checks using `PG*`; thresholds: `config/pipeline_health.json`. CLI exit 0 healthy, 1 unhealthy, 2 unavailable; Make fails on either error.
 - `make pipeline-dashboard`: write a static HTML health snapshot to `build/reports/pipeline_dashboard.html`; inspect its timestamp and command exit status.
