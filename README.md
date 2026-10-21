@@ -17,6 +17,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Full customer snapshots and normalized customer Silver | Implemented — parent manifest/hash pinned to orders runs |
 | Items/payments Silver with composite grain and decimal money | Implemented — pinned full orders FK checks; product/seller membership remains planned |
 | PostgreSQL raw staging and transactional load audit | Implemented — version-aware merges, canonical hashes and exact load reconciliation |
+| Durable deferred lifecycle | Implemented — bounded retry passes, pinned full snapshots, expiry and atomic staging resolution |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
 | dbt customer dimension, order fact and daily GMV/AOV views | Implemented — exact reconciliation and relationship tests |
 | Airflow and Metabase | TODO — later phases |
@@ -162,7 +163,7 @@ Chạy `make bronze-up`, export database/S3 environment, `make init-bronze`, r�
 
 Sau Bronze, dùng Java 17, `make sync-processing`, rồi `make process-orders BRONZE_PREFIX='<manifest.prefix>' SILVER_RUN_ID=<stable_id>`. Spark chuẩn hóa strings/timezone, giữ version mới nhất, phân loại valid/rejected/duplicates và publish Parquet immutable có manifest/reconciliation. Warning là subset của valid.
 
-Muốn kiểm tra customer FK, tạo full customer Bronze/Silver bằng `make ingest-customers` và `make process-customers`, rồi truyền `CUSTOMER_SNAPSHOT=<customer Silver prefix>` khi process orders. Orders thiếu parent vào deferred; dùng snapshot mới và Silver run ID mới để reprocess cùng Bronze input. Xem [customer contract](docs/data_contracts/06_customer_snapshots.md). Persistent deferred/quarantine lifecycle vẫn planned; Silver không promote end-to-end watermark.
+Muốn kiểm tra customer FK, tạo full customer Bronze/Silver bằng `make ingest-customers` và `make process-customers`, rồi truyền `CUSTOMER_SNAPSHOT=<customer Silver prefix>` khi process orders. Orders thiếu parent vào deferred; dùng snapshot mới và Silver run ID mới để reprocess cùng Bronze input, hoặc dùng [durable deferred lifecycle](docs/data_contracts/10_deferred_lifecycle.md) để resolve frozen pending records. Silver không promote end-to-end watermark.
 
 ## Order items and payments
 
@@ -181,6 +182,12 @@ Sau migration `006`, dùng `make load-warehouse SOURCE_TABLE=<table> SILVER_PREF
 Sau staging, `make dataset` tự chạy dbt build/tests cho `dim_customer`, `fct_orders` và daily GMV/AOV views. Items/payments aggregate riêng theo order trước khi join. Customer dùng shopper business key, surrogate key ổn định và current Type 1 attributes. Metric tests đối soát exact với staging, kể cả many-to-many fan-out, canceled orders và zero payments.
 
 Chạy riêng bằng `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_PASSWORD`, `DBT_READER_USER`, rồi `make dbt-build`. Xem [analytics contract](docs/data_contracts/09_analytics_models.md); kiểm thử bằng `make test-dbt-integration`. Views chưa có atomic publication hoặc end-to-end watermark; chỉ coi build thành công sau khi tests pass.
+
+## Deferred retries
+
+`make dataset` tự register missing-parent records, rồi resolve theo full parent snapshot sau từng dependent dataset và trước dbt. Queue lưu original UID/payload, default ba attempts hoặc bảy ngày. Retry cùng run ID không tăng attempts; expiry là terminal reject. Queue transitions, version-aware staging merge và audit commit cùng transaction.
+
+Standalone operations: `make register-deferred SOURCE_TABLE=<table> SILVER_PREFIX=<prefix> DEFERRED_RUN_ID=<id>`, rồi `make resolve-deferred SOURCE_TABLE=<table> PARENT_SNAPSHOT=<full prefix> DEFERRED_RUN_ID=<new id>`. Xem [contract](docs/data_contracts/10_deferred_lifecycle.md). Mỗi pass tối đa 1.000 rows/bảng; chưa có background scheduler hoặc end-to-end watermark.
 
 ## License
 

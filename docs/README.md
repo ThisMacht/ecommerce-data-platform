@@ -16,6 +16,7 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | 07 | [Order Items and Payments](data_contracts/07_order_children.md) | Composite-key Bronze/Silver, decimal money và pinned full orders dependencies | Active |
 | 08 | [Warehouse Staging](data_contracts/08_warehouse_staging.md) | Canonical hashes, version-aware PostgreSQL merges và transactional load audit | Active |
 | 09 | [Analytics Models](data_contracts/09_analytics_models.md) | dbt grains, shopper identity, Type 1 attributes và exact GMV/AOV tests | Active |
+| 10 | [Deferred Lifecycle](data_contracts/10_deferred_lifecycle.md) | Persisted quarantine, pinned dependency retries, expiry và atomic staging resolution | Active |
 
 ## Related documents
 

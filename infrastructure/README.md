@@ -74,6 +74,8 @@ Migration `006` thêm bốn bảng `raw_staging` và `audit.warehouse_load_runs`
 
 Migration `007` tạo `analytics` schema do loader role sở hữu, cấp reader SELECT qua default privileges và dbt grants. dbt chạy trên host bằng `analytics` extra; không cần placeholder service. Xem [analytics contract](../docs/data_contracts/09_analytics_models.md).
 
+Migration `008` thêm deferred quarantine/registration/resolution/attempt tables. Existing loader có write permissions cần thiết, reader chỉ SELECT. `make register-deferred` và `make resolve-deferred` chạy trên host; `make dataset` tự nối vào flow trước dbt. Xem [lifecycle contract](../docs/data_contracts/10_deferred_lifecycle.md).
+
 ## TODO
 
 - `TODO(phase-1)`: thêm Airflow với executable workflows; dbt models đã có.

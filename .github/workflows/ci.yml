@@ -70,6 +70,8 @@ jobs:
         run: make test-bronze-integration
       - name: Test warehouse merge transactions with isolated PostgreSQL
         run: make test-warehouse-merge-integration
+      - name: Test durable deferred lifecycle transactions
+        run: make test-deferred-state-integration
       - name: Install locked analytics dependencies
         run: make sync-analytics
       - name: Test dbt models and metric reconciliation in isolated PostgreSQL
@@ -107,3 +109,5 @@ jobs:
         run: make test-order-children-integration
       - name: Test verified Silver loading into PostgreSQL staging
         run: make test-warehouse-integration
+      - name: Test deferred retries against verified full snapshots
+        run: make test-deferred-integration

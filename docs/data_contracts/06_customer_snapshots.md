@@ -4,7 +4,7 @@
 
 Status: **Active — full customers Bronze/Silver và optional orders FK routing**. Source contract vẫn là `1.0.0`. Customer artifacts dùng `customers-bronze-v1` / `customers-silver-v1`; orders có parent snapshot dùng `orders-silver-v2`. Orders Bronze windows và `orders-silver-v1` local-rule mode giữ nguyên contract/replay behavior.
 
-Slice này thêm parent membership checks và explicit reprocessing khi parent xuất hiện. Persistent deferred queue, attempt/age limits, quarantine database và end-to-end watermark vẫn planned. Warehouse staging đã có theo [contract](08_warehouse_staging.md).
+Slice này thêm parent membership checks và explicit reprocessing khi parent xuất hiện. Durable deferred queue và attempt/age limits đã có theo [lifecycle contract](10_deferred_lifecycle.md); generic rejects quarantine và end-to-end watermark vẫn planned. Warehouse staging đã có theo [contract](08_warehouse_staging.md).
 
 ## Full customer snapshots
 
@@ -43,7 +43,7 @@ Orders/customer snapshots nhất quán riêng, không phải một cross-table t
 
 Khi parent tới muộn, tạo **full customer snapshot mới**, rồi process **original orders Bronze prefix** bằng **Silver run ID mới** và customer Silver prefix mới. Original physical UIDs/source versions giữ nguyên; old Silver/deferred artifacts bất biến. Order deferred có thể thành valid mà không đọc lại orders từ PostgreSQL.
 
-Đây là explicit batch re-evaluation, chưa phải automatic deferred lifecycle. Mỗi output ghi full input/routing counters của riêng run; cross-run source-growth/deferred-retry accounting và persisted resolution state còn planned. Không cộng reprocessing rows thành source records mới hoặc reuse old Silver ID với parent hash khác.
+Đây là explicit batch re-evaluation; durable queue retries và persisted resolution state đã có ở [lifecycle contract](10_deferred_lifecycle.md). Mỗi original Silver output vẫn ghi full input/routing counters của riêng run; retry pass có counters tách biệt. Không cộng reprocessing rows thành source records mới hoặc reuse old Silver ID với parent hash khác.
 
 ## Commands
 

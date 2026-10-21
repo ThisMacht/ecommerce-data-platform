@@ -83,6 +83,11 @@ class InstalledCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("--silver-prefix", result.stdout)
 
+    def test_deferred_cli_help_does_not_require_spark(self):
+        result = self.run_command("olist-deferred", "--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("{register,resolve}", result.stdout)
+
     def test_verify_rejects_modified_snapshot(self) -> None:
         self.csv_path.write_bytes(
             self.csv_path.read_bytes().replace(b"10.50", b"99.99")

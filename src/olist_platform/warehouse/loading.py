@@ -168,13 +168,36 @@ def merge_rows(
     request: dict,
     silver_counts: dict,
 ) -> dict:
-    if table not in KEYS or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", run_id):
-        raise BronzeError("Invalid warehouse dataset/run ID")
     if (
         not connection.autocommit
         or connection.info.transaction_status != TransactionStatus.IDLE
     ):
         raise BronzeError("Warehouse load requires an idle autocommit connection")
+    return _merge_rows(
+        connection,
+        contract,
+        table=table,
+        run_id=run_id,
+        rows=rows,
+        request=request,
+        silver_counts=silver_counts,
+    )
+
+
+def _merge_rows(
+    connection: psycopg.Connection,
+    contract: dict,
+    *,
+    table: str,
+    run_id: str,
+    rows: Iterable[dict],
+    request: dict,
+    silver_counts: dict,
+) -> dict:
+    """Internal merge also accepts an outer transaction for atomic deferred resolution."""
+    if table not in KEYS or not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", run_id):
+        raise BronzeError("Invalid warehouse dataset/run ID")
+    idle = connection.info.transaction_status == TransactionStatus.IDLE
     required_counts = {
         "input_rows",
         "valid_rows",
@@ -200,7 +223,8 @@ def merge_rows(
     names = sql.SQL(", ").join(map(sql.Identifier, columns))
     keys = sql.SQL(", ").join(map(sql.Identifier, KEYS[table]))
     with connection.transaction():
-        connection.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
+        if idle:
+            connection.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
         connection.execute("SET LOCAL TIME ZONE 'UTC'")
         connection.execute("SET LOCAL lock_timeout = '15s'")
         connection.execute("SET LOCAL statement_timeout = '120s'")
@@ -327,8 +351,6 @@ def load_silver(
     run_id: str,
     table: str = "orders",
 ) -> dict:
-    from pyspark.sql import functions as F
-
     if spark.conf.get("spark.sql.session.timeZone") != "UTC":
         raise BronzeError("Warehouse reading requires a UTC Spark session")
     manifest = verify_silver(store, silver_prefix)
@@ -357,32 +379,7 @@ def load_silver(
         "table": table,
     }
     with tempfile.TemporaryDirectory(prefix="olist-warehouse-") as directory:
-        paths = []
-        for number, obj in enumerate(manifest["objects"]):
-            if obj["route"] != "valid":
-                continue
-            content = store.read(obj["key"])
-            if sha256(content) != obj["sha256"]:
-                raise BronzeError("Silver object changed while downloading")
-            path = Path(directory) / f"part-{number}.parquet"
-            path.write_bytes(content)
-            paths.append(str(path))
-        rows = ()
-        if paths:
-            frame = spark.read.parquet(*paths)
-            if frame.schema.jsonValue() != manifest["output_schema"]:
-                raise BronzeError("Silver physical schema differs from manifest")
-            for field in frame.schema.fields:
-                if field.dataType.simpleString() == "timestamp":
-                    frame = frame.withColumn(
-                        field.name,
-                        F.date_format(field.name, "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'"),
-                    )
-                elif field.dataType.simpleString() == "date":
-                    frame = frame.withColumn(
-                        field.name, F.col(field.name).cast("string")
-                    )
-            rows = (row.asDict() for row in frame.toLocalIterator())
+        rows = read_route(spark, store, manifest, Path(directory), "valid")
         return merge_rows(
             connection,
             contract,
@@ -392,3 +389,36 @@ def load_silver(
             request=request,
             silver_counts=manifest["counts"],
         )
+
+
+def read_route(spark, store: ObjectStore, manifest: dict, directory: Path, route: str):
+    """Read one route with physical schema and byte checks; normalize timestamps to UTC text."""
+    from pyspark.sql import functions as F
+
+    if spark.conf.get("spark.sql.session.timeZone") != "UTC":
+        raise BronzeError("Silver route reading requires a UTC Spark session")
+    paths = []
+    for number, obj in enumerate(manifest["objects"]):
+        if obj["route"] != route:
+            continue
+        content = store.read(obj["key"])
+        if sha256(content) != obj["sha256"]:
+            raise BronzeError("Silver object changed while downloading")
+        path = directory / f"part-{number}.parquet"
+        path.write_bytes(content)
+        paths.append(str(path))
+    rows = ()
+    if paths:
+        frame = spark.read.parquet(*paths)
+        if frame.schema.jsonValue() != manifest["output_schema"]:
+            raise BronzeError("Silver physical schema differs from manifest")
+        for field in frame.schema.fields:
+            if field.dataType.simpleString() == "timestamp":
+                frame = frame.withColumn(
+                    field.name,
+                    F.date_format(field.name, "yyyy-MM-dd'T'HH:mm:ss.SSSSSS'Z'"),
+                )
+            elif field.dataType.simpleString() == "date":
+                frame = frame.withColumn(field.name, F.col(field.name).cast("string"))
+        rows = (row.asDict() for row in frame.toLocalIterator())
+    yield from rows

@@ -92,6 +92,10 @@ class MakeDatasetTest(unittest.TestCase):
             return json.dumps(
                 {"status": "LOADED", "counts": {"load_candidate_rows": 1}}
             )
+        if "olist_platform.deferred.cli" in args:
+            return json.dumps(
+                {"status": "COMMITTED", "routing_counts": {"input_rows": 0}}
+            )
         return ""
 
     def invoke(self):
@@ -159,7 +163,20 @@ class MakeDatasetTest(unittest.TestCase):
             self.assertEqual(
                 args[args.index("--silver-prefix") + 1], f"silver/{table}/run_id=test"
             )
-        self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 12)
+        self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 18)
+        retries = [
+            args for args in self.commands if "olist_platform.deferred.cli" in args
+        ]
+        self.assertEqual(len(retries), 6)
+        resolutions = [args for args in retries if "resolve" in args]
+        self.assertEqual(
+            [args[args.index("--parent-snapshot") + 1] for args in resolutions],
+            [
+                "silver/customers/run_id=test",
+                "silver/orders/run_id=test",
+                "silver/orders/run_id=test",
+            ],
+        )
         self.assertFalse(Path("build/reports/dataset/pending-run.txt").exists())
         self.assertIn("[DONE]", output)
         self.assertEqual(os.environ["DBT_READER_USER"], "reader")
@@ -234,6 +251,31 @@ class MakeDatasetTest(unittest.TestCase):
         def fail(*args, **kwargs):
             if "dbt" in args and "build" in args:
                 raise subprocess.CalledProcessError(1, "dbt")
+            return self.command(*args, **kwargs)
+
+        with (
+            patch("scripts.make_dataset.run", side_effect=fail),
+            patch("scripts.make_dataset.shutil.which", return_value="java"),
+        ):
+            with self.assertRaises(subprocess.CalledProcessError):
+                self.invoke()
+        pending = Path("build/reports/dataset/pending-run.txt")
+        run_id = pending.read_text().strip()
+        self.commands.clear()
+        with (
+            patch("scripts.make_dataset.run", side_effect=self.command),
+            patch("scripts.make_dataset.shutil.which", return_value="java"),
+        ):
+            self.invoke()
+        for args in self.commands:
+            if "--run-id" in args:
+                self.assertEqual(args[args.index("--run-id") + 1], run_id)
+        self.assertFalse(pending.exists())
+
+    def test_failed_resolution_keeps_run_pending_and_retry_reuses_ids(self):
+        def fail(*args, **kwargs):
+            if "olist_platform.deferred.cli" in args and "resolve" in args:
+                raise subprocess.CalledProcessError(1, "resolve")
             return self.command(*args, **kwargs)
 
         with (

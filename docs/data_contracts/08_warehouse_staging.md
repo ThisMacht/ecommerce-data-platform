@@ -83,7 +83,7 @@ load_candidate_rows = warehouse_inserted_rows + warehouse_updated_rows
 ```
 
 Audit lưu Silver routing counters và committed merge counters. Chưa thay thế
-planned DAG-level audit, failure-attempt lifecycle hoặc deferred resolution state.
+planned DAG-level audit hoặc generic failure-attempt lifecycle. Deferred resolution state đã có ở [lifecycle contract](10_deferred_lifecycle.md).
 Không promote end-to-end watermark: dbt build/tests đã có theo [analytics contract](09_analytics_models.md), nhưng atomic publication và gates toàn pipeline chưa hoàn thiện.
 Staging không thêm FK tới current target tables: dependency membership vẫn được
 đánh giá theo pinned Silver snapshots, có thể khác current staging state.

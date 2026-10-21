@@ -6,7 +6,7 @@ Status: **Active — orders-only local PySpark slice**, processor/schema `orders
 
 Runtime: Python 3.10+, Java 17 và PySpark `4.0.2` trong optional extra `processing`. `make test` không cần Spark/Java. Spark chạy local với temporary disk staging; chưa hỗ trợ distributed workers vì input/output temporary paths thuộc host. Cần đủ local disk cho cả input JSONL và output Parquet.
 
-Đây là contract cho `orders-silver-v1` local-rule mode: `relationship_checks=NOT_IMPLEMENTED`, `deferred_rows=0`. Khi truyền customer snapshot, [orders-silver-v2](06_customer_snapshots.md) bổ sung FK/deferred routing và pin dependency hash. Persistent deferred lifecycle, quarantine database và end-to-end watermark vẫn planned. Warehouse staging đã có theo [contract](08_warehouse_staging.md).
+Đây là contract cho `orders-silver-v1` local-rule mode: `relationship_checks=NOT_IMPLEMENTED`, `deferred_rows=0`. Khi truyền customer snapshot, [orders-silver-v2](06_customer_snapshots.md) bổ sung FK/deferred routing và pin dependency hash. Durable deferred retries đã có theo [lifecycle contract](10_deferred_lifecycle.md); generic rejects quarantine và end-to-end watermark vẫn planned. Warehouse staging đã có theo [contract](08_warehouse_staging.md).
 
 ## Input validation and lineage
 

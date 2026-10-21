@@ -23,6 +23,10 @@ BRONZE_FULL_SNAPSHOT ?=
 SILVER_PREFIX ?=
 WAREHOUSE_RUN_ID ?=
 SOURCE_TABLE ?= orders
+PARENT_SNAPSHOT ?=
+DEFERRED_RUN_ID ?=
+MAX_DEFERRED_ATTEMPTS ?= 3
+MAX_DEFERRED_AGE_HOURS ?= 168
 ANALYTICS_PYTHON ?= $(UV) run --locked --extra analytics python
 
 .DEFAULT_GOAL := help
@@ -36,7 +40,8 @@ ANALYTICS_PYTHON ?= $(UV) run --locked --extra analytics python
 	sync-processing process-orders test-processing test-silver-integration \
 	ingest-customers process-customers test-customer-integration \
 	ingest-order-payments ingest-order-items process-order-payments process-order-items test-order-children-integration \
-	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration
+	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration \
+	register-deferred resolve-deferred test-deferred-integration test-deferred-state-integration
 
 help:
 	@echo "Available targets:"
@@ -81,6 +86,9 @@ help:
 	@echo "  test-warehouse-integration Test verified Silver -> PostgreSQL staging"
 	@echo "  sync-analytics / dbt-build Install locked dbt dependencies / build models and tests"
 	@echo "  test-dbt-integration      Test marts and repeatable customer keys in disposable PostgreSQL"
+	@echo "  register-deferred         Persist deferred Silver; set SOURCE_TABLE, SILVER_PREFIX, DEFERRED_RUN_ID"
+	@echo "  resolve-deferred          Retry pending rows; set SOURCE_TABLE, PARENT_SNAPSHOT, DEFERRED_RUN_ID"
+	@echo "  test-deferred-state-integration / test-deferred-integration Test lifecycle transactions / verified snapshots"
 
 sync:
 	$(UV) sync --locked
@@ -283,3 +291,25 @@ test-dbt-integration:
 	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
 	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
 	$(ANALYTICS_PYTHON) -m unittest discover -s tests/integration -p 'test_dbt_models.py' -v
+
+register-deferred:
+	@test -n "$(SILVER_PREFIX)" && test -n "$(DEFERRED_RUN_ID)" || (echo "Set SILVER_PREFIX and DEFERRED_RUN_ID" >&2; exit 2)
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m olist_platform.deferred.cli \
+		--contract "$(SOURCE_CONTRACT)" --table "$(SOURCE_TABLE)" register --silver-prefix "$(SILVER_PREFIX)" \
+		--run-id "$(DEFERRED_RUN_ID)" --max-attempts "$(MAX_DEFERRED_ATTEMPTS)" --max-deferred-age-hours "$(MAX_DEFERRED_AGE_HOURS)"
+
+resolve-deferred:
+	@test -n "$(PARENT_SNAPSHOT)" && test -n "$(DEFERRED_RUN_ID)" || (echo "Set PARENT_SNAPSHOT and DEFERRED_RUN_ID" >&2; exit 2)
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m olist_platform.deferred.cli \
+		--contract "$(SOURCE_CONTRACT)" --table "$(SOURCE_TABLE)" resolve --parent-snapshot "$(PARENT_SNAPSHOT)" --run-id "$(DEFERRED_RUN_ID)"
+
+test-deferred-state-integration:
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
+	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	$(PYTHON) -m unittest discover -s tests/integration -p 'test_deferred_state.py' -v
+
+test-deferred-integration:
+	$(COMPOSE) -f $(COMPOSE_FILE) build minio
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
+	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_deferred_snapshots.py' -v

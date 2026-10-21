@@ -91,7 +91,7 @@ published snapshot. dbt build không atomic toàn DAG; failed tests không rollb
 toàn bộ views đã tạo. Chỉ coi artifacts thành công khi build exit code bằng zero;
 không chạy writer/reader pipeline đồng thời khi cần một consistent business snapshot.
 Atomic mart publication, DAG audit, end-to-end watermark, Airflow, dashboards,
-products/sellers FK và deferred retry/expiry vẫn planned.
+products/sellers FK vẫn planned. Deferred retry/expiry đã có theo [lifecycle contract](10_deferred_lifecycle.md).
 
 ## References
 

@@ -182,6 +182,50 @@ def main() -> None:
             json.dumps(loaded, indent=2) + "\n"
         )
         print(f"[OK] {table} staging: {loaded['counts']}", flush=True)
+        if table != "customers":
+            deferred_cli = [
+                "uv",
+                "run",
+                "--locked",
+                "--extra",
+                "processing",
+                "python",
+                "-m",
+                "olist_platform.deferred.cli",
+                "--table",
+                table,
+            ]
+            registered = json.loads(
+                run(
+                    *deferred_cli,
+                    "register",
+                    "--silver-prefix",
+                    output["manifest"]["prefix"],
+                    "--run-id",
+                    run_id,
+                    capture=True,
+                )
+            )
+            parent = snapshots["customers" if table == "orders" else "orders"]
+            resolved = json.loads(
+                run(
+                    *deferred_cli,
+                    "resolve",
+                    "--parent-snapshot",
+                    parent,
+                    "--run-id",
+                    run_id,
+                    capture=True,
+                )
+            )
+            for suffix, result in (
+                ("deferred_registration", registered),
+                ("deferred_resolution", resolved),
+            ):
+                (reports / f"{run_id}_{table}_{suffix}.json").write_text(
+                    json.dumps(result, indent=2) + "\n"
+                )
+            print(f"[OK] {table} deferred: {resolved['routing_counts']}", flush=True)
     if silver:
         run(
             "uv",
