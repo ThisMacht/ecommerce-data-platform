@@ -644,11 +644,13 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 - [x] Add standalone item v2 with pinned full order/product/seller FKs and atomic deferred retry; see `docs/data_contracts/17_item_dependency_snapshots.md`.
 - [x] Integrate products/sellers parents and item v2 into audited full/incremental/backfill freeze/scheduling/receipt gates; six dataset audits and four completion cursors.
 - [x] Sellers standalone full Bronze/Silver → version-aware staging → `dim_seller` Type 1; location warnings and replay/reconciliation checks. See `docs/data_contracts/16_seller_snapshots.md`.
-- [ ] Ingest reviews và geolocation.
-- [ ] Tạo `int_geolocation_by_zip` bằng median latitude/longitude và mode city/state.
+- [x] Standalone full geolocation Bronze/Silver/staging with technical row IDs, exact coordinates and retry/version gates.
+- [ ] Ingest reviews.
+- [ ] Integrate geolocation into scheduled freeze/receipts and customer/seller location FK joins.
+- [x] `int_geolocation_by_zip`: exact numeric coordinate medians and deterministic joint city/state mode.
 - [ ] Hoàn thiện dimensions với surrogate keys, unique business keys và explicit unknown-member policy.
 - [x] Current Type 1 `dim_customer`, `dim_product`, `dim_seller`; continuous `dim_date` with local date role keys in all facts, ISO/leap/empty/corruption checks.
-- [ ] Hoàn thiện `dim_location` sau geolocation ingestion.
+- [x] Standalone Type 1 `dim_location` at ZIP grain; stable key, counts, source reconciliation and no new BI grants.
 - [x] Add `fct_order_items` at composite item grain with order/customer/product/seller keys, exact source reconciliation and no payment fan-out.
 - [x] Add daily product/seller GMV, freight and item/group-order counts; independent fixtures and failure gates.
 - [x] Add `fct_payments` at composite payment-entry grain and daily payment-type observed amounts/counts; exact source reconciliation without installment multiplication or item fan-out.

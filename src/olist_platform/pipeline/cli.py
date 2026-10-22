@@ -22,7 +22,7 @@ from olist_platform.bronze.storage import (
 from olist_platform.raw.contracts import ContractError, load_contract
 
 from .control import (
-    ANALYTICS_SOURCES,
+    DBT_SOURCES,
     backfill_window,
     begin,
     code_hash,
@@ -85,7 +85,7 @@ def finish(
         with connection.transaction():
             lock(connection)
             row = current(connection, run_id, attempt)
-            for table in ANALYTICS_SOURCES:
+            for table in DBT_SOURCES:
                 connection.execute(
                     psycopg.sql.SQL("LOCK TABLE {} IN SHARE MODE").format(
                         psycopg.sql.Identifier("raw_staging", table)

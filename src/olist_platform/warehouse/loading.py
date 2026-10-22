@@ -19,6 +19,7 @@ from psycopg.types.json import Jsonb
 from olist_platform.bronze.extraction import KEYS
 from olist_platform.bronze.storage import BronzeError, ObjectStore, encode, sha256
 from olist_platform.silver.batch import LINEAGE, source_columns, verify_silver
+from olist_platform.silver.geolocation import coordinate_value
 
 LOADER_VERSION = "warehouse-v1"
 HASH_VERSION = "business-v1"
@@ -64,6 +65,8 @@ def canonical_record(row: dict, contract: dict, table: str, run_id: str) -> dict
                 "seller_city",
                 "seller_state",
                 "seller_zip_code_prefix",
+                "geolocation_city",
+                "geolocation_state",
             )
             if not nullable:
                 raise BronzeError(f"Null required staging value: {name}")
@@ -84,6 +87,15 @@ def canonical_record(row: dict, contract: dict, table: str, run_id: str) -> dict
             if value == 0:
                 value = Decimal("0.00")
             normalized = format(value, ".2f")
+        elif kind == "numeric":
+            value = coordinate_value(value, 90 if name == "geolocation_lat" else 180)
+            if value is None:
+                raise BronzeError(f"Invalid staging coordinate: {name}")
+            normalized = format(value, "f")
+            if "." in normalized:
+                normalized = normalized.rstrip("0").rstrip(".")
+            if value == 0:
+                normalized = "0"
         elif kind in ("integer", "bigint"):
             bits = 32 if kind == "integer" else 64
             if type(value) is not int or not -(2 ** (bits - 1)) <= value < 2 ** (
@@ -109,6 +121,11 @@ def canonical_record(row: dict, contract: dict, table: str, run_id: str) -> dict
         for key in KEYS[table]
     ):
         raise BronzeError("Invalid normalized staging business key")
+    if table == "geolocation" and (
+        record["geolocation_row_id"] <= 0
+        or re.fullmatch(r"[0-9]{5}", record["geolocation_zip_code_prefix"]) is None
+    ):
+        raise BronzeError("Invalid staging geolocation identity/ZIP")
     if len(KEYS[table]) > 1 and record[KEYS[table][1]] <= 0:
         raise BronzeError("Invalid staging business key ordinal")
     if record["source_sequence"] <= 0 or record["source_operation"] not in (
@@ -419,6 +436,10 @@ def read_route(spark, store: ObjectStore, manifest: dict, directory: Path, route
         frame = spark.read.parquet(*paths)
         if frame.schema.jsonValue() != manifest["output_schema"]:
             raise BronzeError("Silver physical schema differs from manifest")
+        # toLocalIterator materializes a whole partition; large route files need bounded handoff batches.
+        count = manifest["counts"][f"{route}_rows"]
+        if count > 10000:
+            frame = frame.repartition((count + 9999) // 10000)
         for field in frame.schema.fields:
             if field.dataType.simpleString() == "timestamp":
                 frame = frame.withColumn(

@@ -272,6 +272,15 @@ không join items và không dùng type order counts làm AOV denominator. `make
 tự build/test; standalone dùng `make dbt-build` với PG/dbt environment hiện có.
 Xem [payment metric contract](docs/data_contracts/09_analytics_models.md#payment-facts-and-type-metrics).
 
+## Geolocation analytics
+
+Standalone `ingest-geolocation` / `process-geolocation` chạy full observations;
+load với `SOURCE_TABLE=geolocation`, sau đó `make dbt-build`. `dim_location` có một
+row/ZIP với exact coordinate medians và deterministic joint city/state mode.
+Không dùng ZIP làm source key, không drop observations có tọa độ trùng hoặc suy
+đoán địa chỉ customer/seller. Chưa tích hợp scheduled receipts/location FK joins
+và không thêm BI grants. Xem [geolocation contract](docs/data_contracts/18_geolocation_snapshots.md).
+
 ## Calendar dimension
 
 `dim_date` chứa liên tục các ngày từ min/max local purchase, estimated và actual

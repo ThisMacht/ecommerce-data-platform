@@ -7,6 +7,7 @@ from pyspark.sql import functions as F
 from pyspark.sql import types as T
 
 from olist_platform.bronze.storage import BronzeError
+from olist_platform.raw.contracts import source_columns
 
 from .validation import classify_versions
 
@@ -57,9 +58,8 @@ def spark_session(master: str = "local[2]") -> SparkSession:
 
 
 def input_schema(contract: dict, table: str = "orders") -> T.StructType:
-    specification = next(t for t in contract["tables"] if t["table"] == table)
     fields = []
-    for column in specification["columns"] + contract["metadata_columns"]:
+    for column in source_columns(contract, table):
         kind = (
             T.LongType()
             if column["postgres_type"] in ("bigint", "integer")

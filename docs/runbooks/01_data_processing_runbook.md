@@ -610,7 +610,30 @@ key nghĩa là thiếu timestamp, không đồng nghĩa delivery chưa hợp l�
 local date columns cho date filters hiện có; không mở thêm quyền BI/dimension.
 Xem [calendar contract](../data_contracts/09_analytics_models.md#calendar-dimension-and-fact-date-roles).
 
-## 29. Change control
+## 29. Geolocation snapshots
+
+Chạy `make migrate`, `make ingest-geolocation BRONZE_RUN_ID=<id>`,
+`make process-geolocation BRONZE_PREFIX=<prefix> SILVER_RUN_ID=<id>` và
+`make load-warehouse SOURCE_TABLE=geolocation SILVER_PREFIX=<prefix> WAREHOUSE_RUN_ID=<id>`.
+Dùng PG/AWS/dbt environment như các snapshots khác; tiếp theo `make dbt-build`.
+`make test-geolocation-integration` kiểm tra retries/merge; dbt integration kiểm
+tra medians/modes, grain và corruption. Resume các IDs cũ sau mất response.
+
+Kiểm tra rejected/warning counts trước khi dùng location dimension. Một ZIP có
+nhiều observations; chỉ join dimension đã aggregate, không join source geolocation
+vào facts. Chưa có customer/seller location FK joins. Core freeze/receipts vẫn sáu
+datasets; final gate khóa thêm current geolocation staging. Standalone load làm
+BI unavailable cho tới core SUCCESS mới; không cập nhật status thủ công.
+Xem [geolocation contract](../data_contracts/18_geolocation_snapshots.md).
+
+Khi một manual local run đã FAILED và bug fix làm đổi code hash, giữ audit/
+receipts cũ; request của ID đó vẫn immutable. Xác nhận không còn RUNNING và
+cursors bằng control_before, archive `build/reports/dataset/pending-run.txt` cùng
+failed ID/evidence, rồi bắt đầu manual ID mới để tạo đủ receipts/gate mới. Không
+đổi request, copy proofs hoặc gán SUCCESS thủ công. Retry không đổi code vẫn dùng
+pending ID như cũ; Airflow retries tiếp tục tuân theo original DAG/run context.
+
+## 30. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 

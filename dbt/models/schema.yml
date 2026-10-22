@@ -9,6 +9,7 @@ sources:
   - name: order_payments
   - name: products
   - name: sellers
+  - name: geolocation
 models:
 - name: stg_customers
   columns:
@@ -535,3 +536,51 @@ models:
     description: "Monday=1 through Sunday=7."
   - name: is_weekend
     description: "Saturday or Sunday; no holiday calendar is inferred."
+
+- name: stg_geolocation
+  description: "Current source observations keyed by positive CSV row position, never ZIP; coordinates remain exact NUMERIC."
+  columns:
+  - name: geolocation_row_id
+    data_tests: [not_null, unique]
+  - name: geolocation_zip_code_prefix
+    data_tests: [not_null]
+  - name: geolocation_lat
+    data_tests: [not_null]
+  - name: geolocation_lng
+    data_tests: [not_null]
+- name: int_geolocation_by_zip
+  description: "One ZIP with exact coordinate medians; joint city/state mode, ties by state then city using C collation. All source observations count, including identical coordinates."
+  columns:
+  - name: zip_code_prefix
+    data_tests: [not_null, unique]
+- name: dim_location
+  description: "Current Type 1 ZIP representatives, not exact customer/seller addresses; no inferred membership or historical locations."
+  columns:
+  - name: location_key
+    description: "Stable MD5 of the five-character ZIP prefix."
+    data_tests: [not_null, unique]
+  - name: zip_code_prefix
+    data_tests: [not_null, unique]
+  - name: latitude
+    description: "Exact numeric median over all valid source observations at this ZIP."
+    data_tests: [not_null]
+  - name: longitude
+    description: "Exact numeric median independently of latitude; may not be an observed coordinate pair."
+    data_tests: [not_null]
+  - name: city
+    description: "City from the modal observed valid city/state pair; NULL if no valid labels."
+  - name: state
+    description: "State paired with modal city; NULL if no valid labels."
+  - name: sample_count
+    description: "Number of physical source observations, not unique points, people or addresses."
+    data_tests: [not_null]
+  - name: modal_sample_count
+    description: "Frequency of the chosen city/state pair; zero when labels unavailable."
+    data_tests: [not_null]
+  - name: created_at
+    data_tests: [not_null]
+  - name: updated_at
+    data_tests: [not_null]
+  - name: record_hash
+    description: "MD5 of current representative attributes and counts; excludes observation timestamps."
+    data_tests: [not_null]

@@ -7,6 +7,16 @@ from decimal import Decimal
 def valid_row(table="customers", key="a", sequence=1):
     instant = datetime(2020, 1, 1, tzinfo=timezone.utc)
     row = {
+        "geolocation": {
+            "geolocation_row_id": int(key),
+            "geolocation_zip_code_prefix": "00123",
+            "geolocation_lat": Decimal("-23.500000000000000001"),
+            "geolocation_lng": Decimal("-46.500000000000000001"),
+            "geolocation_city": "são paulo",
+            "geolocation_state": "SP",
+        }
+        if table == "geolocation"
+        else {},
         "sellers": {
             "seller_id": key,
             "seller_zip_code_prefix": "00123",

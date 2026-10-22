@@ -100,6 +100,8 @@ help:
 	@echo "  test-processing           Run Spark normalization, routing and deduplication tests"
 	@echo "  test-silver-integration   Test PostgreSQL -> Bronze -> Spark -> Silver with disposable services"
 	@echo "  ingest-sellers / process-sellers Full sellers Bronze/Silver snapshots"
+	@echo "  ingest-geolocation / process-geolocation Full geolocation observations; load with SOURCE_TABLE=geolocation"
+	@echo "  test-geolocation-integration Test full snapshots, exact coordinates and version-aware staging"
 	@echo "  test-seller-integration   Test sellers publication, replay, routing and staging merges"
 	@echo "  ingest-products / process-products Full products Bronze/Silver snapshots"
 	@echo "  test-product-integration  Test products publication, replay, routing and staging merges"
@@ -309,12 +311,12 @@ test-silver-integration:
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" \
 	$(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_silver_orders.py' -v
 
-ingest-customers ingest-products ingest-sellers:
+ingest-customers ingest-products ingest-sellers ingest-geolocation:
 	@test -n "$(BRONZE_RUN_ID)" || (echo "Set BRONZE_RUN_ID" >&2; exit 2)
 	$(PYTHON) -m olist_platform.bronze.cli --contract "$(SOURCE_CONTRACT)" --table $(@:ingest-%=%) extract \
 		--run-id "$(BRONZE_RUN_ID)" --page-size "$(BRONZE_PAGE_SIZE)"
 
-process-customers process-products process-sellers:
+process-customers process-products process-sellers process-geolocation:
 	@test -n "$(BRONZE_PREFIX)" && test -n "$(SILVER_RUN_ID)" || (echo "Set BRONZE_PREFIX and SILVER_RUN_ID" >&2; exit 2)
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m olist_platform.silver.cli \
 		--contract "$(SOURCE_CONTRACT)" --table $(@:process-%=%) process --bronze-prefix "$(BRONZE_PREFIX)" --run-id "$(SILVER_RUN_ID)"
@@ -425,3 +427,10 @@ test-item-dependencies-integration:
 	$(COMPOSE) -f $(COMPOSE_FILE) build minio
 	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_item_dependencies.py' -v
+
+test-geolocation-integration:
+	$(COMPOSE) -f $(COMPOSE_FILE) build minio
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_geolocation.py' -v
+
+.PHONY: ingest-geolocation process-geolocation test-geolocation-integration

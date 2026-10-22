@@ -20,6 +20,7 @@ from olist_platform.bronze.storage import (
     sha256,
     verify_published,
 )
+from olist_platform.raw.contracts import source_columns
 
 ROUTES = ("valid", "rejected", "duplicates")
 CHILDREN = ("order_items", "order_payments")
@@ -32,6 +33,7 @@ VERSIONS = (
     "customers-silver-v2",
     "products-silver-v1",
     "sellers-silver-v1",
+    "geolocation-silver-v1",
     "order_items-silver-v2",
 ) + tuple(f"{table}-silver-v1" for table in CHILDREN)
 if TYPE_CHECKING:
@@ -60,11 +62,6 @@ def optional_read(store: ObjectStore, key: str) -> bytes | None:
         return None
 
 
-def source_columns(contract: dict, table: str = "orders") -> list[dict]:
-    specification = next(t for t in contract["tables"] if t["table"] == table)
-    return specification["columns"] + contract["metadata_columns"]
-
-
 def validate_manifest(manifest: dict, contract: dict, table: str = "orders") -> None:
     if contract["contract_version"] != "1.0.0" or manifest["schema_version"] != "1.0.0":
         raise BronzeError("Unsupported Silver input schema version")
@@ -77,7 +74,10 @@ def validate_manifest(manifest: dict, contract: dict, table: str = "orders") -> 
     scoped_delta = manifest.get("snapshot_kind") == "INCREMENTAL" and manifest[
         "config"
     ].get("pipeline_run_id")
-    if table in ("products", "sellers") and manifest.get("snapshot_kind") != "FULL":
+    if (
+        table in ("products", "sellers", "geolocation")
+        and manifest.get("snapshot_kind") != "FULL"
+    ):
         raise BronzeError(f"{table.title()} Silver requires a full Bronze snapshot")
     if (
         table == "customers"
@@ -202,10 +202,13 @@ def verify_objects(store: ObjectStore, manifest: dict) -> None:
                 ):
                     raise BronzeError(f"Invalid pinned {name} dependency")
     if (
-        manifest["schema_version"] in ("products-silver-v1", "sellers-silver-v1")
+        manifest["schema_version"]
+        in ("products-silver-v1", "sellers-silver-v1", "geolocation-silver-v1")
         and manifest.get("snapshot_kind") != "FULL"
     ):
-        raise BronzeError("Product/seller Silver must declare a full snapshot")
+        raise BronzeError(
+            "Product/seller/geolocation Silver must declare a full snapshot"
+        )
     if (
         manifest["schema_version"] == "customers-silver-v1"
         and manifest.get("snapshot_kind") != "FULL"
@@ -285,6 +288,7 @@ def process_batch(
     seller_snapshot: str | None = None,
 ) -> dict:
     from .customers import check_customer_dependencies, transform_customers
+    from .geolocation import transform_geolocation
     from .order_children import (
         check_item_dependencies,
         check_order_dependencies,
@@ -417,6 +421,8 @@ def process_batch(
             classified = transform_products(frame)
         elif table == "sellers":
             classified = transform_sellers(frame)
+        elif table == "geolocation":
+            classified = transform_geolocation(frame)
         else:
             classified = transform_order_children(frame, table)
         parent_keys = None
@@ -526,7 +532,7 @@ def process_batch(
                 if parent is not None
                 else (
                     "NOT_APPLICABLE"
-                    if table in ("customers", "products", "sellers")
+                    if table in ("customers", "products", "sellers", "geolocation")
                     else "NOT_IMPLEMENTED"
                 ),
                 "output_schema": output_schema,

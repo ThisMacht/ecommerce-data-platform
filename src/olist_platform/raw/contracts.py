@@ -16,6 +16,23 @@ class ContractError(ValueError):
     """Raised when the source contract is missing or internally inconsistent."""
 
 
+def source_columns(contract: dict, table: str = "orders") -> list[dict]:
+    specification = next(t for t in contract["tables"] if t["table"] == table)
+    technical = specification.get("technical_key")
+    keys = (
+        [
+            {
+                "name": technical["name"],
+                "postgres_type": technical["postgres_type"],
+                "nullable": False,
+            }
+        ]
+        if technical
+        else []
+    )
+    return keys + specification["columns"] + contract["metadata_columns"]
+
+
 def load_contract(path: Path) -> dict[str, Any]:
     """Load a source contract JSON document."""
 

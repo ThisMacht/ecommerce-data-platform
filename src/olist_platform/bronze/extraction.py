@@ -13,6 +13,8 @@ from psycopg.pq import TransactionStatus
 from psycopg.rows import dict_row
 from psycopg.types.json import Jsonb
 
+from olist_platform.raw.contracts import source_columns
+
 from .storage import BronzeError, ObjectStore, encode, sha256, verify_published
 
 KEYS = {
@@ -22,6 +24,7 @@ KEYS = {
     "order_items": ("order_id", "order_item_id"),
     "products": ("product_id",),
     "sellers": ("seller_id",),
+    "geolocation": ("geolocation_row_id",),
 }
 PIPELINE = "bronze_orders_v1"
 LOCK = "olist.bronze.orders.v1"
@@ -70,6 +73,8 @@ def configuration(
 ) -> dict:
     if table not in KEYS:
         raise BronzeError("Unsupported extraction table")
+    if table == "geolocation" and pipeline_run_id is not None:
+        raise BronzeError("Geolocation supports standalone full snapshots only")
     if contract["contract_version"] != "1.0.0":
         raise BronzeError("Unsupported source contract version")
     if type(page_size) is not int or not 1 <= page_size <= 10000:
@@ -232,8 +237,7 @@ def prepare(
             before = baseline["committed_cursor"]
             pipeline_version = baseline["cursor_version"]
         target = sql.Identifier(contract["database"]["source_schema"], table)
-        specification = next(t for t in contract["tables"] if t["table"] == table)
-        expected = specification["columns"] + contract["metadata_columns"]
+        expected = source_columns(contract, table)
         actual = connection.execute(
             "SELECT a.attname, format_type(a.atttypid, a.atttypmod), NOT a.attnotnull "
             "FROM pg_attribute a WHERE a.attrelid = %s::regclass AND a.attnum > 0 "
@@ -276,7 +280,7 @@ def prepare(
             if before
             and config.get("snapshot_kind") != "FULL"
             and (
-                table not in ("customers", "products", "sellers")
+                table not in ("customers", "products", "sellers", "geolocation")
                 or config.get("pipeline_run_id")
             )
             else None
@@ -342,7 +346,7 @@ def prepare(
                 ).fetchone()[0],
             )
         elif (
-            table in ("customers", "products", "sellers")
+            table in ("customers", "products", "sellers", "geolocation")
             or config.get("snapshot_kind") == "FULL"
         ):
             manifest["snapshot_kind"] = "FULL"

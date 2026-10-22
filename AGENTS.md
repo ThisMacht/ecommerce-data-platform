@@ -12,7 +12,7 @@ Implemented: core layers, dbt, deferred retries, full/incremental audit, isolate
 - `src/olist_platform/deferred/`: quarantine registration, bounded retry/expiry and atomic staging resolution.
 - `src/olist_platform/pipeline/`: run/task audit, receipt reconciliation and all-table cursor CAS.
 - `airflow/`: isolated Python 3.12 runtime/lock and paused full/incremental and manual backfill DAGs.
-- `dbt/`: staging views, customer/product/seller Type 1 dimensions, continuous local-calendar dim_date, order/item/payment/delivery facts, daily GMV/AOV, product/seller/payment-type and delivery cohort marts.
+- `dbt/`: staging views, customer/product/seller Type 1 dimensions, continuous local-calendar dim_date, standalone ZIP dim_location, order/item/payment/delivery facts, daily GMV/AOV, product/seller/payment-type and delivery cohort marts.
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
 - `tests/processing/`: Spark checks with independent expected fixtures.
@@ -44,6 +44,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make infrastructure-down`: stop services; retain volumes.
 - `make bronze-up` / `make init-bronze`: start MinIO or initialize its bucket.
 - `make ingest-orders BRONZE_RUN_ID=<id>`: extract/resume orders.
+- `make ingest-geolocation` / `make process-geolocation`: standalone full observations; load with `SOURCE_TABLE=geolocation`, then dbt; use `make test-geolocation-integration`.
 - `make ingest-sellers` / `make process-sellers`: standalone full seller snapshots, then staging/dbt; location warnings preserve NULLs and ZIP leading zeros.
 - `make test-seller-integration`: frozen retries, dirty location/ID rules, version-aware merges, corruption, empty snapshots and cursor isolation.
 - `make ingest-products` / `make process-products`: standalone full product snapshots; load with `SOURCE_TABLE=products`, then dbt. Core modes also publish/load these full snapshots and pin them to items v2.
@@ -151,3 +152,13 @@ ISO weeks require iso_year, weekdays Monday=1. Purchase keys propagate through
 all four facts; actual delivery keys stay NULL only without a timestamp,
 independent of delivery observation eligibility. Preserve explicit Sao Paulo
 conversion, empty behavior and existing BI grants when extending date roles.
+
+Geolocation is standalone full-only, keyed by positive CSV geolocation_row_id;
+ZIP is not a source key. Preserve exact coordinate text/Decimal, five-character
+ZIPs and physical observation frequency. Reject invalid ZIP/coordinates, warn
+missing labels. Aggregate to one ZIP before any join: exact numeric medians and
+joint city/state mode, ties by C-collated state/city. NULL labels stay NULL;
+representative coordinates are not addresses. No implicit deletes or new cursors,
+core streams, FK pins or BI grants. Final gate also SHARE-locks geolocation;
+its optional current staging is not a frozen/audited seventh core dataset.
+New standalone loads hide BI until a fresh successful core gate.

@@ -130,6 +130,9 @@ class DbtModelsTest(PostgresIntegrationCase):
                 "analytics.fct_delivery",
                 "analytics.mart_delivery_daily",
                 "analytics.fct_payments",
+                "analytics.dim_location",
+                "analytics.int_geolocation_by_zip",
+                "analytics.stg_geolocation",
                 "analytics.dim_date",
                 "analytics.dim_product",
                 "analytics.dim_seller",
@@ -622,7 +625,7 @@ class DbtModelsTest(PostgresIntegrationCase):
             "t",
         )
         self.psql(
-            "TRUNCATE raw_staging.customers, raw_staging.orders, raw_staging.order_items, raw_staging.order_payments, raw_staging.products, raw_staging.sellers"
+            "TRUNCATE raw_staging.customers, raw_staging.orders, raw_staging.order_items, raw_staging.order_payments, raw_staging.products, raw_staging.sellers, raw_staging.geolocation"
         )
         self.dbt()
         self.assertEqual(
@@ -637,6 +640,8 @@ class DbtModelsTest(PostgresIntegrationCase):
             "fct_delivery",
             "mart_delivery_daily",
             "dim_date",
+            "dim_location",
+            "int_geolocation_by_zip",
         ):
             self.assertEqual(self.psql(f"SELECT COUNT(*) FROM analytics.{model}"), "0")
 
@@ -931,6 +936,143 @@ class DbtModelsTest(PostgresIntegrationCase):
             ),
             "t|t",
         )
+
+    def test_geolocation_exact_medians_joint_modes_type1_and_corruption_gate(self):
+        observations = [
+            ("00123", "-3", "10", "rio", "RJ"),
+            ("00123", "-2", "20", "rio", "RJ"),
+            ("00123", "-1", "30", "são paulo", "SP"),
+            ("00123", "0", "40", "são paulo", "SP"),
+            ("00456", "-23.000000000000000001", "-46.1", None, None),
+            ("00456", "-23.000000000000000002", "-46.2", "other", "XX"),
+            ("00456", "-23.000000000000000001", "-46.1", None, None),
+            ("00888", "10", "20", "a", "SP"),
+            ("00888", "10", "20", "a", "SP"),
+            ("00888", "10", "20", "a", "SP"),
+            ("00888", "10", "20", "b", "RJ"),
+            ("00888", "10", "20", "b", "RJ"),
+            ("00888", "10", "20", "c", "RJ"),
+            ("00888", "10", "20", "c", "RJ"),
+            ("00999", "23.000000000000000001", "46.000000000000000001", "a", "SP"),
+            ("00999", "23.000000000000000002", "46.000000000000000002", "a", "SP"),
+        ]
+        rows = [
+            valid_row("geolocation", str(i), i)
+            | dict(
+                geolocation_zip_code_prefix=zip_code,
+                geolocation_lat=Decimal(lat),
+                geolocation_lng=Decimal(lng),
+                geolocation_city=city,
+                geolocation_state=state,
+                warning_rule_ids=[]
+                if state in ("SP", "RJ")
+                else ["invalid_geolocation_state"],
+            )
+            for i, (zip_code, lat, lng, city, state) in enumerate(observations, 1)
+        ]
+        with psycopg.connect(
+            host="127.0.0.1",
+            port=self.port,
+            dbname=self.database,
+            user="olist_test_loader",
+            password="isolated_test_loader",
+            autocommit=True,
+        ) as c:
+            merge_rows(
+                c,
+                self.contract,
+                table="geolocation",
+                run_id="observations",
+                rows=rows,
+                request={"fixture": "observations"},
+                silver_counts=dict(
+                    input_rows=16,
+                    valid_rows=16,
+                    rejected_rows=0,
+                    deferred_rows=0,
+                    duplicates_rows=0,
+                    warning_rows=3,
+                ),
+            )
+        self.dbt()
+        self.assertEqual(
+            self.psql("SELECT COUNT(*),SUM(sample_count) FROM analytics.dim_location"),
+            "4|16",
+        )
+        self.assertEqual(
+            self.psql("""SELECT latitude=-1.5,longitude=25,city,state,sample_count,modal_sample_count
+            FROM analytics.dim_location WHERE zip_code_prefix='00123'"""),
+            "t|t|rio|RJ|4|2",
+        )
+        self.assertEqual(
+            self.psql("""SELECT latitude=-23.000000000000000001,longitude=-46.1,
+            city IS NULL,state IS NULL,sample_count,modal_sample_count
+            FROM analytics.dim_location WHERE zip_code_prefix='00456'"""),
+            "t|t|t|t|3|0",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT city,state,sample_count,modal_sample_count FROM analytics.dim_location WHERE zip_code_prefix='00888'"
+            ),
+            "a|SP|7|3",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT latitude=23.0000000000000000015,longitude=46.0000000000000000015 FROM analytics.dim_location WHERE zip_code_prefix='00999'"
+            ),
+            "t|t",
+        )
+        original = self.psql(
+            "SELECT location_key,record_hash FROM analytics.dim_location WHERE zip_code_prefix='00123'"
+        )
+        self.dbt()
+        self.assertEqual(
+            self.psql(
+                "SELECT location_key,record_hash FROM analytics.dim_location WHERE zip_code_prefix='00123'"
+            ),
+            original,
+        )
+        self.psql(
+            "UPDATE raw_staging.geolocation SET geolocation_lat=geolocation_lat*1.0000,geolocation_lng=geolocation_lng*1.0000"
+        )
+        self.dbt()
+        self.assertEqual(
+            self.psql(
+                "SELECT location_key,record_hash FROM analytics.dim_location WHERE zip_code_prefix='00123'"
+            ),
+            original,
+        )
+        self.psql(
+            "UPDATE raw_staging.geolocation SET geolocation_city='são paulo',geolocation_state='SP',geolocation_lat=10 WHERE geolocation_row_id=1"
+        )
+        self.dbt()
+        changed = self.psql(
+            "SELECT location_key,record_hash FROM analytics.dim_location WHERE zip_code_prefix='00123'"
+        )
+        self.assertEqual(original.split("|")[0], changed.split("|")[0])
+        self.assertNotEqual(original.split("|")[1], changed.split("|")[1])
+        self.assertEqual(
+            self.psql(
+                "SELECT latitude=-0.5,city,state,modal_sample_count FROM analytics.dim_location WHERE zip_code_prefix='00123'"
+            ),
+            "t|são paulo|SP|3",
+        )
+        self.psql("""CREATE OR REPLACE VIEW analytics.dim_location AS
+            SELECT MD5(zip_code_prefix) AS location_key,zip_code_prefix,latitude+1 AS latitude,longitude,
+                city,state,sample_count,modal_sample_count,created_at,updated_at,
+                MD5(JSONB_BUILD_ARRAY(latitude,longitude,city,state,sample_count,modal_sample_count)::text) AS record_hash
+            FROM analytics.int_geolocation_by_zip;""")
+        results = self.dbt("test", success=False)
+        self.assertTrue(
+            any(
+                r["unique_id"].endswith("geolocation_reconciliation")
+                and r["status"] == "fail"
+                for r in results["results"]
+            )
+        )
+        self.psql("TRUNCATE raw_staging.geolocation")
+        self.dbt()
+        self.assertEqual(self.psql("SELECT COUNT(*) FROM analytics.dim_location"), "0")
 
     def test_date_dimension_continuity_iso_leap_day_and_fact_roles(self):
         self.psql("""UPDATE raw_staging.orders SET

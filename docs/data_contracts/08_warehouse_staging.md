@@ -112,3 +112,12 @@ Tests gồm independent canonical hash expectations; all four version outcomes;
 same-version conflicts; replay/concurrency; duplicate candidates; zero-row batches;
 rollback khi audit lỗi; corrupt Silver/schema/counts; decimal/timezone preservation;
 CLI ngoài checkout và runner retry. Integration services đều disposable.
+
+## Large Silver Routes
+
+`read_route` kiểm tra bytes/physical schema trước khi đọc. Route lớn hơn 10,000
+rows được repartition theo target khoảng 10,000 rows/partition trước
+`toLocalIterator`: Spark materializes một partition trong driver, nên một route
+file lớn có thể gây heap OOM dù Python consumer dùng iterator. Đây là partition
+size theo rows, không phải absolute byte limit. Không thay hash, merge versions,
+counts, atomic transaction hoặc artifact IDs; thứ tự handoff không phải contract.

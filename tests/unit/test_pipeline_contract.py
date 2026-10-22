@@ -7,7 +7,7 @@ from pathlib import Path
 
 from olist_platform.bronze.storage import BronzeError
 from olist_platform.pipeline.control import (
-    ANALYTICS_SOURCES,
+    DBT_SOURCES,
     code_hash,
     dbt_evidence,
     reconcile,
@@ -141,7 +141,7 @@ class PipelineContractTest(unittest.TestCase):
             },
             "sources": {
                 table: {"name": table, "database": "fixture", "schema": "raw_staging"}
-                for table in ANALYTICS_SOURCES
+                for table in DBT_SOURCES
             },
         }
         results = {
@@ -173,6 +173,7 @@ class PipelineContractTest(unittest.TestCase):
                 "database",
                 "missing_source",
                 "missing_seller_source",
+                "missing_geolocation_source",
                 "extra_source",
                 "not_build",
             ):
@@ -194,9 +195,11 @@ class PipelineContractTest(unittest.TestCase):
                     del m["sources"]["products"]
                 elif change == "missing_seller_source":
                     del m["sources"]["sellers"]
+                elif change == "missing_geolocation_source":
+                    del m["sources"]["geolocation"]
                 elif change == "extra_source":
-                    m["sources"]["geolocation"] = m["sources"]["products"] | {
-                        "name": "geolocation"
+                    m["sources"]["reviews"] = m["sources"]["products"] | {
+                        "name": "reviews"
                     }
                 else:
                     r["args"]["which"] = "run"

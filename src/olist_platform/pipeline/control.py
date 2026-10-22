@@ -21,6 +21,7 @@ TABLES = ("customers", "orders", "order_items", "order_payments")
 DIMENSIONS = ("products", "sellers")
 PARENTS = TABLES[:2] + DIMENSIONS
 ANALYTICS_SOURCES = TABLES + DIMENSIONS
+DBT_SOURCES = ANALYTICS_SOURCES + ("geolocation",)
 BASE_TASKS = (
     tuple(
         f"{t}.{stage}"
@@ -568,7 +569,7 @@ def dbt_evidence(directory: Path, earliest, database: str) -> dict:
     ids = [r["unique_id"] for r in actual]
     sources = manifest["sources"].values()
     if (
-        {node["name"] for node in sources} != set(ANALYTICS_SOURCES)
+        {node["name"] for node in sources} != set(DBT_SOURCES)
         or any(
             node["database"] != database or node["schema"] != "raw_staging"
             for node in sources

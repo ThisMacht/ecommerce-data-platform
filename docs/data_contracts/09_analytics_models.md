@@ -2,7 +2,7 @@
 
 ## Scope and execution
 
-Status: **Active — dbt views for six staging datasets**.
+Status: **Active — six core staging datasets plus standalone geolocation**.
 `dbt/` dùng locked `analytics` extra, PostgreSQL adapter và schema `analytics`
 được tạo bởi migration `007`. Existing loader role sở hữu schema; reader chỉ SELECT. Migration `012` thêm
 `olist_bi_reader` NOLOGIN group chỉ đọc fct_orders, hai order daily marts, ba
@@ -36,6 +36,7 @@ khi chạy runner. Analytics dependency sync có thể bỏ Spark extra; dùng
 | `stg_customers`, `stg_orders`, `stg_order_items`, `stg_payments` | Giữ source business grain, đã được Silver/staging normalize |
 | `int_order_item_summary` | Một order: item count, SUM(price), SUM(freight) |
 | `int_payment_summary` | Một order: payment count, SUM(payment_value) |
+| `int_geolocation_by_zip`, `dim_location` | Một ZIP với exact medians, joint city/state mode và stable Type 1 location key; standalone observations |
 | `dim_date` | Một ngày liên tục giữa min/max observed local purchase/estimated/actual dates; integer YYYYMMDD key |
 | `dim_customer` | Một `customer_unique_id`; current attributes, stable surrogate key |
 | `fct_orders` | Một order; join hai summaries để tránh items × payments fan-out |
@@ -215,6 +216,13 @@ milestones, mappings, NULLs, chronology, local days, numeric durations và daily
 counts/rates với raw staging. Independent fixtures kiểm tra same-day midnight,
 early/late, Sao Paulo DST, session timezone, missing carrier/actual, canceled actual,
 invalid ordering, empty inputs và cố tình corrupt duration để xác minh gates fail.
+
+## Location dimension
+
+Geolocation chạy standalone; `dim_location` aggregate observations trước mọi join.
+ZIP không phải source key; không gắn current location vào customer/seller/facts
+trong bước này. Xem [geolocation contract](18_geolocation_snapshots.md) về exact
+medians, deterministic joint modes, completeness và giới hạn core receipts/BI.
 
 ## Calendar dimension and fact date roles
 
