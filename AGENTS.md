@@ -66,6 +66,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make sync-processing`: install locked Spark extra; use Java 17.
 - `make process-orders BRONZE_PREFIX=<prefix> SILVER_RUN_ID=<id>`: publish/resume Silver.
 - Add `CUSTOMER_SNAPSHOT=<prefix>` for FK/deferred routing; `make test-customer-integration` verifies it.
+- `make test-dirty-data`: compare 44 deterministic physical inputs with independent per-record routes/rules; Java 17, no Docker/CSVs; also included in processing CI.
 - `make test-processing` / `make test-silver-integration`: Spark or end-to-end slice checks.
 
 ## Coding Style & Naming Conventions

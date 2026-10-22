@@ -9,6 +9,27 @@ ROOT = Path(__file__).resolve().parents[2]
 FIXTURES = ROOT / "tests/fixtures/silver"
 
 
+def customer_rows() -> list[dict]:
+    result = []
+    base = {
+        "customer_unique_id": "shared_shopper",
+        "customer_zip_code_prefix": "00123",
+        "customer_city": " São Paulo ",
+        "customer_state": "sp",
+        "source_updated_at": "2020-01-01T00:00:00+00:00",
+        "source_loaded_at": "2020-01-01T00:00:00+00:00",
+        "source_operation": "INSERT",
+        "source_batch_id": "fixture",
+    }
+    for number, value in enumerate(
+        json.loads((FIXTURES / "customers_dirty.json").read_text()), 1
+    ):
+        row = base | value
+        row.update(_record_uid=f"uid-{number}", _raw_payload=encode(row).decode())
+        result.append(row)
+    return result
+
+
 def child_rows(table: str) -> list[dict]:
     base = {
         "source_updated_at": "2020-01-01T00:00:00+00:00",
@@ -73,6 +94,24 @@ def rows() -> list[dict]:
         )
         result.append(row)
     return result
+
+
+def dirty_rows(table: str) -> list[dict]:
+    """Keep legacy cases and add a missing-parent order for manifest verification."""
+    if table == "customers":
+        return customer_rows()
+    if table in ("order_items", "order_payments"):
+        return child_rows(table)
+    if table != "orders":
+        raise ValueError(f"Unsupported dirty fixture table: {table}")
+    values = rows()
+    for row in values:
+        if row["order_id"] == "winter":
+            row["customer_id"] = "late_customer"
+            payload = json.loads(row["_raw_payload"])
+            payload["customer_id"] = "late_customer"
+            row["_raw_payload"] = encode(payload).decode().strip()
+    return values
 
 
 def publish_bronze(

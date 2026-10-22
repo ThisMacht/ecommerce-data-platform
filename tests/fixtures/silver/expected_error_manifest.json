@@ -1,0 +1,75 @@
+{
+  "format_version": 1,
+  "fixture_id": "core-dirty-v1",
+  "source_contract_version": "1.0.0",
+  "tables": {
+    "customers": {
+      "input_sha256": "cb7358ac54ff1ca1a9eeb597a9da302b9a8e29716644eea18c4d4979650a2e75",
+      "parent_keys": [],
+      "cases": [
+        {"_record_uid":"uid-1","case":"superseded_customer_version","_routing":"duplicates","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-2","case":"latest_customer_version","_routing":"valid","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-3","case":"shared_shopper_is_not_duplicate","_routing":"valid","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-4","case":"missing_shopper_key","_routing":"rejected","error_rule_ids":["missing_customer_unique_id"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-5","case":"three_customer_warnings","_routing":"valid","error_rule_ids":[],"warning_rule_ids":["missing_customer_city","invalid_customer_zip_code_prefix","invalid_customer_state"],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-6","case":"nonpositive_source_version","_routing":"rejected","error_rule_ids":["invalid_source_sequence"],"warning_rule_ids":[],"deferred_rule_ids":[]}
+      ]
+    },
+    "orders": {
+      "input_sha256": "0b3e2538f4e622267753a1962f6ffc8ddde2c51e642bf89e5e7d925bad79dc65",
+      "parent_keys": ["customer_a"],
+      "cases": [
+        {"_record_uid":"uid-01","case":"superseded_order_version","_routing":"duplicates","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-02","case":"same_payload_duplicate_loses_uid_tiebreak","_routing":"duplicates","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-03","case":"same_payload_duplicate_wins_uid_tiebreak","_routing":"valid","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-04","case":"null_customer_rejects_before_fk_check","_routing":"rejected","error_rule_ids":["missing_customer_id"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-05","case":"malformed_purchase_time","_routing":"rejected","error_rule_ids":["invalid_order_purchase_timestamp"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-06","case":"delivered_without_actual_time","_routing":"valid","error_rule_ids":[],"warning_rule_ids":["delivered_without_timestamp"],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-07","case":"canceled_is_locally_valid","_routing":"valid","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-08","case":"null_order_key","_routing":"rejected","error_rule_ids":["missing_order_id"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-09","case":"unknown_order_status","_routing":"rejected","error_rule_ids":["invalid_order_status"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-10","case":"purchase_in_dst_gap","_routing":"rejected","error_rule_ids":["invalid_order_purchase_timestamp"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-11","case":"purchase_in_dst_fold","_routing":"rejected","error_rule_ids":["invalid_order_purchase_timestamp"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"uid-12","case":"absent_customer_parent","_routing":"deferred","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":["missing_customer"]},
+        {"_record_uid":"uid-13","case":"purchase_after_frozen_ingestion","_routing":"rejected","error_rule_ids":["future_purchase_timestamp"],"warning_rule_ids":[],"deferred_rule_ids":[]}
+      ]
+    },
+    "order_items": {
+      "input_sha256": "705ccef392072251bd6374e09af18b1671c0343a91ce01e40a3d2f540705dd6e",
+      "parent_keys": ["a"],
+      "cases": [
+        {"_record_uid":"child-01","case":"normalized_composite_key_old_version","_routing":"duplicates","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-02","case":"latest_item_version","_routing":"valid","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-03","case":"zero_price_and_freight_are_valid","_routing":"valid","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-04","case":"absent_order_parent","_routing":"deferred","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":["missing_order"]},
+        {"_record_uid":"child-05","case":"price_precision_not_rounded","_routing":"rejected","error_rule_ids":["invalid_price"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-06","case":"nonpositive_item_ordinal","_routing":"rejected","error_rule_ids":["invalid_order_item_id"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-07","case":"blank_product_rejects_before_fk_check","_routing":"rejected","error_rule_ids":["missing_product_id"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-08","case":"null_seller_rejects_before_fk_check","_routing":"rejected","error_rule_ids":["missing_seller_id"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-09","case":"null_order_key","_routing":"rejected","error_rule_ids":["missing_order_id"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-10","case":"shipping_in_dst_gap","_routing":"rejected","error_rule_ids":["invalid_shipping_limit_date"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-11","case":"shipping_in_dst_fold","_routing":"rejected","error_rule_ids":["invalid_shipping_limit_date"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-12","case":"offset_business_time_violates_contract","_routing":"rejected","error_rule_ids":["invalid_shipping_limit_date"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-13","case":"negative_freight","_routing":"rejected","error_rule_ids":["invalid_freight_value"],"warning_rule_ids":[],"deferred_rule_ids":[]}
+      ]
+    },
+    "order_payments": {
+      "input_sha256": "90b7783415633de795adfd87796ef791d70659d820d431f78e654f0c97c67247",
+      "parent_keys": ["a"],
+      "cases": [
+        {"_record_uid":"child-01","case":"normalized_composite_key_old_version","_routing":"duplicates","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-02","case":"latest_payment_version","_routing":"valid","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-03","case":"three_payment_warnings","_routing":"valid","error_rule_ids":[],"warning_rule_ids":["undefined_payment_type","zero_payment_installments","zero_payment_value"],"deferred_rule_ids":[]},
+        {"_record_uid":"child-04","case":"absent_order_parent","_routing":"deferred","error_rule_ids":[],"warning_rule_ids":[],"deferred_rule_ids":["missing_order"]},
+        {"_record_uid":"child-05","case":"payment_precision_not_rounded","_routing":"rejected","error_rule_ids":["invalid_payment_value"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-06","case":"nonpositive_payment_ordinal","_routing":"rejected","error_rule_ids":["invalid_payment_sequential"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-07","case":"unknown_payment_type","_routing":"rejected","error_rule_ids":["invalid_payment_type"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-08","case":"negative_installments","_routing":"rejected","error_rule_ids":["invalid_payment_installments"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-09","case":"null_order_key","_routing":"rejected","error_rule_ids":["missing_order_id"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-10","case":"decimal_overflow","_routing":"rejected","error_rule_ids":["invalid_payment_value"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-11","case":"negative_payment","_routing":"rejected","error_rule_ids":["invalid_payment_value"],"warning_rule_ids":[],"deferred_rule_ids":[]},
+        {"_record_uid":"child-12","case":"multiple_invalid_source_metadata_fields","_routing":"rejected","error_rule_ids":["missing_source_batch_id","invalid_source_sequence","invalid_source_operation","invalid_source_updated_at","invalid_source_loaded_at"],"warning_rule_ids":[],"deferred_rule_ids":[]}
+      ]
+    }
+  }
+}

@@ -490,8 +490,8 @@ Phase 0 tập trung vào việc hiểu đúng dataset, chốt data contracts, x�
 - [ ] Load Olist vào `olist_source`.
 - [x] Xây source simulator có insert, update, source sequence và batch manifest cho 4 core tables.
 - [x] Sinh fixture có same-timestamp, out-of-order timestamps và late updates trong/ngoài SLA.
-- [ ] Xây deterministic dirty fixture và expected-error manifest.
-- [ ] Viết unit test cho error injection.
+- [x] Tái sử dụng dirty inputs bốn core tables; per-record expected-error manifest pin 44 physical inputs bằng SHA-256, exact route/error/warning/deferred rules. Xem `tests/fixtures/silver/README.md`.
+- [x] Unit tests kiểm tra deterministic injection, checksum/oracle identities, raw evidence và không mutate legacy inputs.
 - [ ] Dựng PostgreSQL, MinIO, Airflow LocalExecutor và Metabase bằng Docker Compose có health checks.
 - [ ] Pin image/dependency versions, tạo `.env.example` và database migrations ban đầu.
 - [x] Tạo CI skeleton chạy lint, contracts, unit tests, wheel/sdist build và simulator integration.
@@ -565,7 +565,7 @@ Phase này biến pipeline từ một luồng ETL thông thường thành một 
 - [ ] Xây rule registry và gắn `rule_id`, severity cho từng lỗi.
 - [ ] Tách schema/file-level failures khỏi row-level routing.
 - [ ] Ghi rejected, deferred và warning records.
-- [ ] So sánh detected errors với expected-error manifest.
+- [x] `make test-dirty-data` so sánh từng UID/rule/route với handwritten manifest trên Spark; 44 cases, gồm reject priority, FK deferred, warnings và duplicates.
 - [x] Load missing-customer/order deferred metadata vào `audit.quarantine_records`; generic rejects/warnings quarantine còn planned.
 - [x] Cài state machine, idempotent retry, resolve và expire deferred records; pin full parent snapshot, freeze limits, atomic queue/staging/audit, bounded 1,000-record passes. Xem `docs/data_contracts/10_deferred_lifecycle.md`.
 - [ ] Thêm dbt tests: `not_null`, `unique`, `relationships`, `accepted_values`.

@@ -6,7 +6,7 @@ import unittest
 from pathlib import Path
 
 from pyspark.sql import functions as F
-from silver_fixture import FIXTURES, ROOT
+from silver_fixture import FIXTURES, ROOT, customer_rows
 from silver_fixture import rows as order_rows
 
 from olist_platform.bronze.storage import encode
@@ -33,28 +33,8 @@ class CustomerSilverTest(unittest.TestCase):
             str(path)
         )
 
-    def customer_rows(self):
-        result = []
-        base = {
-            "customer_unique_id": "shared_shopper",
-            "customer_zip_code_prefix": "00123",
-            "customer_city": " São Paulo ",
-            "customer_state": "sp",
-            "source_updated_at": "2020-01-01T00:00:00+00:00",
-            "source_loaded_at": "2020-01-01T00:00:00+00:00",
-            "source_operation": "INSERT",
-            "source_batch_id": "fixture",
-        }
-        for number, value in enumerate(
-            json.loads((FIXTURES / "customers_dirty.json").read_text()), 1
-        ):
-            row = base | value
-            row.update(_record_uid=f"uid-{number}", _raw_payload=encode(row).decode())
-            result.append(row)
-        return result
-
     def test_independent_customer_fixture_grain_normalization_and_rules(self):
-        output = transform_customers(self.frame(self.customer_rows())).cache()
+        output = transform_customers(self.frame(customer_rows())).cache()
         self.addCleanup(output.unpersist)
         expected = json.loads((FIXTURES / "customers_expected.json").read_text())
         counts = {
@@ -96,7 +76,7 @@ class CustomerSilverTest(unittest.TestCase):
                 row["customer_id"] = "late_customer"
         orders = transform_orders(self.frame(values, "orders"))
         parent = (
-            transform_customers(self.frame(self.customer_rows()))
+            transform_customers(self.frame(customer_rows()))
             .filter("_routing = 'valid'")
             .select("customer_id")
         )

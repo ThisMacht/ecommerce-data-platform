@@ -78,3 +78,17 @@ make test-silver-integration
 ```
 
 `tests/fixtures/silver/orders_dirty.json` và independent `expected.json` khóa 13 inputs → 4 valid, 7 rejected, 2 duplicates, 1 valid warning. Processing tests kiểm tra rules, UTC/local date semantics, latest-invalid version và conflict detection. Disposable PostgreSQL/MinIO tests cover source → Bronze → Spark → Silver, exact replay, partial upload, sealed recovery, concurrent publication, corruption và empty batches. Không cần raw CSV, `.env` hoặc secrets; GitHub Actions có Spark job riêng.
+
+### Per-record expected-error verification
+
+`make test-dirty-data` kiểm tra [44 synthetic physical records](../../tests/fixtures/silver/README.md)
+cho bốn core tables theo `expected_error_manifest.json`. Oracle viết độc lập với
+validation implementation, pin input bytes bằng SHA-256 và xác định exact route,
+error/warning/deferred rules cho từng UID. Kết quả không được tự sinh từ Spark.
+
+Orders scenario này giữ legacy 13 inputs, đổi customer của `winter` thành missing
+parent: 3 valid, 7 rejected, 1 deferred, 2 duplicates; legacy local-only counts ở
+trên vẫn giữ nguyên. Tests kiểm tra local reject priority khi parent cũng thiếu,
+latest-version/tie-break routing và giữ raw payload. Parent key sets là fixtures,
+không phải bằng chứng đã verify parent snapshots trên MinIO. Integration suites
+vẫn chịu trách nhiệm kiểm tra schema, hashes, publication và dependency receipts.

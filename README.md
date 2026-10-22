@@ -189,6 +189,15 @@ Sau staging, `make dataset` tự chạy dbt build/tests cho `dim_customer`, `fct
 
 Chạy riêng bằng `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_PASSWORD`, `DBT_READER_USER`, rồi `make dbt-build`. Xem [analytics contract](docs/data_contracts/09_analytics_models.md); kiểm thử bằng `make test-dbt-integration`. Views chưa có atomic publication hoặc end-to-end watermark; chỉ coi build thành công sau khi tests pass.
 
+## Dirty-data verification
+
+`make test-dirty-data` với Java 17 chạy Spark trên 44 deterministic synthetic
+records của bốn core tables. Handwritten expected-error manifest kiểm tra từng
+physical UID, exact route và error/warning/deferred rules; checksums pin input
+bytes. Các fixtures cũng nằm trong `make test-processing` của CI. Xem
+[fixture guide](tests/fixtures/silver/README.md). Command không sửa raw CSV hoặc
+source database; không đại diện cho toàn bộ rule combinations/schema failures.
+
 ## Deferred retries
 
 `make dataset` tự register missing-parent records, rồi resolve theo full parent snapshot sau từng dependent dataset và trước dbt. Queue lưu original UID/payload, default ba attempts hoặc bảy ngày. Retry cùng run ID không tăng attempts; expiry là terminal reject. Queue transitions, version-aware staging merge và audit commit cùng transaction.

@@ -43,7 +43,7 @@ BACKFILL_END ?=
 	seed-source verify-source verify-source-schema test-source-integration \
 	generate-source-batches validate-source-batch apply-source-batch test-source-simulator-integration \
 	bronze-up init-bronze ingest-orders test-bronze-integration \
-	sync-processing process-orders test-processing test-silver-integration \
+	sync-processing process-orders test-processing test-dirty-data test-silver-integration \
 	ingest-customers process-customers test-customer-integration \
 	ingest-order-payments ingest-order-items process-order-payments process-order-items test-order-children-integration \
 	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration \
@@ -81,6 +81,7 @@ help:
 	@echo "  test-bronze-integration   Build MinIO and test orders extraction with disposable services"
 	@echo "  sync-processing           Install locked Spark processing dependencies (Java 17 required)"
 	@echo "  process-orders            Publish Silver; requires BRONZE_PREFIX and SILVER_RUN_ID"
+	@echo "  test-dirty-data           Compare all four dirty fixtures with per-record expected rules/routes"
 	@echo "  test-processing           Run Spark normalization, routing and deduplication tests"
 	@echo "  test-silver-integration   Test PostgreSQL -> Bronze -> Spark -> Silver with disposable services"
 	@echo "  ingest-customers          Extract/resume a full customer snapshot"
@@ -274,6 +275,9 @@ process-orders:
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m olist_platform.silver.cli \
 		--contract "$(SOURCE_CONTRACT)" process --bronze-prefix "$(BRONZE_PREFIX)" --run-id "$(SILVER_RUN_ID)" \
 		$(if $(CUSTOMER_SNAPSHOT),--customer-snapshot "$(CUSTOMER_SNAPSHOT)",)
+
+test-dirty-data:
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m unittest discover -s tests/processing -p 'test_dirty_manifest.py' -v
 
 test-processing:
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m unittest discover -s tests/processing -p 'test_*.py' -v

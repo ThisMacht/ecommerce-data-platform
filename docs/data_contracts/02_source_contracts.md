@@ -173,12 +173,16 @@ MVP chỉ hỗ trợ `INSERT` và `UPDATE`. Hard delete không được mô ph�
 | TODO | Impact | Planned phase |
 | --- | --- | --- |
 | `TODO(source-simulator-expansion)` | Simulator đã hỗ trợ 4 core tables; mở rộng các tables khác khi có pipeline tương ứng | Phase 4 |
-| `TODO(dirty-fixture)` | Chưa có deterministic invalid-record manifest | Phase 0 |
 | `TODO(contract-loader-generation)` | Seed SQL đang explicit theo snapshot v1, chưa generate từ JSON contract | Phase 0 or 1 |
 | `TODO(hard-delete)` | Không phát hiện source hard delete | Post-MVP |
 | `TODO(production-secrets)` | Local defaults không thay thế secret manager | Deployment phase |
 
-Simulator MVP và reliability fixtures đã được triển khai theo [Source Simulator Contract](03_source_simulator.md). Dirty-data injection cùng expected-error manifest vẫn chưa triển khai, nên Phase 0 chưa hoàn tất.
+Simulator MVP và reliability fixtures đã được triển khai theo [Source Simulator Contract](03_source_simulator.md).
+Dirty inputs cho bốn core tables và per-record expected-error manifest đã có tại
+[Silver fixtures](../../tests/fixtures/silver/README.md), kiểm tra bằng
+`make test-dirty-data` với Java 17. Đây là synthetic raw-value fixtures cho Silver,
+không inject invalid SQL/types vào source hoặc thay canonical CSV. Source batch
+validation vẫn giữ nguyên; các TODO còn lại không được coi là hoàn tất Phase 0.
 
 ## 13. Verification commands
 
