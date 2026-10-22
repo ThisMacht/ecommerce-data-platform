@@ -43,6 +43,14 @@ def main() -> int:
     resolve.add_argument(
         "--origin-run-id", help="Restrict pending rows to one original Silver run"
     )
+    resolve.add_argument(
+        "--product-snapshot",
+        help="Full products Silver prefix; pair with --seller-snapshot for item FK checks",
+    )
+    resolve.add_argument(
+        "--seller-snapshot",
+        help="Full sellers Silver prefix; pair with --product-snapshot",
+    )
     args = parser.parse_args()
     spark = None
     try:
@@ -78,6 +86,8 @@ def main() -> int:
                     **options,
                     parent_snapshot=args.parent_snapshot,
                     origin_run_id=args.origin_run_id,
+                    product_snapshot=args.product_snapshot,
+                    seller_snapshot=args.seller_snapshot,
                 )
         print(json.dumps(result, ensure_ascii=False))
         return 0

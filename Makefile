@@ -18,6 +18,8 @@ PROCESSING_PYTHON ?= $(UV) run --locked --extra processing python
 BRONZE_PREFIX ?=
 SILVER_RUN_ID ?=
 CUSTOMER_SNAPSHOT ?=
+PRODUCT_SNAPSHOT ?=
+SELLER_SNAPSHOT ?=
 ORDER_SNAPSHOT ?=
 BRONZE_FULL_SNAPSHOT ?=
 SILVER_PREFIX ?=
@@ -47,7 +49,7 @@ BACKFILL_END ?=
 	ingest-customers process-customers test-customer-integration \
 	ingest-products process-products test-product-integration \
 	ingest-sellers process-sellers test-seller-integration \
-	ingest-order-payments ingest-order-items process-order-payments process-order-items test-order-children-integration \
+	ingest-order-payments ingest-order-items process-order-payments process-order-items test-order-children-integration test-item-dependencies-integration \
 	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration \
 	register-deferred resolve-deferred test-deferred-integration test-deferred-state-integration \
 	test-pipeline-control-integration test-pipeline-integration pipeline-health pipeline-dashboard \
@@ -106,6 +108,7 @@ help:
 	@echo "  test-customer-integration Test customer snapshots and orders dependency routing"
 	@echo "  ingest-order-payments / ingest-order-items Extract composite-key child windows"
 	@echo "  process-order-payments / process-order-items Publish Silver; ORDER_SNAPSHOT must be full"
+	@echo "  test-item-dependencies-integration Test three-parent item FK scope and atomic retries"
 	@echo "  test-order-children-integration Test items/payments publication, replay and FK routing"
 	@echo "  load-warehouse            Merge Silver valid; set SOURCE_TABLE, SILVER_PREFIX and WAREHOUSE_RUN_ID"
 	@echo "  test-warehouse-merge-integration Test PostgreSQL versions, atomic counters and replay"
@@ -333,7 +336,9 @@ process-order-payments process-order-items:
 	@test -n "$(BRONZE_PREFIX)" && test -n "$(SILVER_RUN_ID)" && test -n "$(ORDER_SNAPSHOT)" || (echo "Set BRONZE_PREFIX, SILVER_RUN_ID and ORDER_SNAPSHOT" >&2; exit 2)
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m olist_platform.silver.cli \
 		--contract "$(SOURCE_CONTRACT)" --table $(subst -,_,$(@:process-%=%)) process \
-		--bronze-prefix "$(BRONZE_PREFIX)" --run-id "$(SILVER_RUN_ID)" --order-snapshot "$(ORDER_SNAPSHOT)"
+		--bronze-prefix "$(BRONZE_PREFIX)" --run-id "$(SILVER_RUN_ID)" --order-snapshot "$(ORDER_SNAPSHOT)" \
+		$(if $(PRODUCT_SNAPSHOT),--product-snapshot "$(PRODUCT_SNAPSHOT)",) \
+		$(if $(SELLER_SNAPSHOT),--seller-snapshot "$(SELLER_SNAPSHOT)",)
 
 test-order-children-integration:
 	$(COMPOSE) -f $(COMPOSE_FILE) build minio
@@ -380,7 +385,9 @@ register-deferred:
 resolve-deferred:
 	@test -n "$(PARENT_SNAPSHOT)" && test -n "$(DEFERRED_RUN_ID)" || (echo "Set PARENT_SNAPSHOT and DEFERRED_RUN_ID" >&2; exit 2)
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m olist_platform.deferred.cli \
-		--contract "$(SOURCE_CONTRACT)" --table "$(SOURCE_TABLE)" resolve --parent-snapshot "$(PARENT_SNAPSHOT)" --run-id "$(DEFERRED_RUN_ID)"
+		--contract "$(SOURCE_CONTRACT)" --table "$(SOURCE_TABLE)" resolve --parent-snapshot "$(PARENT_SNAPSHOT)" --run-id "$(DEFERRED_RUN_ID)" \
+		$(if $(PRODUCT_SNAPSHOT),--product-snapshot "$(PRODUCT_SNAPSHOT)",) \
+		$(if $(SELLER_SNAPSHOT),--seller-snapshot "$(SELLER_SNAPSHOT)",)
 
 test-deferred-state-integration:
 	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
@@ -413,3 +420,8 @@ test-seller-integration:
 	$(COMPOSE) -f $(COMPOSE_FILE) build minio
 	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_sellers.py' -v
+
+test-item-dependencies-integration:
+	$(COMPOSE) -f $(COMPOSE_FILE) build minio
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_item_dependencies.py' -v

@@ -46,7 +46,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make ingest-orders BRONZE_RUN_ID=<id>`: extract/resume orders.
 - `make ingest-sellers` / `make process-sellers`: standalone full seller snapshots, then staging/dbt; location warnings preserve NULLs and ZIP leading zeros.
 - `make test-seller-integration`: frozen retries, dirty location/ID rules, version-aware merges, corruption, empty snapshots and cursor isolation.
-- `make ingest-products` / `make process-products`: standalone full product snapshots; load with `SOURCE_TABLE=products`, then dbt. Not scheduled by core runner; items FK unchanged.
+- `make ingest-products` / `make process-products`: standalone full product snapshots; load with `SOURCE_TABLE=products`, then dbt. Not scheduled by core runner; item v2 can pin these snapshots.
 - `make test-product-integration`: frozen retry, replay, dirty/null handling, version-aware staging and cursor isolation.
 - `make ingest-customers` / `make process-customers`: publish full customer snapshots.
 - `make ingest-order-items` / `make ingest-order-payments`: extract composite-key windows.
@@ -94,7 +94,7 @@ Bronze: `BRONZE_SOURCE_DSN`/`PG*` and AWS credentials. Resume unfinished run IDs
 
 Use full customer snapshots for FK checks. Snapshot hashes are immutable per Silver/resolution run; use a new run ID when dependencies change. Deferred limits are immutable per physical UID/rule; terminal states never reopen on replay.
 
-Child FK checks require full orders snapshots; never use a delta as a complete parent key set. Preserve composite grain and decimal money. Products/sellers membership is not yet checked.
+Child FK checks require full orders snapshots; never use a delta as a complete parent key set. Preserve composite grain and decimal money. Standalone item v2 checks all three parents when both PRODUCT_SNAPSHOT and SELLER_SNAPSHOT are set; scheduled core remains v1/order-only.
 
 Warehouse uses authoritative `source_sequence`, versioned business hashes and atomic data/audit commits. Never overwrite newer records or change an existing load request. Staging success does not promote the pipeline watermark.
 
@@ -115,4 +115,6 @@ non-successful run or newer audited load hides metrics; untracked writers are no
 
 Products: standalone full snapshots, nullable attributes warn, negative/overflow measurements reject. Preserve source `lenght` spelling until dbt aliases. Type 1 by `product_id`; full/empty snapshots never imply deletes. Core dbt gate locks six staging sources but audits/promotes only four core tables. A standalone products load hides BI metrics until a new successful core gate.
 
-Sellers use Type 1 by `seller_id`; location rules match customers. Blank locations become NULL with warnings; preserve invalid ZIP/state values with flags. Sellers/products remain standalone and full-only; no deletes, core scheduling or items membership checks yet. New standalone loads require a fresh successful core gate to restore BI publication.
+Sellers use Type 1 by `seller_id`; location rules match customers. Blank locations become NULL with warnings; preserve invalid ZIP/state values with flags. Sellers/products remain standalone and full-only; no deletes or core scheduling; item v2 supports membership checks. New standalone loads require a fresh successful core gate to restore BI publication.
+
+Item v2 requires full order/product/seller snapshots from the same contract; pin all manifest hashes. Missing FKs are evaluated together; rejects/duplicates never defer. Register one `missing_item_dependencies` queue row per physical item, keep all missing rule IDs in immutable payload. Retry all three memberships atomically; v1/v2 resolvers must select their own rule scopes, including backlog counts. Never use missing product/seller flags to downgrade a v2 retry. Run `make test-item-dependencies-integration` after changes. Core receipts/tasks/cursors remain four-table v1 until orchestration integration.

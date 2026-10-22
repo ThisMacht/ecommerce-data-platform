@@ -9,6 +9,7 @@ from pathlib import Path
 from olist_platform.bronze.extraction import configuration, cursor_tuple, cursor_value
 from olist_platform.bronze.storage import BronzeError, ObjectStore, encode, sha256
 from olist_platform.silver.batch import (
+    ITEM_SCOPE,
     LINEAGE,
     source_columns,
     validate_record,
@@ -151,3 +152,48 @@ class OrderChildrenContractTest(unittest.TestCase):
             bad.pop("unchecked_relationships")
             with self.assertRaisesRegex(BronzeError, "relationship scope"):
                 verify_objects(ObjectStore(None, "bucket"), bad)
+
+    def test_item_v2_requires_all_three_pins_and_no_unchecked_membership(self):
+        request = {
+            f"{name}_snapshot": {
+                "prefix": f"silver/{name}s/one",
+                "manifest_sha256": "a" * 64,
+            }
+            for name in ("order", "product", "seller")
+        }
+        manifest = {
+            "prefix": "silver/order_items/one",
+            "format_version": 1,
+            "schema_version": "order_items-silver-v2",
+            "request": request,
+            "request_sha256": sha256(encode(request)),
+            "output_schema": {},
+            "schema_fingerprint": sha256(encode({})),
+            "objects": [],
+            "relationship_checks": ITEM_SCOPE,
+            "unchecked_relationships": [],
+            "counts": dict.fromkeys(
+                (
+                    "input_rows",
+                    "valid_rows",
+                    "deferred_rows",
+                    "rejected_rows",
+                    "duplicates_rows",
+                    "warning_rows",
+                ),
+                0,
+            ),
+        }
+        verify_objects(ObjectStore(None, "bucket"), manifest)
+        for name in ("order", "product", "seller"):
+            bad = deepcopy(manifest)
+            del bad["request"][f"{name}_snapshot"]
+            bad["request_sha256"] = sha256(encode(bad["request"]))
+            with self.subTest(name=name), self.assertRaises(BronzeError):
+                verify_objects(ObjectStore(None, "bucket"), bad)
+        for change in (
+            {"relationship_checks": "ORDER_SNAPSHOT"},
+            {"unchecked_relationships": ["seller_id"]},
+        ):
+            with self.subTest(change=change), self.assertRaises(BronzeError):
+                verify_objects(ObjectStore(None, "bucket"), manifest | change)

@@ -23,6 +23,8 @@ from olist_platform.bronze.storage import (
 
 ROUTES = ("valid", "rejected", "duplicates")
 CHILDREN = ("order_items", "order_payments")
+ITEM_SCOPE = "ORDER_PRODUCT_SELLER_SNAPSHOTS"
+ITEM_RULES = ("missing_order", "missing_product", "missing_seller")
 VERSIONS = (
     "orders-silver-v1",
     "orders-silver-v2",
@@ -30,6 +32,7 @@ VERSIONS = (
     "customers-silver-v2",
     "products-silver-v1",
     "sellers-silver-v1",
+    "order_items-silver-v2",
 ) + tuple(f"{table}-silver-v1" for table in CHILDREN)
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -167,13 +170,15 @@ def verify_objects(store: ObjectStore, manifest: dict) -> None:
             is None
         ):
             raise BronzeError("Invalid pinned customer dependency")
-    child = manifest["schema_version"] in tuple(
+    strict_items = manifest["schema_version"] == "order_items-silver-v2"
+    child = strict_items or manifest["schema_version"] in tuple(
         f"{table}-silver-v1" for table in CHILDREN
     )
     if child:
         dependency = manifest["request"].get("order_snapshot", {})
         if (
-            manifest.get("relationship_checks") != "ORDER_SNAPSHOT"
+            manifest.get("relationship_checks")
+            != (ITEM_SCOPE if strict_items else "ORDER_SNAPSHOT")
             or not isinstance(dependency.get("prefix"), str)
             or re.fullmatch(r"[0-9a-f]{64}", dependency.get("manifest_sha256", ""))
             is None
@@ -185,6 +190,17 @@ def verify_objects(store: ObjectStore, manifest: dict) -> None:
             )
         ):
             raise BronzeError("Invalid pinned order dependency/relationship scope")
+        if strict_items:
+            for name in ("product", "seller"):
+                dependency = manifest["request"].get(f"{name}_snapshot", {})
+                if (
+                    not isinstance(dependency.get("prefix"), str)
+                    or re.fullmatch(
+                        r"[0-9a-f]{64}", dependency.get("manifest_sha256", "")
+                    )
+                    is None
+                ):
+                    raise BronzeError(f"Invalid pinned {name} dependency")
     if (
         manifest["schema_version"] in ("products-silver-v1", "sellers-silver-v1")
         and manifest.get("snapshot_kind") != "FULL"
@@ -265,9 +281,15 @@ def process_batch(
     table: str = "orders",
     customer_snapshot: str | None = None,
     order_snapshot: str | None = None,
+    product_snapshot: str | None = None,
+    seller_snapshot: str | None = None,
 ) -> dict:
     from .customers import check_customer_dependencies, transform_customers
-    from .order_children import check_order_dependencies, transform_order_children
+    from .order_children import (
+        check_item_dependencies,
+        check_order_dependencies,
+        transform_order_children,
+    )
     from .orders import input_schema, transform_orders
     from .products import transform_products
     from .sellers import transform_sellers
@@ -277,11 +299,15 @@ def process_batch(
         or (table != "orders" and customer_snapshot is not None)
         or (table not in CHILDREN and order_snapshot is not None)
         or (table in CHILDREN and order_snapshot is None)
+        or ((product_snapshot is None) != (seller_snapshot is None))
+        or (table != "order_items" and product_snapshot is not None)
     ):
         raise BronzeError("Unsupported Silver dataset/dependency configuration")
     processor = f"{table}-silver-v1"
     if table == "orders" and customer_snapshot is not None:
         processor = "orders-silver-v2"
+    if product_snapshot is not None:
+        processor = "order_items-silver-v2"
     routes = ROUTES + (
         ("deferred",)
         if customer_snapshot is not None or order_snapshot is not None
@@ -334,6 +360,12 @@ def process_batch(
             "prefix": dependency_prefix,
             "manifest_sha256": sha256(parent_body),
         }
+    extra_parents = {}
+    for name, location in (("product", product_snapshot), ("seller", seller_snapshot)):
+        if location is not None:
+            extra_parents[name], request[f"{name}_snapshot"] = pin_full_snapshot(
+                store, location, contract, f"{name}s"
+            )
     prefix = f"silver/{table}/run_id={run_id}"
     request_hash = sha256(encode(request))
     store.put_immutable(f"{prefix}/request.json", encode(request))
@@ -388,15 +420,34 @@ def process_batch(
         else:
             classified = transform_order_children(frame, table)
         parent_keys = None
+        extra_keys = {}
         if parent is not None:
             parent_keys = load_parent_keys(
                 spark, store, parent, root / "parent", key=f"{dependency_name}_id"
             )
-            classified = (
-                check_customer_dependencies
-                if customer_snapshot is not None
-                else check_order_dependencies
-            )(classified, parent_keys)
+            try:
+                for name, manifest in extra_parents.items():
+                    extra_keys[name] = load_parent_keys(
+                        spark, store, manifest, root / name, key=f"{name}_id"
+                    )
+                if extra_keys:
+                    classified = check_item_dependencies(
+                        classified,
+                        parent_keys,
+                        extra_keys["product"],
+                        extra_keys["seller"],
+                    )
+                else:
+                    classified = (
+                        check_customer_dependencies
+                        if customer_snapshot is not None
+                        else check_order_dependencies
+                    )(classified, parent_keys)
+            except BaseException:
+                parent_keys.unpersist()
+                for keys in extra_keys.values():
+                    keys.unpersist()
+                raise
         classified = classified.persist()
         try:
             from pyspark.sql import functions as F
@@ -469,7 +520,9 @@ def process_batch(
                 "request_sha256": request_hash,
                 "counts": counts,
                 "rule_violations": violations,
-                "relationship_checks": f"{dependency_name.upper()}_SNAPSHOT"
+                "relationship_checks": ITEM_SCOPE
+                if extra_parents
+                else f"{dependency_name.upper()}_SNAPSHOT"
                 if parent is not None
                 else (
                     "NOT_APPLICABLE"
@@ -481,7 +534,9 @@ def process_batch(
             }
             if table in CHILDREN:
                 manifest["unchecked_relationships"] = (
-                    ["product_id", "seller_id"] if table == "order_items" else []
+                    ["product_id", "seller_id"]
+                    if table == "order_items" and not extra_parents
+                    else []
                 )
             if bronze.get("snapshot_kind") in ("FULL", "INCREMENTAL"):
                 manifest["snapshot_kind"] = bronze["snapshot_kind"]
@@ -506,6 +561,30 @@ def process_batch(
             classified.unpersist()
             if parent_keys is not None:
                 parent_keys.unpersist()
+            for keys in extra_keys.values():
+                keys.unpersist()
+
+
+def pin_full_snapshot(
+    store: ObjectStore, prefix: str, contract: dict, table: str
+) -> tuple[dict, dict]:
+    manifest = verify_silver(store, prefix)
+    body = store.read(f"{prefix}/manifest.json")
+    ref = {"prefix": prefix, "manifest_sha256": sha256(body)}
+    if json.loads(body) != manifest or json.loads(store.read(f"{prefix}/_SUCCESS")) != {
+        "manifest_sha256": ref["manifest_sha256"]
+    }:
+        raise BronzeError("Parent snapshot changed while preparing dependencies")
+    if (
+        table not in ("products", "sellers")
+        or manifest["schema_version"] != f"{table}-silver-v1"
+        or manifest.get("snapshot_kind") != "FULL"
+        or manifest["request"]["contract_sha256"] != sha256(encode(contract))
+    ):
+        raise BronzeError(
+            "Dependency requires a full verified snapshot from the same source contract"
+        )
+    return manifest, ref
 
 
 def process_orders(

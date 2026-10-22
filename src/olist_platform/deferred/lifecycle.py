@@ -15,7 +15,13 @@ from psycopg.types.json import Jsonb
 
 from olist_platform.bronze.extraction import KEYS
 from olist_platform.bronze.storage import BronzeError, encode, sha256
-from olist_platform.silver.batch import load_parent_keys, verify_silver
+from olist_platform.silver.batch import (
+    ITEM_RULES,
+    ITEM_SCOPE,
+    load_parent_keys,
+    pin_full_snapshot,
+    verify_silver,
+)
 from olist_platform.warehouse.loading import _merge_rows, canonical_record, read_route
 
 DEPENDENCIES = {
@@ -23,6 +29,16 @@ DEPENDENCIES = {
     "order_items": ("orders", "order_id", "missing_order"),
     "order_payments": ("orders", "order_id", "missing_order"),
 }
+ITEM_QUEUE_RULE = "missing_item_dependencies"
+
+
+def dependency_scope(table: str, request: dict) -> bool:
+    if table not in DEPENDENCIES:
+        raise BronzeError("Unsupported deferred dependency table")
+    scope = request.get("dependency_scope")
+    if scope is not None and (scope != ITEM_SCOPE or table != "order_items"):
+        raise BronzeError("Unsupported deferred dependency scope")
+    return scope == ITEM_SCOPE
 
 
 def validate_policy(attempts: int, hours: int) -> None:
@@ -82,6 +98,7 @@ def register_rows(
     expected_count: int,
 ) -> dict:
     validate_policy(request["max_attempts"], request["max_deferred_age_hours"])
+    strict = dependency_scope(table, request)
     request_hash = sha256(encode(request))
     with locked(connection, table, run_id):
         previous = connection.execute(
@@ -99,8 +116,16 @@ def register_rows(
         total = inserted = 0
         seen = set()
         for row in rows:
+            rules = row.get("deferred_rule_ids")
             if (
-                row.get("deferred_rule_ids") != [DEPENDENCIES[table][2]]
+                not isinstance(rules, list)
+                or not rules
+                or rules
+                != (
+                    [rule for rule in ITEM_RULES if rule in rules]
+                    if strict
+                    else [DEPENDENCIES[table][2]]
+                )
                 or row.get("error_rule_ids") != []
             ):
                 raise BronzeError("Unsupported deferred routing rules")
@@ -109,7 +134,11 @@ def register_rows(
                 for name, value in row.items()
             }
             canonical_record(thaw(payload, contract, table), contract, table, run_id)
-            uid, rule = row["_record_uid"], DEPENDENCIES[table][2]
+            # One physical input remains one retry input even when several parents are absent.
+            uid, rule = (
+                row["_record_uid"],
+                ITEM_QUEUE_RULE if strict else DEPENDENCIES[table][2],
+            )
             if uid in seen:
                 raise BronzeError("Repeated deferred physical UID")
             seen.add(uid)
@@ -170,7 +199,17 @@ def resolve_rows(
     run_id: str,
     parent_keys: set[str],
     request: dict,
+    product_keys: set[str] | None = None,
+    seller_keys: set[str] | None = None,
 ) -> dict:
+    strict = dependency_scope(table, request)
+    if (strict and (product_keys is None or seller_keys is None)) or (
+        not strict and (product_keys is not None or seller_keys is not None)
+    ):
+        raise BronzeError(
+            "Item resolution requires both product and seller key sets and scope"
+        )
+    queue_rule = ITEM_QUEUE_RULE if strict else DEPENDENCIES[table][2]
     request_hash = sha256(encode(request))
     with locked(connection, table, run_id):
         previous = connection.execute(
@@ -184,11 +223,12 @@ def resolve_rows(
         now = connection.execute("SELECT clock_timestamp()").fetchone()[0]
         origin = request.get("origin_run_id")
         pending = connection.execute(
-            "SELECT record_uid, rule_id, payload, payload_sha256, contract_sha256, first_seen_at, attempt_count, max_attempts, max_deferred_age_hours FROM audit.quarantine_records WHERE source_table=%s AND retry_status='PENDING' AND (%s::text IS NULL OR run_id=%s) ORDER BY first_seen_at, record_uid LIMIT 1000 FOR UPDATE",
-            (table, origin, origin),
+            "SELECT record_uid, rule_id, payload, payload_sha256, contract_sha256, first_seen_at, attempt_count, max_attempts, max_deferred_age_hours FROM audit.quarantine_records WHERE source_table=%s AND rule_id=%s AND retry_status='PENDING' AND (%s::text IS NULL OR run_id=%s) ORDER BY first_seen_at, record_uid LIMIT 1000 FOR UPDATE",
+            (table, queue_rule, origin, origin),
         ).fetchall()
         resolved = []
         version_hashes = {}
+        missing_dependencies = {}
         counts = {
             "input_rows": len(pending),
             "valid_rows": 0,
@@ -215,7 +255,21 @@ def resolve_rows(
                 raise BronzeError("Deferred payload/contract checksum mismatch")
             attempt = attempts + 1
             expired_age = now - first_seen >= timedelta(hours=hours)
-            present = payload[DEPENDENCIES[table][1]] in parent_keys
+            missing = (
+                [DEPENDENCIES[table][2]]
+                if payload[DEPENDENCIES[table][1]] not in parent_keys
+                else []
+            )
+            if strict:
+                missing += [
+                    rule
+                    for key, keys, rule in (
+                        ("product_id", product_keys, "missing_product"),
+                        ("seller_id", seller_keys, "missing_seller"),
+                    )
+                    if payload[key] not in keys
+                ]
+            present = not missing
             reason = (
                 "max_deferred_age"
                 if expired_age
@@ -226,6 +280,8 @@ def resolve_rows(
                 )
             )
             state = "EXPIRED" if reason else ("RESOLVED" if present else "PENDING")
+            if strict and state == "PENDING":
+                missing_dependencies[uid] = missing
             if state == "RESOLVED":
                 row = thaw(payload, contract, table)
                 record = canonical_record(row, contract, table, run_id)
@@ -311,10 +367,12 @@ def resolve_rows(
             "warehouse_run_id": load_run_id,
             "warehouse_counts": loaded["counts"],
             "remaining_pending_rows": connection.execute(
-                "SELECT COUNT(*) FROM audit.quarantine_records WHERE source_table=%s AND retry_status='PENDING' AND (%s::text IS NULL OR run_id=%s)",
-                (table, origin, origin),
+                "SELECT COUNT(*) FROM audit.quarantine_records WHERE source_table=%s AND rule_id=%s AND retry_status='PENDING' AND (%s::text IS NULL OR run_id=%s)",
+                (table, queue_rule, origin, origin),
             ).fetchone()[0],
         }
+        if strict:
+            result["missing_dependencies"] = missing_dependencies
         connection.execute(
             "INSERT INTO audit.deferred_resolution_runs (source_table,run_id,request_sha256,request,result) VALUES (%s,%s,%s,%s,%s)",
             (table, run_id, request_hash, Jsonb(request), Jsonb(result)),
@@ -352,7 +410,12 @@ def register_silver(
 ) -> dict:
     manifest, digest = verified(store, silver_prefix, contract)
     expected_version = "orders-silver-v2" if table == "orders" else f"{table}-silver-v1"
-    if table not in DEPENDENCIES or manifest["schema_version"] != expected_version:
+    strict = (
+        table == "order_items" and manifest["schema_version"] == "order_items-silver-v2"
+    )
+    if table not in DEPENDENCIES or (
+        manifest["schema_version"] != expected_version and not strict
+    ):
         raise BronzeError("Deferred registration requires dependency-aware Silver")
     request = {
         "processor_version": "deferred-register-v1",
@@ -362,6 +425,10 @@ def register_silver(
         "max_attempts": max_attempts,
         "max_deferred_age_hours": max_deferred_age_hours,
     }
+    if strict:
+        request.update(
+            processor_version="deferred-register-v2", dependency_scope=ITEM_SCOPE
+        )
     with tempfile.TemporaryDirectory(prefix="olist-deferred-") as directory:
         rows = read_route(spark, store, manifest, Path(directory), "deferred")
         return register_rows(
@@ -385,9 +452,15 @@ def resolve_snapshot(
     run_id: str,
     parent_snapshot: str,
     origin_run_id: str | None = None,
+    product_snapshot: str | None = None,
+    seller_snapshot: str | None = None,
 ) -> dict:
     if table not in DEPENDENCIES:
         raise BronzeError("Unsupported deferred dependency table")
+    if (product_snapshot is None) != (seller_snapshot is None) or (
+        table != "order_items" and product_snapshot is not None
+    ):
+        raise BronzeError("Item resolution requires both product and seller snapshots")
     parent_table, key, _ = DEPENDENCIES[table]
     parent, digest = verified(store, parent_snapshot, contract)
     versions = (f"{parent_table}-silver-v1",) + (
@@ -408,6 +481,16 @@ def resolve_snapshot(
         "parent_manifest_sha256": digest,
         "contract_sha256": sha256(encode(contract)),
     }
+    extra_parents = {}
+    for name, prefix in (("product", product_snapshot), ("seller", seller_snapshot)):
+        if prefix is not None:
+            extra_parents[name], request[f"{name}_snapshot"] = pin_full_snapshot(
+                store, prefix, contract, f"{name}s"
+            )
+    if extra_parents:
+        request.update(
+            processor_version="deferred-resolve-v2", dependency_scope=ITEM_SCOPE
+        )
     if origin_run_id is not None:
         if re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", origin_run_id) is None:
             raise BronzeError("Invalid deferred origin run ID")
@@ -419,6 +502,17 @@ def resolve_snapshot(
         try:
             # shortcut: local snapshot key set in memory; use a distributed join before scaling beyond local MVP.
             keys = {row[key] for row in frame.toLocalIterator()}
+            extra_keys = {}
+            for name, manifest in extra_parents.items():
+                parent_frame = load_parent_keys(
+                    spark, store, manifest, Path(directory) / name, key=f"{name}_id"
+                )
+                try:
+                    extra_keys[f"{name}_keys"] = {
+                        row[f"{name}_id"] for row in parent_frame.toLocalIterator()
+                    }
+                finally:
+                    parent_frame.unpersist()
             return resolve_rows(
                 connection,
                 contract,
@@ -426,6 +520,7 @@ def resolve_snapshot(
                 run_id=run_id,
                 parent_keys=keys,
                 request=request,
+                **extra_keys,
             )
         finally:
             frame.unpersist()

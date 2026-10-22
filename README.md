@@ -15,7 +15,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Bounded extraction and immutable Bronze on MinIO | Implemented — all four core datasets; full parent snapshots |
 | Orders PySpark normalization, routing and immutable Silver Parquet | Implemented — local rules and optional customer FK/deferred routing |
 | Full customer snapshots and normalized customer Silver | Implemented — parent manifest/hash pinned to orders runs |
-| Items/payments Silver with composite grain and decimal money | Implemented — pinned full orders FK checks; product/seller membership remains planned |
+| Items/payments Silver with composite grain and decimal money | Implemented — pinned full orders FK checks; standalone v2 adds product/seller FK; scheduled v1 remains order-only |
 | PostgreSQL raw staging and transactional load audit | Implemented — version-aware merges, canonical hashes and exact load reconciliation |
 | Durable deferred lifecycle | Implemented — bounded retry passes, pinned full snapshots, expiry and atomic staging resolution |
 | Local pipeline audit and watermarks | Implemented — verified receipts, fresh dbt gate and all-table atomic CAS commit |
@@ -24,7 +24,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Operational health checks | Implemented — read-only audit JSON, configurable thresholds and CLI failure status |
 | Operational dashboard | Implemented — standalone HTML health snapshot; manual refresh |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
-| Full products/sellers Bronze/Silver, staging and Type 1 dimensions | Implemented — standalone slice; core scheduling and items FK remain planned |
+| Full products/sellers Bronze/Silver, staging and Type 1 dimensions | Implemented — standalone slice; core scheduling remains planned; item FK available in standalone v2 |
 | dbt customer dimension, order fact and daily GMV/AOV views | Implemented — exact reconciliation and relationship tests |
 | Airflow orchestration | Implemented — paused daily full/incremental and manual backfill DAGs, isolated runtime and stable retry identity |
 | Business dashboard / Metabase | Implemented — local date-filtered GMV/paid/AOV/status, dedicated reader and publication-status gate |
@@ -176,7 +176,7 @@ Muốn kiểm tra customer FK, tạo full customer Bronze/Silver bằng `make in
 
 Bronze hỗ trợ composite cursors, decimal-as-string và checkpoint độc lập cho hai bảng con. Silver dùng toàn bộ business key, `decimal(18,2)` và bắt buộc full orders snapshot để kiểm tra FK; missing orders vào deferred. Tạo parent bằng `make ingest-orders BRONZE_RUN_ID=<id> BRONZE_FULL_SNAPSHOT=1`, rồi process orders và truyền `ORDER_SNAPSHOT=<orders Silver prefix>` cho `make process-order-items` / `make process-order-payments`.
 
-Items hiện chỉ kiểm tra product/seller ID không thiếu; membership chưa được xác minh. Xem [contract và commands](docs/data_contracts/07_order_children.md). Chạy `make test-order-children-integration` sau thay đổi; suite dùng fixtures và disposable services.
+Items v1 chỉ kiểm tra product/seller ID không thiếu. [V2 standalone](docs/data_contracts/17_item_dependency_snapshots.md) kiểm tra đủ order/product/seller FK khi cấp ba full snapshots; scheduled core vẫn dùng v1. Xem [contract và commands](docs/data_contracts/07_order_children.md). Chạy `make test-order-children-integration` sau thay đổi; suite dùng fixtures và disposable services.
 
 Products có vertical slice riêng: `make ingest-products`, `make process-products`,
 `make load-warehouse SOURCE_TABLE=products`, rồi `make dbt-build`. Xem
@@ -187,7 +187,7 @@ làm FK parent của items.
 Sellers có luồng tương tự: `make ingest-sellers`, `make process-sellers`, rồi
 `make load-warehouse SOURCE_TABLE=sellers` và `make dbt-build`. Xem
 [seller contract](docs/data_contracts/16_seller_snapshots.md). Hai slice này chưa
-được schedule bởi core runner; product/seller membership của items vẫn planned.
+được schedule bởi core runner; item FK v2 cần bật bằng flags theo [contract 17](docs/data_contracts/17_item_dependency_snapshots.md).
 
 ## Silver to PostgreSQL staging
 

@@ -91,7 +91,7 @@ Các models hiện là **views**: rebuild deterministic nhưng không tạo immu
 published snapshot. dbt build không atomic toàn DAG; failed tests không rollback
 toàn bộ views đã tạo. Chỉ coi artifacts thành công khi build exit code bằng zero;
 không chạy writer/reader pipeline đồng thời khi cần một consistent business snapshot.
-Atomic mart publication và products/sellers FK vẫn planned. Local Airflow full/incremental/backfill wrappers đã có;
+Atomic mart publication vẫn planned. Product/seller membership đã có trong [Silver v2 standalone](17_item_dependency_snapshots.md); core jobs chưa bật checks này. Local Airflow full/incremental/backfill wrappers đã có;
 Metabase business dashboard, dedicated reader grants và audit-based publication
 gate theo [contract 14](14_business_dashboard.md). Local run/task audit và watermark gate đã có theo [pipeline contract](11_pipeline_control.md). Deferred retry/expiry đã có theo [lifecycle contract](10_deferred_lifecycle.md).
 
@@ -101,8 +101,8 @@ Profile và environment theo [dbt profiles](https://docs.getdbt.com/docs/local/p
 execution/tests theo [dbt build](https://docs.getdbt.com/reference/commands/build).
 
 Products có [standalone Type 1 slice](15_product_snapshots.md); full dbt build
-bao gồm `stg_products` và `dim_product`. Items chưa join product dimension hoặc
-kiểm tra product/seller membership.
+bao gồm `stg_products` và `dim_product`. Items chưa join product dimension;
+membership có trong [Silver v2 standalone](17_item_dependency_snapshots.md).
 
 Sellers có [standalone Type 1 slice](16_seller_snapshots.md), giữ grain `seller_id`,
 location warnings và current attributes; chưa join seller dimension vào items.

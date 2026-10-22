@@ -4,16 +4,16 @@
 
 Status: **Active — missing-customer/order retries, persisted limits and atomic staging resolution**.
 Migration `008` thêm shared `audit.quarantine_records`, registration/resolution runs
-và per-record attempts. Hiện chỉ persist deferred rules `missing_customer` và
-`missing_order`; generic rejects/warnings quarantine và scheduled DAG audit còn planned; local run/task audit đã có theo [pipeline contract](11_pipeline_control.md).
+và per-record attempts. Legacy rules là `missing_customer` và `missing_order`.
+Migration `015` thêm composite queue rule cho [item v2](17_item_dependency_snapshots.md); generic rejects/warnings quarantine và scheduled DAG audit còn planned; local run/task audit đã có theo [pipeline contract](11_pipeline_control.md).
 CLI dùng Spark extra, Java 17, `WAREHOUSE_DSN`/`PG*` và S3 credentials như warehouse.
 
 ## Registration and identity
 
 Registration chỉ nhận verified dependency-aware Silver: `orders-silver-v2`,
-`order_items-silver-v1`, `order_payments-silver-v1`. Kiểm tra marker, manifest/hash,
+`order_items-silver-v1/v2`, `order_payments-silver-v1`. Kiểm tra marker, manifest/hash,
 source contract, all object bytes, physical Parquet schema và deferred row count.
-Row phải có đúng missing-parent rule và không có local errors. Raw Bronze payload,
+Legacy row có đúng một missing-parent rule; item v2 giữ mọi missing rule nhưng chỉ tạo một queue entry. Không nhận local errors. Raw Bronze payload,
 normalized typed payload, original physical/logical UID, source key/version và
 origin Silver prefix/hash được giữ nguyên; không đọc lại source PostgreSQL.
 
@@ -50,11 +50,11 @@ Mỗi pass chọn tối đa 1.000 PENDING rows/bảng, theo first-seen và UID; 
 `remaining_pending_rows`. Các snapshots/selected payloads hiện xử lý trong memory
 của local MVP; cần distributed processing trước khi mở rộng quy mô.
 
-Backfill resolver thêm `--origin-run-id <original Silver run ID>`: selection và
+Backfill resolver thêm `--origin-run-id <original payload _run_id>` (trùng owning pipeline ID trong backfill): selection và
 `remaining_pending_rows` chỉ tính queue có `run_id` đó. Filter được pin trong
 resolution request; thay origin cần resolution run ID mới. Backfill final gate
 bắt buộc origin bằng owning pipeline ID, giữ queue của run khác nguyên trạng.
-Standalone/full/incremental không truyền filter tiếp tục xử lý global queue.
+Không truyền origin filter thì xử lý global queue trong cùng dependency scope: legacy và item v2 không chọn lẫn nhau.
 Health/dashboard luôn đo backlog chung. Xem [contract 13](13_backfill_pipeline.md).
 
 ## Duplicate occurrences and version safety

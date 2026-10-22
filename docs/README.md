@@ -23,6 +23,7 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | 14 | [Business Dashboard](data_contracts/14_business_dashboard.md) | Local Metabase, reader grants, metrics, filters and publication gate | Active |
 | 15 | [Product Snapshots](data_contracts/15_product_snapshots.md) | Full products Bronze/Silver, version-aware staging and Type 1 dimension | Active — standalone slice |
 | 16 | [Seller Snapshots](data_contracts/16_seller_snapshots.md) | Full sellers Bronze/Silver, location warnings, version-aware staging and Type 1 dimension | Active — standalone slice |
+| 17 | [Item Dependency Snapshots](data_contracts/17_item_dependency_snapshots.md) | Three-parent item FK scope, immutable pins and atomic deferred retry | Active — standalone v2 |
 
 ## Related documents
 

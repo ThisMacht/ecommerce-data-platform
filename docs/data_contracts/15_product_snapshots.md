@@ -6,8 +6,8 @@
 `analytics.stg_products` → `analytics.dim_product`. Một dòng hiện tại trên
 `product_id`; dimension Type 1 dùng `MD5(product_id)` làm stable surrogate key.
 Snapshot v1 độc lập với bốn bảng core: chưa có task/cursor products trong
-`make dataset`, incremental, backfill hay Airflow. Product/seller membership
-của order items vẫn chưa được kiểm tra.
+`make dataset`, incremental, backfill hay Airflow. Membership có trong [item v2 standalone](17_item_dependency_snapshots.md);
+core runner vẫn dùng item v1 và chưa bật các checks này.
 
 ## Extraction and Replay
 

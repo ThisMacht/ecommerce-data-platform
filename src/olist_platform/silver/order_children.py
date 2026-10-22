@@ -135,3 +135,34 @@ def check_order_dependencies(children: DataFrame, orders: DataFrame) -> DataFram
         )
         .drop("_parent_order_id")
     )
+
+
+def check_item_dependencies(
+    items: DataFrame, orders: DataFrame, products: DataFrame, sellers: DataFrame
+) -> DataFrame:
+    """Evaluate all three parents together; preserve reject/duplicate precedence."""
+    joined = items
+    missing = []
+    temporary = []
+    for name, parent in (("order", orders), ("product", products), ("seller", sellers)):
+        key, alias = f"{name}_id", f"_parent_{name}_id"
+        joined = joined.join(
+            parent.select(F.col(key).alias(alias)), F.col(key) == F.col(alias), "left"
+        )
+        temporary.append(alias)
+        missing.append(
+            F.when(
+                (F.col("_routing") == "valid") & F.col(alias).isNull(),
+                f"missing_{name}",
+            )
+        )
+    return (
+        joined.withColumn("deferred_rule_ids", F.array_compact(F.array(*missing)))
+        .withColumn(
+            "_routing",
+            F.when(F.size("deferred_rule_ids") > 0, "deferred").otherwise(
+                F.col("_routing")
+            ),
+        )
+        .drop(*temporary)
+    )

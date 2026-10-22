@@ -8,8 +8,8 @@
 cùng location vẫn là hai records. Không tạo lịch sử địa chỉ từ snapshot.
 
 Sellers chạy độc lập như products: chưa có task/cursor sellers trong core runner,
-incremental, backfill hoặc Airflow. Items vẫn chỉ kiểm tra required product/seller
-IDs, chưa xác minh membership bằng hai parent snapshots.
+incremental, backfill hoặc Airflow. Core items v1 chỉ kiểm tra required IDs; [item v2 standalone](17_item_dependency_snapshots.md)
+kiểm tra membership bằng pinned full product/seller snapshots.
 
 ## Extraction and Replay
 

@@ -12,6 +12,7 @@ from silver_fixture import FIXTURES, ROOT, child_rows
 
 from olist_platform.bronze.storage import BronzeError, encode
 from olist_platform.silver.order_children import (
+    check_item_dependencies,
     check_order_dependencies,
     transform_order_children,
 )
@@ -128,3 +129,28 @@ class OrderChildrenSilverTest(unittest.TestCase):
             local, self.spark.createDataFrame([], "order_id string")
         )
         self.assertEqual(output.filter("_routing = 'deferred'").count(), 3)
+
+    def test_all_item_parent_rules_are_evaluated_without_fanout_or_priority_loss(self):
+        local = transform_order_children(
+            self.frame(child_rows("order_items"), "order_items"), "order_items"
+        )
+        orders = self.spark.createDataFrame([("a",)], "order_id string")
+        products = self.spark.createDataFrame([], "product_id string")
+        sellers = self.spark.createDataFrame([], "seller_id string")
+        rows = check_item_dependencies(local, orders, products, sellers).collect()
+        self.assertEqual(len(rows), 13)
+        selected = {r["_record_uid"]: r for r in rows}
+        self.assertEqual(
+            selected["child-04"]["deferred_rule_ids"],
+            ["missing_order", "missing_product", "missing_seller"],
+        )
+        for row in rows:
+            if row["_routing"] in ("rejected", "duplicates"):
+                self.assertEqual(row["deferred_rule_ids"], [])
+        self.assertEqual(sum(r["_routing"] == "deferred" for r in rows), 3)
+        self.assertEqual(sum(r["_routing"] == "rejected" for r in rows), 9)
+        # An order being absent does not hide missing product/seller rules.
+        self.assertEqual(
+            selected["child-02"]["deferred_rule_ids"],
+            ["missing_product", "missing_seller"],
+        )

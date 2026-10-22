@@ -391,7 +391,7 @@ Nếu parent tới muộn, tạo full customer snapshot mới và reprocess **or
 
 Sau migration `005`, dùng `make ingest-order-items` / `make ingest-order-payments` với stable `BRONZE_RUN_ID`. Tạo full orders parent bằng `make ingest-orders BRONZE_RUN_ID=<id> BRONZE_FULL_SNAPSHOT=1`, rồi process orders. Default incremental orders không đủ làm toàn bộ parent set.
 
-Truyền `ORDER_SNAPSHOT=<full orders Silver prefix>` vào `make process-order-items` / `make process-order-payments`, cùng `BRONZE_PREFIX` và `SILVER_RUN_ID`. Runner `make dataset` tự thực hiện bốn datasets theo dependency order. Thiếu order vào deferred; locally invalid records vẫn reject. Product/seller membership chưa triển khai, được ghi rõ trong manifest.
+Truyền `ORDER_SNAPSHOT=<full orders Silver prefix>` vào `make process-order-items` / `make process-order-payments`, cùng `BRONZE_PREFIX` và `SILVER_RUN_ID`. Runner `make dataset` tự thực hiện bốn datasets theo dependency order. Thiếu order vào deferred; locally invalid records vẫn reject. Scheduled core vẫn dùng v1/order-only. Standalone item v2 bật bằng `PRODUCT_SNAPSHOT` và `SELLER_SNAPSHOT`; retry cần đủ ba parents, theo [contract 17](../data_contracts/17_item_dependency_snapshots.md).
 
 Retry giữ nguyên run/input/config. Parent mới cần Silver ID mới và original child Bronze; không sửa old outputs. Nếu có pending orders run của runner cũ dùng incremental mode, resume bằng config cũ trước khi chuyển full mode. Xem [contract](../data_contracts/07_order_children.md); chạy `make test-order-children-integration` sau thay đổi.
 

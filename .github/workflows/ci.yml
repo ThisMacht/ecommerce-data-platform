@@ -125,6 +125,8 @@ jobs:
         run: make test-customer-integration
       - name: Test items/payments and pinned orders dependencies
         run: make test-order-children-integration
+      - name: Test three-parent item FK checks and atomic deferred retries
+        run: make test-item-dependencies-integration
       - name: Test verified Silver loading into PostgreSQL staging
         run: make test-warehouse-integration
       - name: Test deferred retries against verified full snapshots

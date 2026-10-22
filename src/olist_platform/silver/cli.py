@@ -43,6 +43,14 @@ def main() -> int:
         "--customer-snapshot",
         help="Verified full customer Silver prefix; enables orders FK routing",
     )
+    process.add_argument(
+        "--product-snapshot",
+        help="Full products Silver prefix; pair with --seller-snapshot for item FK checks",
+    )
+    process.add_argument(
+        "--seller-snapshot",
+        help="Full sellers Silver prefix; pair with --product-snapshot",
+    )
     verify = commands.add_parser("verify")
     verify.add_argument("--prefix", required=True)
     arguments = parser.parse_args()
@@ -73,6 +81,8 @@ def main() -> int:
                 table=arguments.table,
                 customer_snapshot=arguments.customer_snapshot,
                 order_snapshot=arguments.order_snapshot,
+                product_snapshot=arguments.product_snapshot,
+                seller_snapshot=arguments.seller_snapshot,
             )
         print(json.dumps(result, ensure_ascii=False))
         return 0
