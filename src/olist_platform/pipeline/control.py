@@ -18,6 +18,7 @@ PIPELINE = "local_core_v1"
 INCREMENTAL = "incremental_core_v1"
 BACKFILL = "backfill_core_v1"
 TABLES = ("customers", "orders", "order_items", "order_payments")
+ANALYTICS_SOURCES = TABLES + ("products",)
 TASKS = (
     tuple(
         f"{t}.{stage}"
@@ -523,7 +524,7 @@ def dbt_evidence(directory: Path, earliest, database: str) -> dict:
     ids = [r["unique_id"] for r in actual]
     sources = manifest["sources"].values()
     if (
-        {node["name"] for node in sources} != set(TABLES)
+        {node["name"] for node in sources} != set(ANALYTICS_SOURCES)
         or any(
             node["database"] != database or node["schema"] != "raw_staging"
             for node in sources

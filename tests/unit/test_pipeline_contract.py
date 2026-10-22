@@ -6,7 +6,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from olist_platform.bronze.storage import BronzeError
-from olist_platform.pipeline.control import TABLES, code_hash, dbt_evidence, reconcile
+from olist_platform.pipeline.control import (
+    ANALYTICS_SOURCES,
+    code_hash,
+    dbt_evidence,
+    reconcile,
+)
 
 
 def dataset_evidence(rows=2):
@@ -136,7 +141,7 @@ class PipelineContractTest(unittest.TestCase):
             },
             "sources": {
                 table: {"name": table, "database": "fixture", "schema": "raw_staging"}
-                for table in TABLES
+                for table in ANALYTICS_SOURCES
             },
         }
         results = {
@@ -166,6 +171,8 @@ class PipelineContractTest(unittest.TestCase):
                 "stale",
                 "invocation",
                 "database",
+                "missing_source",
+                "extra_source",
                 "not_build",
             ):
                 m = deepcopy(manifest)
@@ -182,6 +189,12 @@ class PipelineContractTest(unittest.TestCase):
                     r["metadata"]["invocation_id"] = "other"
                 elif change == "database":
                     m["sources"]["orders"]["database"] = "another"
+                elif change == "missing_source":
+                    del m["sources"]["products"]
+                elif change == "extra_source":
+                    m["sources"]["sellers"] = m["sources"]["products"] | {
+                        "name": "sellers"
+                    }
                 else:
                     r["args"]["which"] = "run"
                 with self.subTest(change=change), self.assertRaises(BronzeError):

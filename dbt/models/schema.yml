@@ -7,6 +7,7 @@ sources:
   - name: orders
   - name: order_items
   - name: order_payments
+  - name: products
 models:
 - name: stg_customers
   columns:
@@ -102,5 +103,50 @@ models:
           to: ref('stg_orders')
           field: order_id
   - name: payment_sequential
+    data_tests:
+    - not_null
+- name: stg_products
+  description: "Full product snapshots merged by source_sequence; nullable attributes retain warning flags in staging."
+  columns:
+  - name: product_id
+    description: "Product business key; one current row per product."
+    data_tests:
+    - unique
+    - not_null
+- name: dim_product
+  description: "Type 1 current product attributes; no inferred history or category translation."
+  columns:
+  - name: product_key
+    description: "Stable MD5 hex surrogate of product_id."
+    data_tests:
+    - unique
+    - not_null
+  - name: product_id
+    description: "Source business key, retained for traceability."
+    data_tests:
+    - unique
+    - not_null
+  - name: product_category_name
+    description: "Normalized Portuguese category; missing values remain NULL."
+  - name: product_name_length
+    description: "Character count from source product_name_lenght."
+  - name: product_description_length
+    description: "Character count from source product_description_lenght."
+  - name: product_photos_qty
+    description: "Source photo count; NULL means unavailable."
+  - name: product_weight_g
+    description: "Nonnegative weight in grams; zero is retained with a Silver warning."
+  - name: product_length_cm
+    description: "Nonnegative package length in centimeters."
+  - name: product_height_cm
+    description: "Nonnegative package height in centimeters."
+  - name: product_width_cm
+    description: "Nonnegative package width in centimeters."
+  - name: created_at
+    description: "First warehouse observation, not source business creation time."
+  - name: updated_at
+    description: "Latest accepted warehouse observation, including unchanged replays."
+  - name: record_hash
+    description: "Canonical business-v1 hash shared with staging; excludes version and lineage."
     data_tests:
     - not_null

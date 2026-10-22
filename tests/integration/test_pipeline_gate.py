@@ -9,6 +9,7 @@ from unittest.mock import patch
 from botocore.exceptions import ClientError
 from bronze_case import BronzeFixtureCase
 from postgres_case import REPOSITORY_ROOT
+from psycopg.errors import LockNotAvailable
 
 from olist_platform.bronze.extraction import ingest_source
 from olist_platform.bronze.storage import BronzeError
@@ -152,9 +153,20 @@ class PipelineGateTest(BronzeFixtureCase):
                 if name != "dbt.build":
                     task(c, "gate", 2, name, "RUNNING")
                     task(c, "gate", 2, name, "SUCCESS")
+
+            def failed_dbt(*args, **kwargs):
+                # The new standalone source must stay stable through the core dbt gate.
+                with self.connection() as writer:
+                    writer.execute("SET lock_timeout='100ms'")
+                    with self.assertRaises(LockNotAvailable):
+                        writer.execute(
+                            "UPDATE raw_staging.products SET source_sequence=source_sequence"
+                        )
+                raise subprocess.CalledProcessError(1, "dbt")
+
             with patch(
                 "olist_platform.pipeline.cli.subprocess.run",
-                side_effect=subprocess.CalledProcessError(1, "dbt"),
+                side_effect=failed_dbt,
             ):
                 with self.assertRaises(subprocess.CalledProcessError):
                     finish(
@@ -186,7 +198,7 @@ class PipelineGateTest(BronzeFixtureCase):
                 Path(directory),
             )
             self.assertEqual(completed["status"], "SUCCESS")
-            self.assertEqual(completed["dbt"]["node_count"], 43)
+            self.assertEqual(completed["dbt"]["node_count"], 52)
             self.assertEqual(
                 self.psql("SELECT MIN(cursor_version) FROM audit.pipeline_control"), "1"
             )

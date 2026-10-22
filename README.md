@@ -24,6 +24,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Operational health checks | Implemented — read-only audit JSON, configurable thresholds and CLI failure status |
 | Operational dashboard | Implemented — standalone HTML health snapshot; manual refresh |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
+| Full products Bronze/Silver, staging and Type 1 dimension | Implemented — standalone slice; core scheduling and items FK remain planned |
 | dbt customer dimension, order fact and daily GMV/AOV views | Implemented — exact reconciliation and relationship tests |
 | Airflow orchestration | Implemented — paused daily full/incremental and manual backfill DAGs, isolated runtime and stable retry identity |
 | Business dashboard / Metabase | Implemented — local date-filtered GMV/paid/AOV/status, dedicated reader and publication-status gate |
@@ -176,6 +177,12 @@ Muốn kiểm tra customer FK, tạo full customer Bronze/Silver bằng `make in
 Bronze hỗ trợ composite cursors, decimal-as-string và checkpoint độc lập cho hai bảng con. Silver dùng toàn bộ business key, `decimal(18,2)` và bắt buộc full orders snapshot để kiểm tra FK; missing orders vào deferred. Tạo parent bằng `make ingest-orders BRONZE_RUN_ID=<id> BRONZE_FULL_SNAPSHOT=1`, rồi process orders và truyền `ORDER_SNAPSHOT=<orders Silver prefix>` cho `make process-order-items` / `make process-order-payments`.
 
 Items hiện chỉ kiểm tra product/seller ID không thiếu; membership chưa được xác minh. Xem [contract và commands](docs/data_contracts/07_order_children.md). Chạy `make test-order-children-integration` sau thay đổi; suite dùng fixtures và disposable services.
+
+Products có vertical slice riêng: `make ingest-products`, `make process-products`,
+`make load-warehouse SOURCE_TABLE=products`, rồi `make dbt-build`. Xem
+[product contract và prerequisites](docs/data_contracts/15_product_snapshots.md).
+`make dataset` vẫn chỉ xử lý bốn core tables; products chưa được schedule hoặc dùng
+làm FK parent của items.
 
 ## Silver to PostgreSQL staging
 

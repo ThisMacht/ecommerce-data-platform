@@ -123,6 +123,108 @@ class DbtModelsTest(PostgresIntegrationCase):
             )
             self.assertEqual(query("gmv"), [])
 
+    def test_product_type1_keys_nulls_hash_and_reconciliation(self):
+        def load(row, run_id):
+            with psycopg.connect(
+                host="127.0.0.1",
+                port=self.port,
+                dbname=self.database,
+                user="olist_test_loader",
+                password="isolated_test_loader",
+                autocommit=True,
+            ) as c:
+                return merge_rows(
+                    c,
+                    self.contract,
+                    table="products",
+                    run_id=run_id,
+                    rows=[row],
+                    request={"fixture": run_id},
+                    silver_counts={
+                        "input_rows": 1,
+                        "valid_rows": 1,
+                        "rejected_rows": 0,
+                        "deferred_rows": 0,
+                        "duplicates_rows": 0,
+                        "warning_rows": int(bool(row["warning_rule_ids"])),
+                    },
+                )
+
+        load(valid_row("products", "product_a"), "first")
+        load(
+            valid_row("products", "product_b", 2)
+            | {
+                "product_category_name": None,
+                "product_weight_g": None,
+                "warning_rule_ids": [
+                    "missing_product_category_name",
+                    "missing_product_weight_g",
+                ],
+            },
+            "nulls",
+        )
+        self.dbt()
+        self.assertEqual(self.psql("SELECT COUNT(*) FROM analytics.dim_product"), "2")
+        self.assertEqual(
+            self.psql(
+                "SELECT COUNT(*) FROM analytics.dim_product d FULL JOIN raw_staging.products s USING (product_id) WHERE d.product_id IS NULL OR s.product_id IS NULL OR d.record_hash IS DISTINCT FROM s.record_hash"
+            ),
+            "0",
+        )
+        original = json.loads(
+            self.psql(
+                "SELECT row_to_json(d) FROM analytics.dim_product d WHERE product_id='product_a'"
+            )
+        )
+        self.assertEqual(original["product_key"], "922d5276f919163ea91ecaa181f026cf")
+        self.assertEqual(
+            (original["product_name_length"], original["product_description_length"]),
+            (20, 100),
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT COUNT(*) FROM analytics.dim_product WHERE product_id='product_b' AND product_category_name IS NULL AND product_weight_g IS NULL"
+            ),
+            "1",
+        )
+        self.assertEqual(
+            load(
+                valid_row("products", "product_a", 3)
+                | {
+                    "product_category_name": "new_category",
+                    "source_operation": "UPDATE",
+                },
+                "updated",
+            )["counts"]["warehouse_updated_rows"],
+            1,
+        )
+        self.dbt()
+        current = json.loads(
+            self.psql(
+                "SELECT row_to_json(d) FROM analytics.dim_product d WHERE product_id='product_a'"
+            )
+        )
+        self.assertEqual(current["product_key"], original["product_key"])
+        self.assertEqual(current["created_at"], original["created_at"])
+        self.assertGreater(current["updated_at"], original["updated_at"])
+        self.assertNotEqual(current["record_hash"], original["record_hash"])
+        self.assertEqual(current["product_category_name"], "new_category")
+        self.assertEqual(
+            load(valid_row("products", "product_a"), "stale")["counts"][
+                "warehouse_stale_ignored_rows"
+            ],
+            1,
+        )
+        self.dbt()
+        self.assertEqual(
+            json.loads(
+                self.psql(
+                    "SELECT row_to_json(d) FROM analytics.dim_product d WHERE product_id='product_a'"
+                )
+            ),
+            current,
+        )
+
     def setUp(self):
         super().setUp()
         self.directory = tempfile.TemporaryDirectory()

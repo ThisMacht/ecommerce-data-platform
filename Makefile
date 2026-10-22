@@ -45,6 +45,7 @@ BACKFILL_END ?=
 	bronze-up init-bronze ingest-orders test-bronze-integration \
 	sync-processing process-orders test-processing test-dirty-data test-silver-integration \
 	ingest-customers process-customers test-customer-integration \
+	ingest-products process-products test-product-integration \
 	ingest-order-payments ingest-order-items process-order-payments process-order-items test-order-children-integration \
 	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration \
 	register-deferred resolve-deferred test-deferred-integration test-deferred-state-integration \
@@ -95,6 +96,8 @@ help:
 	@echo "  test-dirty-data           Compare all four dirty fixtures with per-record expected rules/routes"
 	@echo "  test-processing           Run Spark normalization, routing and deduplication tests"
 	@echo "  test-silver-integration   Test PostgreSQL -> Bronze -> Spark -> Silver with disposable services"
+	@echo "  ingest-products / process-products Full products Bronze/Silver snapshots"
+	@echo "  test-product-integration  Test products publication, replay, routing and staging merges"
 	@echo "  ingest-customers          Extract/resume a full customer snapshot"
 	@echo "  process-customers         Publish a full validated customer Silver snapshot"
 	@echo "  test-customer-integration Test customer snapshots and orders dependency routing"
@@ -300,15 +303,15 @@ test-silver-integration:
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" \
 	$(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_silver_orders.py' -v
 
-ingest-customers:
+ingest-customers ingest-products:
 	@test -n "$(BRONZE_RUN_ID)" || (echo "Set BRONZE_RUN_ID" >&2; exit 2)
-	$(PYTHON) -m olist_platform.bronze.cli --contract "$(SOURCE_CONTRACT)" --table customers extract \
+	$(PYTHON) -m olist_platform.bronze.cli --contract "$(SOURCE_CONTRACT)" --table $(@:ingest-%=%) extract \
 		--run-id "$(BRONZE_RUN_ID)" --page-size "$(BRONZE_PAGE_SIZE)"
 
-process-customers:
+process-customers process-products:
 	@test -n "$(BRONZE_PREFIX)" && test -n "$(SILVER_RUN_ID)" || (echo "Set BRONZE_PREFIX and SILVER_RUN_ID" >&2; exit 2)
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m olist_platform.silver.cli \
-		--contract "$(SOURCE_CONTRACT)" --table customers process --bronze-prefix "$(BRONZE_PREFIX)" --run-id "$(SILVER_RUN_ID)"
+		--contract "$(SOURCE_CONTRACT)" --table $(@:process-%=%) process --bronze-prefix "$(BRONZE_PREFIX)" --run-id "$(SILVER_RUN_ID)"
 
 test-customer-integration:
 	$(COMPOSE) -f $(COMPOSE_FILE) build minio
@@ -397,3 +400,8 @@ test-pipeline-integration:
 	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
 	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PIPELINE_PYTHON) -m unittest discover -s tests/integration -p 'test_pipeline_gate.py' -v
+
+test-product-integration:
+	$(COMPOSE) -f $(COMPOSE_FILE) build minio
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_products.py' -v

@@ -131,6 +131,8 @@ jobs:
         run: make test-deferred-integration
       - name: Install processing and analytics dependencies for the pipeline gate
         run: uv sync --locked --extra processing --extra analytics
+      - name: Test products snapshots and version-aware staging
+        run: make test-product-integration
       - name: Test all core receipts and dbt-gated watermark commit
         run: make test-pipeline-integration
       - name: Test frozen incremental windows, lookback and recovery gates

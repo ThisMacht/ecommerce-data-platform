@@ -20,6 +20,7 @@ KEYS = {
     "customers": ("customer_id",),
     "order_payments": ("order_id", "payment_sequential"),
     "order_items": ("order_id", "order_item_id"),
+    "products": ("product_id",),
 }
 PIPELINE = "bronze_orders_v1"
 LOCK = "olist.bronze.orders.v1"
@@ -108,6 +109,8 @@ def configuration(
     if pipeline_parent and pipeline_run_id is None:
         raise BronzeError("Parent stream requires a pipeline run")
     if pipeline_run_id is not None:
+        if table == "products":
+            raise BronzeError("Products are not part of the core pipeline")
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", pipeline_run_id):
             raise BronzeError("Invalid owning pipeline run ID")
         if full_snapshot or (pipeline_parent and table not in ("customers", "orders")):
@@ -250,7 +253,9 @@ def prepare(
             cursor_tuple(before, table)[0] - timedelta(hours=config["lookback_hours"])
             if before
             and config.get("snapshot_kind") != "FULL"
-            and (table != "customers" or config.get("pipeline_run_id"))
+            and (
+                table not in ("customers", "products") or config.get("pipeline_run_id")
+            )
             else None
         )
         if window:
@@ -313,7 +318,9 @@ def prepare(
                     "SELECT pg_current_snapshot()::text"
                 ).fetchone()[0],
             )
-        elif table == "customers" or config.get("snapshot_kind") == "FULL":
+        elif (
+            table in ("customers", "products") or config.get("snapshot_kind") == "FULL"
+        ):
             manifest["snapshot_kind"] = "FULL"
         connection.execute(
             state_sql(

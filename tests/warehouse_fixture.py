@@ -7,6 +7,17 @@ from decimal import Decimal
 def valid_row(table="customers", key="a", sequence=1):
     instant = datetime(2020, 1, 1, tzinfo=timezone.utc)
     row = {
+        "products": {
+            "product_id": key,
+            "product_category_name": "cama_mesa_banho",
+            "product_name_lenght": 20,
+            "product_description_lenght": 100,
+            "product_photos_qty": 1,
+            "product_weight_g": 200,
+            "product_length_cm": 10,
+            "product_height_cm": 5,
+            "product_width_cm": 8,
+        },
         "customers": {
             "customer_id": key,
             "customer_unique_id": "shopper",

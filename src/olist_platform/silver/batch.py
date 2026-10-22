@@ -28,6 +28,7 @@ VERSIONS = (
     "orders-silver-v2",
     "customers-silver-v1",
     "customers-silver-v2",
+    "products-silver-v1",
 ) + tuple(f"{table}-silver-v1" for table in CHILDREN)
 if TYPE_CHECKING:
     from pyspark.sql import SparkSession
@@ -72,6 +73,8 @@ def validate_manifest(manifest: dict, contract: dict, table: str = "orders") -> 
     scoped_delta = manifest.get("snapshot_kind") == "INCREMENTAL" and manifest[
         "config"
     ].get("pipeline_run_id")
+    if table == "products" and manifest.get("snapshot_kind") != "FULL":
+        raise BronzeError("Product Silver requires a full Bronze snapshot")
     if (
         table == "customers"
         and manifest.get("snapshot_kind") != "FULL"
@@ -182,6 +185,11 @@ def verify_objects(store: ObjectStore, manifest: dict) -> None:
         ):
             raise BronzeError("Invalid pinned order dependency/relationship scope")
     if (
+        manifest["schema_version"] == "products-silver-v1"
+        and manifest.get("snapshot_kind") != "FULL"
+    ):
+        raise BronzeError("Product Silver must declare a full snapshot")
+    if (
         manifest["schema_version"] == "customers-silver-v1"
         and manifest.get("snapshot_kind") != "FULL"
     ):
@@ -260,6 +268,7 @@ def process_batch(
     from .customers import check_customer_dependencies, transform_customers
     from .order_children import check_order_dependencies, transform_order_children
     from .orders import input_schema, transform_orders
+    from .products import transform_products
 
     if (
         table not in KEYS
@@ -370,6 +379,8 @@ def process_batch(
             classified = transform_orders(frame)
         elif table == "customers":
             classified = transform_customers(frame)
+        elif table == "products":
+            classified = transform_products(frame)
         else:
             classified = transform_order_children(frame, table)
         parent_keys = None
@@ -456,7 +467,11 @@ def process_batch(
                 "rule_violations": violations,
                 "relationship_checks": f"{dependency_name.upper()}_SNAPSHOT"
                 if parent is not None
-                else ("NOT_APPLICABLE" if table == "customers" else "NOT_IMPLEMENTED"),
+                else (
+                    "NOT_APPLICABLE"
+                    if table in ("customers", "products")
+                    else "NOT_IMPLEMENTED"
+                ),
                 "output_schema": output_schema,
                 "objects": objects,
             }

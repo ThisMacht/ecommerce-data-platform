@@ -87,6 +87,8 @@ def canonical_record(row: dict, contract: dict, table: str, run_id: str) -> dict
                 bits - 1
             ):
                 raise BronzeError(f"Invalid staging integer: {name}")
+            if table == "products" and column in business and value < 0:
+                raise BronzeError(f"Invalid staging product measurement: {name}")
             normalized = value
         else:
             if not isinstance(value, str) or "\x00" in value:

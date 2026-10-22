@@ -12,7 +12,7 @@ Implemented: core layers, dbt, deferred retries, full/incremental audit, isolate
 - `src/olist_platform/deferred/`: quarantine registration, bounded retry/expiry and atomic staging resolution.
 - `src/olist_platform/pipeline/`: run/task audit, receipt reconciliation and all-table cursor CAS.
 - `airflow/`: isolated Python 3.12 runtime/lock and paused full/incremental and manual backfill DAGs.
-- `dbt/`: staging views, customer Type 1 dimension, order fact and daily GMV/AOV marts.
+- `dbt/`: staging views, customer/product Type 1 dimensions, order fact and daily GMV/AOV marts.
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
 - `tests/processing/`: Spark checks with independent expected fixtures.
@@ -44,6 +44,8 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make infrastructure-down`: stop services; retain volumes.
 - `make bronze-up` / `make init-bronze`: start MinIO or initialize its bucket.
 - `make ingest-orders BRONZE_RUN_ID=<id>`: extract/resume orders.
+- `make ingest-products` / `make process-products`: standalone full product snapshots; load with `SOURCE_TABLE=products`, then dbt. Not scheduled by core runner; items FK unchanged.
+- `make test-product-integration`: frozen retry, replay, dirty/null handling, version-aware staging and cursor isolation.
 - `make ingest-customers` / `make process-customers`: publish full customer snapshots.
 - `make ingest-order-items` / `make ingest-order-payments`: extract composite-key windows.
 - `make process-order-items` / `make process-order-payments`: require `ORDER_SNAPSHOT=<full orders Silver prefix>`.
@@ -108,3 +110,5 @@ Managed Metabase content comes from `config/metabase_dashboard.json`; never comm
 credentials/metadata, expose admin/source credentials as datasource, average daily
 AOV, or treat live views as atomic snapshots. H2 metadata is local-only. A latest
 non-successful run or newer audited load hides metrics; untracked writers are not detected.
+
+Products: standalone full snapshots, nullable attributes warn, negative/overflow measurements reject. Preserve source `lenght` spelling until dbt aliases. Type 1 by `product_id`; full/empty snapshots never imply deletes. Core dbt gate locks five staging sources but audits/promotes only four core tables. A standalone products load hides BI metrics until a new successful core gate.

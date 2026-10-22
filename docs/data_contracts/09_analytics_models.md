@@ -99,3 +99,7 @@ gate theo [contract 14](14_business_dashboard.md). Local run/task audit và wate
 
 Profile và environment theo [dbt profiles](https://docs.getdbt.com/docs/local/profiles.yml);
 execution/tests theo [dbt build](https://docs.getdbt.com/reference/commands/build).
+
+Products có [standalone Type 1 slice](15_product_snapshots.md); full dbt build
+bao gồm `stg_products` và `dim_product`. Items chưa join product dimension hoặc
+kiểm tra product/seller membership.
