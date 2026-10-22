@@ -9,3 +9,13 @@ models:
     +materialized: view
     +grants:
       select: ["{{ env_var('DBT_READER_USER') }}"]
+    marts:
+      fct_orders:
+        +grants:
+          select: ["{{ env_var('DBT_READER_USER') }}", olist_bi_reader]
+      mart_revenue_daily:
+        +grants:
+          select: ["{{ env_var('DBT_READER_USER') }}", olist_bi_reader]
+      mart_average_order_value:
+        +grants:
+          select: ["{{ env_var('DBT_READER_USER') }}", olist_bi_reader]

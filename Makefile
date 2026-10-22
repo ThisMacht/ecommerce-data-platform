@@ -49,10 +49,21 @@ BACKFILL_END ?=
 	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration \
 	register-deferred resolve-deferred test-deferred-integration test-deferred-state-integration \
 	test-pipeline-control-integration test-pipeline-integration pipeline-health pipeline-dashboard \
-	sync-airflow airflow-local test-airflow dataset-incremental test-incremental-integration dataset-backfill test-backfill-integration test-recovery-integration
+	sync-airflow airflow-local test-airflow dataset-incremental test-incremental-integration dataset-backfill test-backfill-integration test-recovery-integration metabase-up metabase-setup metabase-down
+
+metabase-up: migrate
+	$(COMPOSE) -f $(COMPOSE_FILE) up -d --wait --wait-timeout 360 metabase
+	$(MAKE) metabase-setup
+
+metabase-setup:
+	$(PYTHON) -m olist_platform.warehouse.metabase
+
+metabase-down:
+	$(COMPOSE) -f $(COMPOSE_FILE) stop metabase
 
 help:
 	@echo "Available targets:"
+	@echo "  metabase-up / metabase-setup / metabase-down Local business dashboard, provisioning and stop"
 	@echo "  dataset                   Prepare local source and supported Bronze/Silver datasets automatically"
 	@echo "  sync                      Install the package and locked development tools"
 	@echo "  lint                      Check Python lint and formatting"

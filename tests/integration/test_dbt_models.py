@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -12,12 +13,115 @@ import psycopg
 from postgres_case import REPOSITORY_ROOT, PostgresIntegrationCase
 
 from olist_platform.warehouse.loading import merge_rows
+from olist_platform.warehouse.metabase import configure_reader
 from tests.warehouse_fixture import valid_row
 
 
 class DbtModelsTest(PostgresIntegrationCase):
     requires_raw_snapshot = False
     publish_port = True
+
+    def test_business_dashboard_weighted_aov_date_filters_gate_and_reader_grants(self):
+        self.psql("""UPDATE raw_staging.orders SET order_purchase_date='2020-01-02',
+            order_purchase_timestamp='2020-01-02T12:00:00Z' WHERE order_id='b';
+            UPDATE raw_staging.order_payments SET payment_value=5.00 WHERE order_id='zero';""")
+        self.dbt()
+        # Isolate the SQL visibility gate; pipeline suites verify actual receipt commits.
+        self.psql("""INSERT INTO audit.pipeline_runs
+            (run_id,pipeline_name,run_type,request,request_sha256,control_before,status,completed_at)
+            VALUES ('published','local_core_v1','manual','{}',repeat('a',64),'{}','SUCCESS',clock_timestamp());""")
+        with psycopg.connect(
+            host="127.0.0.1",
+            port=self.port,
+            dbname=self.database,
+            user="olist_test_admin",
+            password="isolated_test_admin",
+            autocommit=True,
+        ) as admin:
+            configure_reader(admin, "isolated_bi_password")
+            configure_reader(admin, "isolated_bi_password")
+            admin.execute("ALTER ROLE olist_metabase_reader CREATEDB")
+            with self.assertRaisesRegex(RuntimeError, "restricted reader"):
+                configure_reader(admin, "isolated_bi_password")
+            admin.execute("ALTER ROLE olist_metabase_reader NOCREATEDB")
+        specs = {
+            c["key"]: c
+            for c in json.loads(
+                (REPOSITORY_ROOT / "config/metabase_dashboard.json").read_text()
+            )["cards"]
+        }
+        with psycopg.connect(
+            host="127.0.0.1",
+            port=self.port,
+            dbname=self.database,
+            user="olist_metabase_reader",
+            password="isolated_bi_password",
+            autocommit=True,
+        ) as reader:
+
+            def query(key, **filters):
+                def optional(match):
+                    names = re.findall(r"\{\{(\w+)\}\}", match[1])
+                    if any(name not in filters for name in names):
+                        return ""
+                    return re.sub(r"\{\{(\w+)\}\}", r"%(\1)s", match[1])
+
+                statement = re.sub(r"\[\[(.*?)\]\]", optional, specs[key]["query"])
+                return reader.execute(statement, filters).fetchall()
+
+            self.assertEqual(query("gmv"), [(Decimal("37.25"),)])
+            self.assertEqual(query("paid"), [(Decimal("48.25"),)])
+            self.assertEqual(query("aov"), [(Decimal("16.08"),)])
+            self.assertEqual(query("eligible"), [(4,)])
+            self.assertEqual(query("completeness"), [(4, 2, 1)])
+            self.assertEqual(sum(r[1] for r in query("statuses")), 5)
+            self.assertEqual(
+                query("aov", start_date="2019-12-31", end_date="2019-12-31"),
+                [(Decimal("20.00"),)],
+            )
+            self.assertEqual(
+                query("aov", start_date="2020-01-02", end_date="2020-01-02"),
+                [(Decimal("8.25"),)],
+            )
+            self.assertEqual(query("aov", start_date="2050-01-01"), [(None,)])
+            self.assertEqual(query("gmv", start_date="2050-01-01"), [(Decimal(0),)])
+            for key in specs:
+                query(key)
+            for table in (
+                "olist.orders",
+                "raw_staging.orders",
+                "audit.pipeline_runs",
+                "analytics.stg_orders",
+            ):
+                with (
+                    self.subTest(table=table),
+                    self.assertRaises(psycopg.errors.InsufficientPrivilege),
+                ):
+                    reader.execute(f"SELECT * FROM {table} LIMIT 1")
+            reader.execute("SET default_transaction_read_only=off")
+            with self.assertRaises(psycopg.errors.InsufficientPrivilege):
+                reader.execute("UPDATE raw_staging.orders SET order_status='canceled'")
+            self.dbt()
+            self.assertEqual(query("gmv"), [(Decimal("37.25"),)])
+            self.psql("""INSERT INTO audit.pipeline_runs
+                (run_id,pipeline_name,run_type,request,request_sha256,control_before,status)
+                VALUES ('pending','local_core_v1','manual','{}',repeat('b',64),'{}','RUNNING');""")
+            for key in specs:
+                if key != "publication":
+                    self.assertEqual(query(key), [])
+            self.assertEqual(query("publication")[0][-1], False)
+            self.psql(
+                "UPDATE audit.pipeline_runs SET status='FAILED',completed_at=clock_timestamp() WHERE run_id='pending'"
+            )
+            self.assertEqual(query("gmv"), [])
+            self.psql(
+                "UPDATE audit.pipeline_runs SET status='SUCCESS',completed_at=clock_timestamp() WHERE run_id='pending'"
+            )
+            self.assertEqual(query("gmv"), [(Decimal("37.25"),)])
+            self.psql(
+                "UPDATE audit.warehouse_load_runs SET committed_at=clock_timestamp() WHERE source_table='orders'"
+            )
+            self.assertEqual(query("gmv"), [])
 
     def setUp(self):
         super().setUp()

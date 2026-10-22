@@ -1,0 +1,154 @@
+{
+  "name": "Olist Business Overview",
+  "description": "GMV excludes freight; gross paid is not net revenue. AOV = total positive eligible paid amount / paid order count. Dates use America/Sao_Paulo purchase date.",
+  "policy": "### Metric policy\nAmounts: BRL. Eligible statuses: delivered, shipped, invoiced, processing, approved, created; canceled/unavailable are excluded from money KPIs. GMV excludes freight. Gross paid is observed payments, not net revenue. AOV uses positive-payment eligible orders once; no paid orders gives NULL.\n\nDates are local purchase dates; start/end are both inclusive. Empty filters show all history. Missing items/payments are reported below.\n\nData is available after the latest pipeline run succeeds. Check publication status below and refresh after a run. Cards may refresh at different times.",
+  "cards": [
+    {
+      "key": "gmv",
+      "name": "GMV (BRL)",
+      "display": "scalar",
+      "query": "SELECT COALESCE(SUM(gmv),0) AS gmv FROM analytics.mart_revenue_daily WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] HAVING (SELECT available FROM analytics.bi_publication_status)",
+      "layout": [
+        6,
+        0,
+        6,
+        4
+      ],
+      "visualization_settings": {
+        "scalar.decimals": 2
+      }
+    },
+    {
+      "key": "paid",
+      "name": "Gross paid amount (BRL)",
+      "display": "scalar",
+      "query": "SELECT COALESCE(SUM(gross_paid_amount),0) AS paid FROM analytics.mart_revenue_daily WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] HAVING (SELECT available FROM analytics.bi_publication_status)",
+      "layout": [
+        6,
+        6,
+        6,
+        4
+      ],
+      "visualization_settings": {
+        "scalar.decimals": 2
+      }
+    },
+    {
+      "key": "aov",
+      "name": "AOV (BRL)",
+      "display": "scalar",
+      "query": "SELECT ROUND(SUM(paid_amount)/NULLIF(SUM(paid_order_count),0),2) AS aov FROM analytics.mart_average_order_value WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] HAVING (SELECT available FROM analytics.bi_publication_status)",
+      "layout": [
+        6,
+        12,
+        6,
+        4
+      ],
+      "visualization_settings": {
+        "scalar.decimals": 2
+      }
+    },
+    {
+      "key": "eligible",
+      "name": "Eligible orders",
+      "display": "scalar",
+      "query": "SELECT COALESCE(SUM(eligible_order_count),0) AS eligible FROM analytics.mart_revenue_daily WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] HAVING (SELECT available FROM analytics.bi_publication_status)",
+      "layout": [
+        6,
+        18,
+        6,
+        4
+      ],
+      "visualization_settings": {
+        "scalar.decimals": 0
+      }
+    },
+    {
+      "key": "daily_revenue",
+      "name": "Daily GMV and gross paid (BRL)",
+      "display": "line",
+      "query": "SELECT order_purchase_date,gmv,gross_paid_amount FROM analytics.mart_revenue_daily WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] AND (SELECT available FROM analytics.bi_publication_status) ORDER BY order_purchase_date",
+      "layout": [
+        10,
+        0,
+        12,
+        8
+      ],
+      "visualization_settings": {
+        "graph.dimensions": [
+          "order_purchase_date"
+        ],
+        "graph.metrics": [
+          "gmv",
+          "gross_paid_amount"
+        ]
+      }
+    },
+    {
+      "key": "daily_aov",
+      "name": "Daily AOV (BRL)",
+      "display": "line",
+      "query": "SELECT order_purchase_date,average_order_value FROM analytics.mart_average_order_value WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] AND (SELECT available FROM analytics.bi_publication_status) ORDER BY order_purchase_date",
+      "layout": [
+        10,
+        12,
+        12,
+        8
+      ],
+      "visualization_settings": {
+        "graph.dimensions": [
+          "order_purchase_date"
+        ],
+        "graph.metrics": [
+          "average_order_value"
+        ]
+      }
+    },
+    {
+      "key": "statuses",
+      "name": "Order status — all statuses",
+      "display": "bar",
+      "query": "SELECT order_status,COUNT(*) AS order_count FROM analytics.fct_orders WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] AND (SELECT available FROM analytics.bi_publication_status) GROUP BY order_status ORDER BY order_count DESC,order_status",
+      "layout": [
+        18,
+        0,
+        12,
+        7
+      ],
+      "visualization_settings": {
+        "graph.dimensions": [
+          "order_status"
+        ],
+        "graph.metrics": [
+          "order_count"
+        ]
+      }
+    },
+    {
+      "key": "completeness",
+      "name": "Eligible order completeness",
+      "display": "table",
+      "query": "SELECT SUM(eligible_order_count) AS eligible_orders,SUM(orders_without_items) AS orders_without_items,SUM(orders_without_payments) AS orders_without_payments FROM analytics.mart_revenue_daily WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] HAVING (SELECT available FROM analytics.bi_publication_status)",
+      "layout": [
+        18,
+        12,
+        12,
+        7
+      ],
+      "visualization_settings": {}
+    },
+    {
+      "key": "publication",
+      "name": "Current publication status",
+      "display": "table",
+      "query": "SELECT run_id,status,completed_at,available FROM analytics.bi_publication_status",
+      "layout": [
+        25,
+        0,
+        24,
+        4
+      ],
+      "visualization_settings": {}
+    }
+  ]
+}

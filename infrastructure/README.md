@@ -137,10 +137,22 @@ Sau nâng version chạy fast tests, DAG import/serialization và local smoke.
 Tham khảo [Apache Airflow quick start](https://airflow.apache.org/docs/apache-airflow/3.1.8/start.html)
 và [BashOperator env guidance](https://airflow.apache.org/docs/apache-airflow-providers-standard/stable/operators/bash.html).
 
+## Local Metabase
+
+Sau khi core pipeline SUCCESS, `make metabase-up` apply migration `012`, start
+pinned-digest Metabase ở loopback `METABASE_PORT` (default 3000), đợi healthcheck và
+bootstrap dashboard qua API. Admin/reader credentials được tạo ngẫu nhiên tại
+ignored `build/metabase/credentials.json` (0600); datasource dùng dedicated restricted
+reader. Root source reader/admin không được lưu vào Metabase datasource.
+
+`make metabase-setup` reconcile dashboard IDs/cards/filters; `make metabase-down`
+stop app nhưng giữ H2 metadata volume và credentials. H2 là shortcut cho local demo,
+chưa dành cho shared deployment. Backup cả volume lẫn credentials trước upgrade;
+không xóa volume để sửa bootstrap conflict. Xem [contract](../docs/data_contracts/14_business_dashboard.md).
+
 ## TODO
 
 - `TODO(orchestration)`: deployment metadata PostgreSQL.
-- `TODO(phase-3)`: thêm Metabase sau khi marts và read-only grants ổn định.
 - `TODO(security)`: dùng secret manager và network policy khi có deployment ngoài local.
 
 Không tạo container placeholder cho service chưa có executable code hoặc integration test.

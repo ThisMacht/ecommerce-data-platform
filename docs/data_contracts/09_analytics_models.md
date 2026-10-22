@@ -4,7 +4,8 @@
 
 Status: **Active — dbt views for the four core staging datasets**.
 `dbt/` dùng locked `analytics` extra, PostgreSQL adapter và schema `analytics`
-được tạo bởi migration `007`. Existing loader role sở hữu schema; reader chỉ SELECT.
+được tạo bởi migration `007`. Existing loader role sở hữu schema; reader chỉ SELECT. Migration `012` thêm
+`olist_bi_reader` NOLOGIN group chỉ đọc fct_orders, hai daily marts và publication-status view; dbt giữ grants của ba models qua rebuild.
 Không dùng dbt packages hoặc remote model dependencies.
 
 ```bash
@@ -40,7 +41,7 @@ khi chạy runner. Analytics dependency sync có thể bỏ Spark extra; dùng
 Fact giữ `customer_id`, shopper ID và `customer_key`. Missing customer không được
 inner join để âm thầm drop order hoặc gán unknown member: relationship/not-null
 tests làm fail build. Orphan child rows cũng làm fail relationship tests.
-Đây là integrity gate cho staging; persisted deferred lifecycle vẫn chưa có.
+Đây là integrity gate cho staging; persisted deferred lifecycle ở [contract 10](10_deferred_lifecycle.md).
 
 ## Customer identity and Type 1 policy
 
@@ -90,8 +91,9 @@ Các models hiện là **views**: rebuild deterministic nhưng không tạo immu
 published snapshot. dbt build không atomic toàn DAG; failed tests không rollback
 toàn bộ views đã tạo. Chỉ coi artifacts thành công khi build exit code bằng zero;
 không chạy writer/reader pipeline đồng thời khi cần một consistent business snapshot.
-Atomic mart publication, scheduled DAG orchestration, Airflow và dashboards cùng
-products/sellers FK vẫn planned. Local run/task audit và watermark gate đã có theo [pipeline contract](11_pipeline_control.md). Deferred retry/expiry đã có theo [lifecycle contract](10_deferred_lifecycle.md).
+Atomic mart publication và products/sellers FK vẫn planned. Local Airflow full/incremental/backfill wrappers đã có;
+Metabase business dashboard, dedicated reader grants và audit-based publication
+gate theo [contract 14](14_business_dashboard.md). Local run/task audit và watermark gate đã có theo [pipeline contract](11_pipeline_control.md). Deferred retry/expiry đã có theo [lifecycle contract](10_deferred_lifecycle.md).
 
 ## References
 

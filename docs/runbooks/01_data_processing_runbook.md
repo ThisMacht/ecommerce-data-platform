@@ -530,7 +530,20 @@ Xem [backfill contract](../data_contracts/13_backfill_pipeline.md) và chạy
 `make test-backfill-integration` sau thay đổi. Mutable source không phục hồi historical
 versions đã overwrite; analytics views chưa atomic publish.
 
-## 23. Change control
+## 23. Local business dashboard
+
+Sau pipeline SUCCESS, chạy `make metabase-up`; bootstrap tự tạo local private
+credentials và managed dashboard. Đọc login ở `build/metabase/credentials.json`
+(0600), URL ở `dashboard.json`. Không commit/share credentials. `make metabase-setup`
+reconcile definition; `make metabase-down` stop và giữ named volume/H2 metadata.
+
+Date filters inclusive theo local purchase date. Kiểm tra publication-status card
+và completeness trước khi dùng metrics; non-success/newer audited load chặn cards.
+AOV toàn kỳ dùng tổng paid amount / paid orders. Không chạy pipeline chỉ để xóa
+status cảnh báo khi chưa xác định nguyên nhân. Live views chưa atomic giữa các cards;
+H2 metadata dành cho local demo. Xem [contract](../data_contracts/14_business_dashboard.md).
+
+## 24. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 

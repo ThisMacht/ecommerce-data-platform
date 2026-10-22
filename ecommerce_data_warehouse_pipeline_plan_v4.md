@@ -525,7 +525,7 @@ Phase này chỉ sử dụng `orders`, `customers`, `order_items` và `order_pay
 - [x] Tạo `stg_orders`, `stg_customers`, `stg_order_items`, `stg_payments`.
 - [x] Tạo `dim_customer` có surrogate key ổn định theo shopper ID, Type 1 attributes, `int_order_item_summary`, `int_payment_summary` và `fct_orders`.
 - [x] Tạo `mart_revenue_daily` và `mart_average_order_value` cùng exact dbt reconciliation; views chưa atomic publish. Xem `docs/data_contracts/09_analytics_models.md`.
-- [ ] Dựng dashboard GMV, gross paid amount, AOV và order status.
+- [x] Local Metabase dashboard: GMV/gross paid/AOV/eligible-order KPIs, daily trends, status/completeness, inclusive date filters, dedicated BI grants và publication gate. Xem contract 14.
 - [ ] Viết README với architecture diagram, source ERD, grain, metric definitions và screenshots.
 
 Bronze path có dạng:

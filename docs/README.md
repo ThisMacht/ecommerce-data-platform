@@ -19,8 +19,9 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | 10 | [Deferred Lifecycle](data_contracts/10_deferred_lifecycle.md) | Persisted quarantine, pinned dependency retries, expiry và atomic staging resolution | Active |
 | 11 | [Pipeline Control](data_contracts/11_pipeline_control.md) | Local run/task audit, receipt gates và atomic pipeline watermark commit | Active — manual full snapshots |
 | 12 | [Incremental Pipeline](data_contracts/12_incremental_pipeline.md) | Frozen four-table deltas, 48h lookback, full FK inputs và isolated completion cursors | Active |
-
 | 13 | [Isolated Backfill](data_contracts/13_backfill_pipeline.md) | Explicit UTC repair window, frozen retry, queue isolation and unchanged scheduled controls | Active |
+
+| 14 | [Business Dashboard](data_contracts/14_business_dashboard.md) | Local Metabase, reader grants, metrics, filters and publication gate | Active |
 
 ## Related documents
 

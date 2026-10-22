@@ -3,6 +3,33 @@ name: ecommerce-data-platform
 x-postgres-image: &postgres-image postgres:17.10-alpine3.23
 
 services:
+  metabase:
+    image: metabase/metabase:v0.63.18.x@sha256:110b7b0f07e4261aa15eb13dcbdcfb7adbf79be83d5f968a9a45c34cc6633f26
+    profiles: [bi]
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      MB_DB_TYPE: h2
+      MB_DB_FILE: /metabase-data/metabase.db
+      MB_LOAD_SAMPLE_CONTENT: "false"
+      MB_ANON_TRACKING_ENABLED: "false"
+      JAVA_OPTS: -Xmx1g
+    ports:
+      - "127.0.0.1:${METABASE_PORT:-3000}:3000"
+    # shortcut: H2 metadata is local-only, use PostgreSQL before shared deployment.
+    volumes:
+      - metabase_data:/metabase-data
+    healthcheck:
+      test: [CMD, curl, --fail, --silent, http://localhost:3000/api/health]
+      interval: 5s
+      timeout: 5s
+      retries: 60
+      start_period: 30s
+    networks:
+      - platform
+
   minio:
     image: olist-minio:2025-10-15
     build:
@@ -139,6 +166,6 @@ networks:
 volumes:
   postgres_data:
   minio_data:
+  metabase_data:
 
 # Airflow uses the isolated host runtime in airflow/; dbt uses the analytics extra.
-# TODO(phase-3): Add Metabase after stable marts and read-only grants exist.

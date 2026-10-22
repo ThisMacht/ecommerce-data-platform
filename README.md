@@ -26,7 +26,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
 | dbt customer dimension, order fact and daily GMV/AOV views | Implemented — exact reconciliation and relationship tests |
 | Airflow orchestration | Implemented — paused daily full/incremental and manual backfill DAGs, isolated runtime and stable retry identity |
-| Metabase | TODO — later phases |
+| Business dashboard / Metabase | Implemented — local date-filtered GMV/paid/AOV/status, dedicated reader and publication-status gate |
 
 ## Quick start
 
@@ -188,6 +188,21 @@ Sau migration `006`, dùng `make load-warehouse SOURCE_TABLE=<table> SILVER_PREF
 Sau staging, `make dataset` tự chạy dbt build/tests cho `dim_customer`, `fct_orders` và daily GMV/AOV views. Items/payments aggregate riêng theo order trước khi join. Customer dùng shopper business key, surrogate key ổn định và current Type 1 attributes. Metric tests đối soát exact với staging, kể cả many-to-many fan-out, canceled orders và zero payments.
 
 Chạy riêng bằng `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_PASSWORD`, `DBT_READER_USER`, rồi `make dbt-build`. Xem [analytics contract](docs/data_contracts/09_analytics_models.md); kiểm thử bằng `make test-dbt-integration`. Views chưa có atomic publication hoặc end-to-end watermark; chỉ coi build thành công sau khi tests pass.
+
+## Business dashboard
+
+Sau một pipeline SUCCESS, chạy `make metabase-up`, rồi mở
+[Metabase local](http://127.0.0.1:3000). URL dashboard và IDs nằm trong ignored
+`build/metabase/dashboard.json`; admin login được tạo trong
+`build/metabase/credentials.json` (0600). `METABASE_PORT` đổi host port trong `.env`.
+
+Dashboard có GMV/gross paid/AOV/eligible-order KPIs, daily trends, status và
+completeness; start/end date inclusive. AOV dùng tổng paid amount / paid orders.
+Dedicated BI reader không có quyền đọc source/raw staging. Cards bị chặn khi latest
+pipeline chưa SUCCESS hoặc có audited load mới hơn. `make metabase-setup` reconcile
+managed resources; `make metabase-down` stop và giữ metadata. Xem
+[business dashboard contract](docs/data_contracts/14_business_dashboard.md).
+Metabase/H2 metadata dành cho local demo; live views chưa atomic xuyên các cards.
 
 ## Dirty-data verification
 
