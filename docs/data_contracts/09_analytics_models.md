@@ -6,7 +6,9 @@ Status: **Active — dbt views for six staging datasets**.
 `dbt/` dùng locked `analytics` extra, PostgreSQL adapter và schema `analytics`
 được tạo bởi migration `007`. Existing loader role sở hữu schema; reader chỉ SELECT. Migration `012` thêm
 `olist_bi_reader` NOLOGIN group chỉ đọc fct_orders, hai daily marts và publication-status view; dbt giữ grants của ba models qua rebuild.
-Không dùng dbt packages hoặc remote model dependencies.
+Không dùng dbt packages hoặc remote model dependencies. Local profile dùng một thread:
+rebuild song song các views có dependencies chung đã gây PostgreSQL deadlock
+trong integration test; final gate vẫn giữ staging locks và không bypass lỗi.
 
 ```bash
 make migrate
@@ -35,10 +37,12 @@ khi chạy runner. Analytics dependency sync có thể bỏ Spark extra; dùng
 | `int_payment_summary` | Một order: payment count, SUM(payment_value) |
 | `dim_customer` | Một `customer_unique_id`; current attributes, stable surrogate key |
 | `fct_orders` | Một order; join hai summaries để tránh items × payments fan-out |
+| `fct_order_items` | Một `(order_id, order_item_id)`; order/customer/product/seller keys, price và freight ở item grain |
+| `mart_product_daily`, `mart_seller_daily` | Một local purchase date × product/seller; item/order counts, GMV và freight |
 | `mart_revenue_daily` | Một local purchase date: GMV, freight, gross paid và completeness counts |
 | `mart_average_order_value` | Một local purchase date: paid amount, paid order count và AOV |
 
-Fact giữ `customer_id`, shopper ID và `customer_key`. Missing customer không được
+`fct_orders` giữ `customer_id`, shopper ID và `customer_key`. Missing customer không được
 inner join để âm thầm drop order hoặc gán unknown member: relationship/not-null
 tests làm fail build. Orphan child rows cũng làm fail relationship tests.
 Đây là integrity gate cho staging; persisted deferred lifecycle ở [contract 10](10_deferred_lifecycle.md).
@@ -91,18 +95,59 @@ Các models hiện là **views**: rebuild deterministic nhưng không tạo immu
 published snapshot. dbt build không atomic toàn DAG; failed tests không rollback
 toàn bộ views đã tạo. Chỉ coi artifacts thành công khi build exit code bằng zero;
 không chạy writer/reader pipeline đồng thời khi cần một consistent business snapshot.
-Atomic mart publication vẫn planned. Product/seller membership đã có trong [Silver v2 standalone](17_item_dependency_snapshots.md); core jobs chưa bật checks này. Local Airflow full/incremental/backfill wrappers đã có;
+Atomic mart publication vẫn planned. Core jobs dùng [item Silver v2](17_item_dependency_snapshots.md) với ba frozen full parent snapshots. Local Airflow full/incremental/backfill wrappers đã có;
 Metabase business dashboard, dedicated reader grants và audit-based publication
 gate theo [contract 14](14_business_dashboard.md). Local run/task audit và watermark gate đã có theo [pipeline contract](11_pipeline_control.md). Deferred retry/expiry đã có theo [lifecycle contract](10_deferred_lifecycle.md).
+
+Products/sellers dùng Type 1 dimensions trong standalone và cả ba core modes;
+xem [products](15_product_snapshots.md), [sellers](16_seller_snapshots.md).
+
+## Item Facts and Product/Seller Metrics
+
+`fct_order_items` LEFT JOIN order fact và hai Type 1 dimensions; không join payments.
+Giữ source composite key, product/seller business IDs, surrogate keys và mọi order
+statuses. Missing order/customer/product/seller để NULL và fail not-null/relationship
+hoặc reconciliation tests; không silently drop item hay tự gán unknown member.
+Type 1 attributes là hiện tại, không phải category/location tại ngày giao dịch.
+
+Marts group theo `order_purchase_date` (America/Sao_Paulo) và product/seller ID/key:
+
+- `total_item_count`: mọi item rows quan sát được, gồm canceled/unavailable.
+- `eligible_item_count`: item rows thuộc eligible statuses như order metrics.
+  Một item row là một đơn vị; không dùng `order_item_id` như quantity.
+- `eligible_order_count`: distinct orders **trong mỗi group**. Một order có thể
+  thuộc nhiều products/sellers, nên không cộng counts giữa groups để lấy global orders.
+- `gmv = SUM(price)` và `freight_amount = SUM(freight_value)` trên eligible items,
+  exact NUMERIC/BRL. Groups chỉ có ineligible items giữ counts và amounts bằng zero
+  cho eligible metrics. Không có items thì không sinh group giả.
+
+Không phân bổ payment, AOV, net revenue hoặc seller payout xuống item/product/seller.
+Mỗi item chỉ đóng góp một lần; tổng GMV/freight qua product hoặc seller groups
+khớp eligible source item totals và order daily metrics khi integrity tests đạt.
+Hai marts không thêm quyền cho Metabase; BI reader vẫn chỉ đọc ba business models
+đã cấu hình và publication-status view.
+
+`item_model_grains`, `item_fact_reconciliation`, `item_mart_reconciliation` đối
+chiếu exact keys, mapping, money, statuses, dates và grouped counts với raw staging.
+Independent integration fixtures kiểm tra multiple items/payments, nhiều products/
+sellers trong cùng order, nhiều dates, canceled/unavailable, empty inputs,
+missing dimensions và cố tình làm sai GMV để xác minh test fail.
+
+## Local Verification
+
+Full run `dataset_57c523f030ca4fe3b9bb88710412096f` ngày 2026-10-22 SUCCESS:
+26 audited tasks; dbt PASS=100 (17 view models, 83 data tests), không skip/error.
+`fct_order_items` có 112,621 rows và 112,621 unique composite keys. Tổng GMV
+13,491,218.65 BRL và freight 2,240,547.03 BRL khớp exact giữa product/seller/order
+marts. Health HEALTHY cho sáu datasets; BI publication available.
+
+Evidence ignored: `build/reports/dataset/<run_id>_pipeline.json`, run-specific
+`<run_id>_dbt/run_results.json`, `build/reports/item-models-metrics.txt` và
+`build/reports/item-models-health.json`. Automated checks: 117 unit và 20 disposable
+integration tests (9 dbt, full gate, incremental, backfill, committed-stage recovery);
+package build thành công. Chưa thêm product/seller cards hoặc grants vào Metabase.
 
 ## References
 
 Profile và environment theo [dbt profiles](https://docs.getdbt.com/docs/local/profiles.yml);
 execution/tests theo [dbt build](https://docs.getdbt.com/reference/commands/build).
-
-Products có [standalone Type 1 slice](15_product_snapshots.md); full dbt build
-bao gồm `stg_products` và `dim_product`. Items chưa join product dimension;
-membership có trong [Silver v2 standalone](17_item_dependency_snapshots.md).
-
-Sellers có [standalone Type 1 slice](16_seller_snapshots.md), giữ grain `seller_id`,
-location warnings và current attributes; chưa join seller dimension vào items.

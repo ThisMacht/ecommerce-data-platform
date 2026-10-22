@@ -186,3 +186,120 @@ models:
     description: "Canonical business-v1 hash shared with staging; excludes source versions and lineage."
     data_tests:
     - not_null
+
+- name: fct_order_items
+  description: "One current row per (order_id, order_item_id); unallocated BRL item price/freight, all order statuses retained."
+  columns:
+  - name: order_id
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('fct_orders')
+          field: order_id
+  - name: order_item_id
+    data_tests:
+    - not_null
+  - name: product_id
+    data_tests:
+    - not_null
+  - name: product_key
+    description: "Current Type 1 product; missing membership fails build."
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_product')
+          field: product_key
+  - name: seller_id
+    data_tests:
+    - not_null
+  - name: seller_key
+    description: "Current Type 1 seller; missing membership fails build."
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_seller')
+          field: seller_key
+  - name: customer_key
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_customer')
+          field: customer_key
+  - name: order_purchase_date
+    data_tests:
+    - not_null
+  - name: order_status
+    data_tests:
+    - not_null
+  - name: is_metric_eligible
+    data_tests:
+    - not_null
+  - name: shipping_limit_date
+    data_tests:
+    - not_null
+  - name: price
+    description: "BRL item amount; each source item row represents one unit, not an order total."
+    data_tests:
+    - not_null
+  - name: freight_value
+    description: "BRL source item freight; no payment or seller payout allocation."
+    data_tests:
+    - not_null
+- name: mart_product_daily
+  description: "One local purchase date and product; eligible item GMV/freight without payment joins. Order counts are distinct within a group, not additive across products."
+  columns:
+  - name: order_purchase_date
+    data_tests:
+    - not_null
+  - name: product_id
+    data_tests:
+    - not_null
+  - name: product_key
+    data_tests:
+    - not_null
+  - name: total_item_count
+    data_tests:
+    - not_null
+  - name: eligible_item_count
+    data_tests:
+    - not_null
+  - name: eligible_order_count
+    data_tests:
+    - not_null
+  - name: gmv
+    data_tests:
+    - not_null
+  - name: freight_amount
+    data_tests:
+    - not_null
+- name: mart_seller_daily
+  description: "One local purchase date and seller; eligible item GMV/freight without payment joins. Order counts are distinct within a group, not additive across sellers."
+  columns:
+  - name: order_purchase_date
+    data_tests:
+    - not_null
+  - name: seller_id
+    data_tests:
+    - not_null
+  - name: seller_key
+    data_tests:
+    - not_null
+  - name: total_item_count
+    data_tests:
+    - not_null
+  - name: eligible_item_count
+    data_tests:
+    - not_null
+  - name: eligible_order_count
+    data_tests:
+    - not_null
+  - name: gmv
+    data_tests:
+    - not_null
+  - name: freight_amount
+    data_tests:
+    - not_null

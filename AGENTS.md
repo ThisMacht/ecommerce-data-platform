@@ -12,7 +12,7 @@ Implemented: core layers, dbt, deferred retries, full/incremental audit, isolate
 - `src/olist_platform/deferred/`: quarantine registration, bounded retry/expiry and atomic staging resolution.
 - `src/olist_platform/pipeline/`: run/task audit, receipt reconciliation and all-table cursor CAS.
 - `airflow/`: isolated Python 3.12 runtime/lock and paused full/incremental and manual backfill DAGs.
-- `dbt/`: staging views, customer/product/seller Type 1 dimensions, order fact and daily GMV/AOV marts.
+- `dbt/`: staging views, customer/product/seller Type 1 dimensions, order/item facts, daily GMV/AOV and product/seller item marts.
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
 - `tests/processing/`: Spark checks with independent expected fixtures.
@@ -118,3 +118,10 @@ Products: standalone full snapshots, nullable attributes warn, negative/overflow
 Sellers use Type 1 by `seller_id`; location rules match customers. Blank locations become NULL with warnings; preserve invalid ZIP/state values with flags. Sellers/products stay full-only in every core mode; no deletes or new delta cursors; item v2 checks membership. New standalone loads require a fresh successful core gate to restore BI publication.
 
 Item v2 requires full order/product/seller snapshots from the same contract; pin all manifest hashes. Missing FKs are evaluated together; rejects/duplicates never defer. Register one `missing_item_dependencies` queue row per physical item, keep all missing rule IDs in immutable payload. Retry all three memberships atomically; v1/v2 resolvers must select their own rule scopes, including backlog counts. Never use missing product/seller flags to downgrade a v2 retry. Run `make test-item-dependencies-integration` after changes. All core modes require six dataset receipts and item v2 scope/pins. Legacy missing_order item queue entries are not auto-migrated or consumed by v2 retries; inspect backlog separately.
+
+Item analytics: `fct_order_items` grain is `(order_id, order_item_id)`; LEFT JOIN
+order context and current Type 1 product/seller keys, fail missing parents via dbt.
+Daily product/seller marts use eligible source item price/freight, never joined
+payments or allocated payout/AOV. Distinct order counts are local to each group,
+not additive across products/sellers. Reconcile against raw staging; BI grants
+remain limited to the existing three business models and status view.

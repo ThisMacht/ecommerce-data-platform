@@ -542,7 +542,24 @@ AOV toàn kỳ dùng tổng paid amount / paid orders. Không chạy pipeline ch
 status cảnh báo khi chưa xác định nguyên nhân. Live views chưa atomic giữa các cards;
 H2 metadata dành cho local demo. Xem [contract](../data_contracts/14_business_dashboard.md).
 
-## 24. Change control
+## 24. Item analytics
+
+`make dataset` và các bounded modes tự build/test `fct_order_items`,
+`mart_product_daily`, `mart_seller_daily` sau staging. Standalone modeling dùng
+`make dbt-build` với PG/dbt environment như mục 18; chạy `make test-dbt-integration`
+để kiểm tra grains, money, missing dimensions và corruption gates.
+
+Fact giữ một `(order_id, order_item_id)` và current product/seller keys. Marts dùng
+local purchase date, eligible item GMV/freight; không phân bổ payments/AOV/payout.
+Order counts distinct trong từng group, không cộng qua products/sellers. Missing
+parent làm build fail, không drop rows để ép success. Profile local dùng một dbt
+thread để tránh deadlock khi replace views có dependencies chung.
+
+Các models mới dành cho analytics reader hiện có; Metabase chưa được cấp quyền
+hoặc thêm cards. Đối chiếu status SUCCESS và source-based reconciliation trước khi
+sử dụng. Xem [metric contract](../data_contracts/09_analytics_models.md#item-facts-and-productseller-metrics).
+
+## 25. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 

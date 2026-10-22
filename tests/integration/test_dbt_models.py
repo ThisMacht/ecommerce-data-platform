@@ -92,6 +92,9 @@ class DbtModelsTest(PostgresIntegrationCase):
                 "raw_staging.orders",
                 "audit.pipeline_runs",
                 "analytics.stg_orders",
+                "analytics.fct_order_items",
+                "analytics.mart_product_daily",
+                "analytics.mart_seller_daily",
             ):
                 with (
                     self.subTest(table=table),
@@ -164,7 +167,7 @@ class DbtModelsTest(PostgresIntegrationCase):
             "nulls",
         )
         self.dbt()
-        self.assertEqual(self.psql("SELECT COUNT(*) FROM analytics.dim_product"), "2")
+        self.assertEqual(self.psql("SELECT COUNT(*) FROM analytics.dim_product"), "3")
         self.assertEqual(
             self.psql(
                 "SELECT COUNT(*) FROM analytics.dim_product d FULL JOIN raw_staging.products s USING (product_id) WHERE d.product_id IS NULL OR s.product_id IS NULL OR d.record_hash IS DISTINCT FROM s.record_hash"
@@ -268,7 +271,7 @@ class DbtModelsTest(PostgresIntegrationCase):
             "nulls",
         )
         self.dbt()
-        self.assertEqual(self.psql("SELECT COUNT(*) FROM analytics.dim_seller"), "2")
+        self.assertEqual(self.psql("SELECT COUNT(*) FROM analytics.dim_seller"), "3")
         self.assertEqual(
             self.psql(
                 "SELECT COUNT(*) FROM analytics.dim_seller d FULL JOIN raw_staging.sellers s USING (seller_id) WHERE d.seller_id IS NULL OR s.seller_id IS NULL OR d.record_hash IS DISTINCT FROM s.record_hash"
@@ -389,6 +392,8 @@ class DbtModelsTest(PostgresIntegrationCase):
             autocommit=True,
         ) as connection:
             for table, rows in (
+                ("products", [valid_row("products", "product")]),
+                ("sellers", [valid_row("sellers", "seller")]),
                 ("customers", customers),
                 ("orders", orders),
                 ("order_items", items),
@@ -560,12 +565,14 @@ class DbtModelsTest(PostgresIntegrationCase):
             "t",
         )
         self.psql(
-            "TRUNCATE raw_staging.customers, raw_staging.orders, raw_staging.order_items, raw_staging.order_payments"
+            "TRUNCATE raw_staging.customers, raw_staging.orders, raw_staging.order_items, raw_staging.order_payments, raw_staging.products, raw_staging.sellers"
         )
         self.dbt()
         self.assertEqual(
             self.psql("SELECT COUNT(*) FROM analytics.mart_revenue_daily"), "0"
         )
+        for model in ("fct_order_items", "mart_product_daily", "mart_seller_daily"):
+            self.assertEqual(self.psql(f"SELECT COUNT(*) FROM analytics.{model}"), "0")
 
     def test_reconciliation_detects_a_corrupted_fact(self):
         self.dbt()
@@ -579,3 +586,105 @@ class DbtModelsTest(PostgresIntegrationCase):
                 for r in results["results"]
             )
         )
+
+    def test_item_fact_and_daily_marts_preserve_money_and_distinct_group_orders(self):
+        self.dbt()
+        self.assertEqual(
+            self.psql("SELECT COUNT(*) FROM analytics.fct_order_items"), "4"
+        )
+        for entity in ("product", "seller"):
+            self.assertEqual(
+                self.psql(
+                    f"SELECT total_item_count,eligible_item_count,eligible_order_count,gmv,freight_amount FROM analytics.mart_{entity}_daily"
+                ),
+                "4|3|2|37.25|6.75",
+            )
+        with psycopg.connect(
+            host="127.0.0.1",
+            port=self.port,
+            dbname=self.database,
+            user="olist_test_loader",
+            password="isolated_test_loader",
+            autocommit=True,
+        ) as connection:
+            for entity in ("product", "seller"):
+                merge_rows(
+                    connection,
+                    self.contract,
+                    table=entity + "s",
+                    run_id="extra",
+                    rows=[valid_row(entity + "s", "other_" + entity, 10)],
+                    request={"fixture": "multi_dimension"},
+                    silver_counts={
+                        "input_rows": 1,
+                        "valid_rows": 1,
+                        "rejected_rows": 0,
+                        "deferred_rows": 0,
+                        "duplicates_rows": 0,
+                        "warning_rows": 0,
+                    },
+                )
+        self.psql("""UPDATE raw_staging.order_items SET product_id='other_product',seller_id='other_seller'
+                WHERE order_id='a' AND order_item_id=2;
+            UPDATE raw_staging.order_items SET seller_id='other_seller' WHERE order_id='b';
+            UPDATE raw_staging.orders SET order_purchase_date='2020-01-02'
+                WHERE order_id='b';
+            UPDATE raw_staging.orders SET order_status='unavailable' WHERE order_id='cancel';""")
+        self.dbt()
+        self.assertEqual(
+            self.psql(
+                "SELECT product_id,order_purchase_date,eligible_order_count,gmv,freight_amount FROM analytics.mart_product_daily ORDER BY product_id,order_purchase_date"
+            ),
+            "other_product|2019-12-31|1|20.00|3.00\nproduct|2019-12-31|1|10.00|2.00\nproduct|2020-01-02|1|7.25|1.75",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT seller_id,order_purchase_date,eligible_order_count,gmv,freight_amount FROM analytics.mart_seller_daily ORDER BY seller_id,order_purchase_date"
+            ),
+            "other_seller|2019-12-31|1|20.00|3.00\nother_seller|2020-01-02|1|7.25|1.75\nseller|2019-12-31|1|10.00|2.00",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT SUM(gmv),SUM(freight_amount) FROM analytics.mart_seller_daily"
+            ),
+            "37.25|6.75",
+        )
+        self.psql("""CREATE OR REPLACE VIEW analytics.mart_product_daily AS
+            SELECT order_purchase_date, product_id, product_key,
+                COUNT(*) AS total_item_count,
+                COUNT(*) FILTER (WHERE is_metric_eligible) AS eligible_item_count,
+                COUNT(DISTINCT order_id) FILTER (WHERE is_metric_eligible) AS eligible_order_count,
+                COALESCE(SUM(price) FILTER (WHERE is_metric_eligible),0::numeric) + 1 AS gmv,
+                COALESCE(SUM(freight_value) FILTER (WHERE is_metric_eligible),0::numeric) AS freight_amount
+            FROM analytics.fct_order_items GROUP BY order_purchase_date,product_id,product_key;""")
+        results = self.dbt("test", success=False)
+        self.assertTrue(
+            any(
+                r["unique_id"].endswith("item_mart_reconciliation")
+                and r["status"] == "fail"
+                for r in results["results"]
+            )
+        )
+
+    def test_missing_product_or_seller_fails_without_dropping_item_rows(self):
+        for entity in ("product", "seller"):
+            with self.subTest(entity=entity):
+                self.psql(
+                    f"UPDATE raw_staging.order_items SET {entity}_id='missing' WHERE order_id='a'"
+                )
+                results = self.dbt(success=False)
+                self.assertEqual(
+                    self.psql("SELECT COUNT(*) FROM analytics.fct_order_items"), "4"
+                )
+                self.assertTrue(
+                    any(
+                        r["unique_id"].startswith(
+                            f"test.olist_analytics.not_null_fct_order_items_{entity}_key"
+                        )
+                        and r["status"] == "fail"
+                        for r in results["results"]
+                    )
+                )
+                self.psql(
+                    f"UPDATE raw_staging.order_items SET {entity}_id='{entity}' WHERE order_id='a'"
+                )

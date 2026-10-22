@@ -25,7 +25,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Operational dashboard | Implemented — standalone HTML health snapshot; manual refresh |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
 | Full products/sellers Bronze/Silver, staging and Type 1 dimensions | Implemented — scheduled in all core modes, frozen full snapshots and item FK v2 |
-| dbt customer dimension, order fact and daily GMV/AOV views | Implemented — exact reconciliation and relationship tests |
+| dbt dimensions, order/item facts and daily marts | Implemented — GMV/AOV plus product/seller item metrics; exact reconciliation and relationship tests |
 | Airflow orchestration | Implemented — paused daily full/incremental and manual backfill DAGs, isolated runtime and stable retry identity |
 | Business dashboard / Metabase | Implemented — local date-filtered GMV/paid/AOV/status, dedicated reader and publication-status gate |
 
@@ -251,6 +251,16 @@ metrics và thresholds; không cần web server. CLI vẫn xuất JSON và trả
 code; HTML vẫn được tạo khi unhealthy. Đây là snapshot tĩnh có timestamp, không tự
 refresh. Nếu không đọc được database hoặc ghi file thất bại, command báo lỗi;
 file cũ có thể còn tồn tại nên cần kiểm tra timestamp và exit code.
+
+## Item analytics
+
+`fct_order_items` giữ grain `(order_id, order_item_id)`, join current product/seller
+Type 1 keys và order context. `mart_product_daily`/`mart_seller_daily` tính item
+counts, distinct orders trong từng group, GMV và freight theo local purchase date.
+Không join payments hoặc phân bổ AOV/payout xuống items. Order counts không cộng
+được giữa products/sellers. Xem [metric contract](docs/data_contracts/09_analytics_models.md#item-facts-and-productseller-metrics).
+Chạy `make test-dbt-integration`; `make dataset` tự build/test các models mới.
+Quyền và nội dung Metabase hiện tại giữ nguyên.
 
 ## Incremental core pipeline
 

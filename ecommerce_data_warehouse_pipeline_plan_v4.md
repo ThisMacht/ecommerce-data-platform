@@ -648,7 +648,9 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 - [ ] Tạo `int_geolocation_by_zip` bằng median latitude/longitude và mode city/state.
 - [ ] Hoàn thiện dimensions với surrogate keys, unique business keys và explicit unknown-member policy.
 - [ ] Hoàn thiện `dim_customer`, `dim_product`, `dim_seller`, `dim_location` và `dim_date`.
-- [ ] Hoàn thiện `fct_orders`, `fct_order_items`, `fct_payments` và `fct_delivery`.
+- [x] Add `fct_order_items` at composite item grain with order/customer/product/seller keys, exact source reconciliation and no payment fan-out.
+- [x] Add daily product/seller GMV, freight and item/group-order counts; independent fixtures and failure gates.
+- [ ] Hoàn thiện `fct_payments` và `fct_delivery`.
 - [ ] Kiểm tra fact foreign keys, BRL numeric precision và UTC/local-date semantics.
 - [ ] Tạo các marts về revenue, customer value, repeat purchase, product, seller, delivery delay và order status.
 - [ ] Viết descriptions cho models và columns.
