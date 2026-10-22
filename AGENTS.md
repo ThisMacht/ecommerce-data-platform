@@ -12,7 +12,7 @@ Implemented: core layers, dbt, deferred retries, full/incremental audit, isolate
 - `src/olist_platform/deferred/`: quarantine registration, bounded retry/expiry and atomic staging resolution.
 - `src/olist_platform/pipeline/`: run/task audit, receipt reconciliation and all-table cursor CAS.
 - `airflow/`: isolated Python 3.12 runtime/lock and paused full/incremental and manual backfill DAGs.
-- `dbt/`: staging views, customer/product/seller Type 1 dimensions, order/item facts, daily GMV/AOV and product/seller item marts.
+- `dbt/`: staging views, customer/product/seller Type 1 dimensions, order/item/payment facts, daily GMV/AOV, product/seller and payment-type marts.
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
 - `tests/processing/`: Spark checks with independent expected fixtures.
@@ -125,3 +125,9 @@ Daily product/seller marts use eligible source item price/freight, never joined
 payments or allocated payout/AOV. Distinct order counts are local to each group,
 not additive across products/sellers. Reconcile against raw staging; BI grants
 remain limited to the existing three business models and status view.
+
+Payment analytics: `fct_payments` grain is `(order_id, payment_sequential)`, not
+installment grain. Never multiply payment_value by payment_installments or join
+items into payment metrics. Daily type mart sums eligible observed BRL payments;
+distinct eligible orders include zero-paid orders and are not additive across
+types. AOV stays at positive-payment order grain; BI grants stay unchanged.

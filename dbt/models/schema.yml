@@ -303,3 +303,65 @@ models:
   - name: freight_amount
     data_tests:
     - not_null
+
+- name: fct_payments
+  description: "One current row per (order_id, payment_sequential); observed BRL payment value, not multiplied by installments or allocated to items. All order statuses retained."
+  columns:
+  - name: order_id
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('fct_orders')
+          field: order_id
+  - name: payment_sequential
+    description: "Source payment-entry sequence within an order, not an installment number. Different entries may use the same type."
+    data_tests:
+    - not_null
+  - name: customer_key
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_customer')
+          field: customer_key
+  - name: order_purchase_date
+    data_tests:
+    - not_null
+  - name: order_status
+    data_tests:
+    - not_null
+  - name: is_metric_eligible
+    data_tests:
+    - not_null
+  - name: payment_type
+    data_tests:
+    - not_null
+  - name: payment_installments
+    data_tests:
+    - not_null
+  - name: payment_value
+    description: "Full observed BRL amount for this payment entry; never multiply by payment_installments."
+    data_tests:
+    - not_null
+- name: mart_payment_type_daily
+  description: "One local purchase date and payment type; eligible observed gross payments, not net revenue. Order counts are distinct within each type and cannot be added across types."
+  columns:
+  - name: order_purchase_date
+    data_tests:
+    - not_null
+  - name: payment_type
+    data_tests:
+    - not_null
+  - name: total_payment_count
+    data_tests:
+    - not_null
+  - name: eligible_payment_count
+    data_tests:
+    - not_null
+  - name: eligible_order_count
+    data_tests:
+    - not_null
+  - name: gross_paid_amount
+    data_tests:
+    - not_null

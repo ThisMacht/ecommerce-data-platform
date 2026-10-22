@@ -39,6 +39,8 @@ khi chạy runner. Analytics dependency sync có thể bỏ Spark extra; dùng
 | `fct_orders` | Một order; join hai summaries để tránh items × payments fan-out |
 | `fct_order_items` | Một `(order_id, order_item_id)`; order/customer/product/seller keys, price và freight ở item grain |
 | `mart_product_daily`, `mart_seller_daily` | Một local purchase date × product/seller; item/order counts, GMV và freight |
+| `fct_payments` | Một `(order_id, payment_sequential)`; observed payment amount, type, installments và order/customer context |
+| `mart_payment_type_daily` | Một local purchase date × payment type; entry counts, group distinct orders và gross paid |
 | `mart_revenue_daily` | Một local purchase date: GMV, freight, gross paid và completeness counts |
 | `mart_average_order_value` | Một local purchase date: paid amount, paid order count và AOV |
 
@@ -133,6 +135,36 @@ Independent integration fixtures kiểm tra multiple items/payments, nhiều pro
 sellers trong cùng order, nhiều dates, canceled/unavailable, empty inputs,
 missing dimensions và cố tình làm sai GMV để xác minh test fail.
 
+## Payment Facts and Type Metrics
+
+`fct_payments` giữ mọi payment entry và order statuses, LEFT JOIN order context;
+missing order/customer làm integrity tests fail thay vì drop rows. Không join items
+hoặc phân bổ payment tới product/seller. `payment_sequential` là thứ tự payment
+entry trong order; không phải số installment. Nhiều entries có thể cùng type.
+
+`payment_value` là observed amount của một entry (BRL, exact NUMERIC); không nhân
+với `payment_installments` và không suy ra lịch trả góp/cash settlement. Dữ liệu
+không đại diện net revenue, refunds hay seller payout.
+
+`mart_payment_type_daily` group theo local purchase date và payment type:
+
+- `total_payment_count`: mọi entries trong group, gồm canceled/unavailable.
+- `eligible_payment_count`: entries thuộc eligible order statuses.
+- `eligible_order_count`: distinct eligible orders trong type/date, gồm zero-paid
+  orders; không phải denominator AOV và không cộng qua types để lấy global orders.
+- `gross_paid_amount`: SUM eligible `payment_value`, zero nếu group chỉ có
+  ineligible entries. Không có input thì không sinh group giả.
+
+Order có mixed types được tính một lần trong mỗi type có payment entry; order
+có nhiều entries cùng type vẫn chỉ tính một order trong group. Amounts cộng qua
+types/dates khớp gross paid của order mart khi integrity tests đạt. AOV vẫn lấy
+order-grain positive payment total ở `mart_average_order_value`.
+
+`payment_model_grains`, `payment_fact_reconciliation` và
+`payment_type_reconciliation` kiểm tra keys, customer mapping, dates, status,
+installments, exact money và grouped counts bằng raw staging độc lập. BI reader
+vẫn chỉ có quyền trên ba business models và publication-status view hiện có.
+
 ## Local Verification
 
 Full run `dataset_57c523f030ca4fe3b9bb88710412096f` ngày 2026-10-22 SUCCESS:
@@ -146,6 +178,21 @@ Evidence ignored: `build/reports/dataset/<run_id>_pipeline.json`, run-specific
 `build/reports/item-models-health.json`. Automated checks: 117 unit và 20 disposable
 integration tests (9 dbt, full gate, incremental, backfill, committed-stage recovery);
 package build thành công. Chưa thêm product/seller cards hoặc grants vào Metabase.
+
+### Payment Expansion
+
+Full run `dataset_e0a5a4b13c8f4e3f81662efec1854712` ngày 2026-10-22 SUCCESS:
+26 tasks, 122 dbt nodes (19 views, 103 data tests), không error/skip. Payment fact
+có 103,869 rows và unique composite keys. Gross paid 15,736,441.59 BRL khớp exact
+giữa payment-type và order marts. Health HEALTHY, BI publication available.
+
+Evidence ignored: run-specific pipeline/dbt reports ở `build/reports/dataset/`,
+`build/reports/payment-models-metrics.txt`, `build/reports/payment-models-health.json`.
+117 unit tests và 22 distinct integration cases đã kiểm chứng: 11 dbt cases
+(orphan-payment case được rerun sau khi sửa test để kiểm tra view đã tồn tại),
+11 full/incremental/backfill/recovery cases; package build thành công. Mixed-type
+fixture giữ gross paid 43.25 BRL; cố tình nhân installment làm cả hai payment
+reconciliation tests fail. Không mở thêm quyền hoặc cards Metabase.
 
 ## References
 

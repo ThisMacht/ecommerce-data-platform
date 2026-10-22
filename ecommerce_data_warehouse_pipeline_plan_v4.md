@@ -650,7 +650,8 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 - [ ] Hoàn thiện `dim_customer`, `dim_product`, `dim_seller`, `dim_location` và `dim_date`.
 - [x] Add `fct_order_items` at composite item grain with order/customer/product/seller keys, exact source reconciliation and no payment fan-out.
 - [x] Add daily product/seller GMV, freight and item/group-order counts; independent fixtures and failure gates.
-- [ ] Hoàn thiện `fct_payments` và `fct_delivery`.
+- [x] Add `fct_payments` at composite payment-entry grain and daily payment-type observed amounts/counts; exact source reconciliation without installment multiplication or item fan-out.
+- [ ] Hoàn thiện `fct_delivery`.
 - [ ] Kiểm tra fact foreign keys, BRL numeric precision và UTC/local-date semantics.
 - [ ] Tạo các marts về revenue, customer value, repeat purchase, product, seller, delivery delay và order status.
 - [ ] Viết descriptions cho models và columns.

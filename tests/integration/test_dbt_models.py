@@ -92,6 +92,8 @@ class DbtModelsTest(PostgresIntegrationCase):
                 "raw_staging.orders",
                 "audit.pipeline_runs",
                 "analytics.stg_orders",
+                "analytics.fct_payments",
+                "analytics.mart_payment_type_daily",
                 "analytics.fct_order_items",
                 "analytics.mart_product_daily",
                 "analytics.mart_seller_daily",
@@ -571,7 +573,13 @@ class DbtModelsTest(PostgresIntegrationCase):
         self.assertEqual(
             self.psql("SELECT COUNT(*) FROM analytics.mart_revenue_daily"), "0"
         )
-        for model in ("fct_order_items", "mart_product_daily", "mart_seller_daily"):
+        for model in (
+            "fct_order_items",
+            "mart_product_daily",
+            "mart_seller_daily",
+            "fct_payments",
+            "mart_payment_type_daily",
+        ):
             self.assertEqual(self.psql(f"SELECT COUNT(*) FROM analytics.{model}"), "0")
 
     def test_reconciliation_detects_a_corrupted_fact(self):
@@ -688,3 +696,75 @@ class DbtModelsTest(PostgresIntegrationCase):
                 self.psql(
                     f"UPDATE raw_staging.order_items SET {entity}_id='{entity}' WHERE order_id='a'"
                 )
+
+    def test_payment_entries_types_installments_dates_and_exact_money(self):
+        self.dbt()
+        self.assertEqual(self.psql("SELECT COUNT(*) FROM analytics.fct_payments"), "5")
+        self.assertEqual(
+            self.psql(
+                "SELECT total_payment_count,eligible_payment_count,eligible_order_count,gross_paid_amount FROM analytics.mart_payment_type_daily"
+            ),
+            "5|4|3|43.25",
+        )
+        self.psql("""UPDATE raw_staging.order_payments SET payment_type='voucher',payment_installments=3
+                WHERE order_id='a' AND payment_sequential=2;
+            UPDATE raw_staging.order_payments SET payment_type='boleto' WHERE order_id='cancel';
+            UPDATE raw_staging.order_payments SET payment_type='not_defined' WHERE order_id='zero';
+            UPDATE raw_staging.orders SET order_purchase_date='2020-01-02' WHERE order_id='b';
+            UPDATE raw_staging.orders SET order_status='unavailable' WHERE order_id='cancel';""")
+        self.dbt()
+        self.assertEqual(
+            self.psql(
+                "SELECT payment_type,order_purchase_date,total_payment_count,eligible_payment_count,eligible_order_count,gross_paid_amount FROM analytics.mart_payment_type_daily ORDER BY payment_type,order_purchase_date"
+            ),
+            "boleto|2019-12-31|1|0|0|0\ncredit_card|2019-12-31|1|1|1|15.00\ncredit_card|2020-01-02|1|1|1|8.25\nnot_defined|2019-12-31|1|1|1|0.00\nvoucher|2019-12-31|1|1|1|20.00",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT payment_sequential,payment_installments,payment_value FROM analytics.fct_payments WHERE order_id='a' ORDER BY payment_sequential"
+            ),
+            "1|1|15.00\n2|3|20.00",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT SUM(gross_paid_amount),SUM(eligible_order_count) FROM analytics.mart_payment_type_daily"
+            ),
+            "43.25|4",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT SUM(paid_order_count) FROM analytics.mart_average_order_value"
+            ),
+            "2",
+        )
+        self.psql("""CREATE OR REPLACE VIEW analytics.fct_payments AS
+            SELECT p.order_id,p.payment_sequential,o.customer_key,o.order_purchase_date,
+                o.order_status,o.is_metric_eligible,p.payment_type,p.payment_installments,
+                (p.payment_value*p.payment_installments)::numeric(18,2) AS payment_value
+            FROM analytics.stg_payments p LEFT JOIN analytics.fct_orders o USING (order_id);""")
+        results = self.dbt("test", success=False)
+        for test in ("payment_fact_reconciliation", "payment_type_reconciliation"):
+            self.assertTrue(
+                any(
+                    r["unique_id"].endswith(test) and r["status"] == "fail"
+                    for r in results["results"]
+                )
+            )
+
+    def test_missing_payment_order_fails_without_dropping_payment_rows(self):
+        self.dbt()
+        self.psql(
+            "UPDATE raw_staging.order_payments SET order_id='orphan' WHERE order_id='b'"
+        )
+        results = self.dbt("test", success=False)
+        self.assertEqual(self.psql("SELECT COUNT(*) FROM analytics.fct_payments"), "5")
+        self.assertTrue(
+            any(
+                r["unique_id"].startswith(
+                    "test.olist_analytics.not_null_fct_payments_order_purchase_date"
+                )
+                and r["status"] == "fail"
+                for r in results["results"]
+            )
+        )
+        self.dbt(success=False)

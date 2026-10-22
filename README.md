@@ -25,7 +25,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Operational dashboard | Implemented — standalone HTML health snapshot; manual refresh |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
 | Full products/sellers Bronze/Silver, staging and Type 1 dimensions | Implemented — scheduled in all core modes, frozen full snapshots and item FK v2 |
-| dbt dimensions, order/item facts and daily marts | Implemented — GMV/AOV plus product/seller item metrics; exact reconciliation and relationship tests |
+| dbt dimensions, order/item/payment facts and daily marts | Implemented — GMV/AOV, product/seller and payment-type metrics; exact reconciliation and relationship tests |
 | Airflow orchestration | Implemented — paused daily full/incremental and manual backfill DAGs, isolated runtime and stable retry identity |
 | Business dashboard / Metabase | Implemented — local date-filtered GMV/paid/AOV/status, dedicated reader and publication-status gate |
 
@@ -261,6 +261,15 @@ Không join payments hoặc phân bổ AOV/payout xuống items. Order counts kh
 được giữa products/sellers. Xem [metric contract](docs/data_contracts/09_analytics_models.md#item-facts-and-productseller-metrics).
 Chạy `make test-dbt-integration`; `make dataset` tự build/test các models mới.
 Quyền và nội dung Metabase hiện tại giữ nguyên.
+
+## Payment analytics
+
+`fct_payments` giữ grain `(order_id, payment_sequential)`, LEFT JOIN order context.
+`mart_payment_type_daily` tính entry counts, distinct eligible orders trong từng
+payment type/date và observed gross paid. Không nhân amount với installments,
+không join items và không dùng type order counts làm AOV denominator. `make dataset`
+tự build/test; standalone dùng `make dbt-build` với PG/dbt environment hiện có.
+Xem [payment metric contract](docs/data_contracts/09_analytics_models.md#payment-facts-and-type-metrics).
 
 ## Incremental core pipeline
 

@@ -559,7 +559,20 @@ Các models mới dành cho analytics reader hiện có; Metabase chưa được
 hoặc thêm cards. Đối chiếu status SUCCESS và source-based reconciliation trước khi
 sử dụng. Xem [metric contract](../data_contracts/09_analytics_models.md#item-facts-and-productseller-metrics).
 
-## 25. Change control
+## 25. Payment analytics
+
+`make dataset` và bounded modes tự build/test `fct_payments` và
+`mart_payment_type_daily`; standalone dùng `make dbt-build` với environment ở mục 18.
+`make test-dbt-integration` kiểm tra mixed types, nhiều entries/parent items,
+installments, zero amount, canceled/unavailable, empty input và corruption gates.
+
+Giữ `(order_id, payment_sequential)` làm key; `payment_value` đã là amount của
+entry, không nhân với installments hoặc join items. Type/date order counts không
+cộng được qua types, gồm zero-paid orders và không thay AOV denominator. Missing
+parent làm build fail; giữ pending run để resume. Không thêm quyền/cards Metabase.
+Xem [payment metrics](../data_contracts/09_analytics_models.md#payment-facts-and-type-metrics).
+
+## 26. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 
