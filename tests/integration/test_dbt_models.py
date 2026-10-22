@@ -130,6 +130,7 @@ class DbtModelsTest(PostgresIntegrationCase):
                 "analytics.fct_delivery",
                 "analytics.mart_delivery_daily",
                 "analytics.fct_payments",
+                "analytics.dim_date",
                 "analytics.dim_product",
                 "analytics.dim_seller",
                 "analytics.fct_order_items",
@@ -635,6 +636,7 @@ class DbtModelsTest(PostgresIntegrationCase):
             "mart_payment_type_daily",
             "fct_delivery",
             "mart_delivery_daily",
+            "dim_date",
         ):
             self.assertEqual(self.psql(f"SELECT COUNT(*) FROM analytics.{model}"), "0")
 
@@ -796,7 +798,8 @@ class DbtModelsTest(PostgresIntegrationCase):
         self.psql("""CREATE OR REPLACE VIEW analytics.fct_payments AS
             SELECT p.order_id,p.payment_sequential,o.customer_key,o.order_purchase_date,
                 o.order_status,o.is_metric_eligible,p.payment_type,p.payment_installments,
-                (p.payment_value*p.payment_installments)::numeric(18,2) AS payment_value
+                (p.payment_value*p.payment_installments)::numeric(18,2) AS payment_value,
+                o.order_purchase_date_key
             FROM analytics.stg_payments p LEFT JOIN analytics.fct_orders o USING (order_id);""")
         results = self.dbt("test", success=False)
         for test in ("payment_fact_reconciliation", "payment_type_reconciliation"):
@@ -929,6 +932,96 @@ class DbtModelsTest(PostgresIntegrationCase):
             "t|t",
         )
 
+    def test_date_dimension_continuity_iso_leap_day_and_fact_roles(self):
+        self.psql("""UPDATE raw_staging.orders SET
+            order_purchase_date='2019-12-30', order_purchase_timestamp='2019-12-30T12:00:00Z',
+            order_estimated_delivery_date='2020-03-02T02:00:00Z',
+            order_delivered_customer_date=CASE WHEN order_id='a' THEN '2020-03-01T02:00:00Z'::timestamptz END;
+            UPDATE raw_staging.orders SET order_purchase_date='2021-01-01',
+                order_purchase_timestamp='2021-01-01T12:00:00Z',
+                order_estimated_delivery_date='2021-01-05T02:00:00Z' WHERE order_id='pending';
+            UPDATE raw_staging.orders SET order_delivered_customer_date='2019-12-29T02:00:00Z' WHERE order_id='cancel';""")
+        self.dbt()
+        self.assertEqual(
+            self.psql(
+                "SELECT MIN(calendar_date),MAX(calendar_date),COUNT(*) FROM analytics.dim_date"
+            ),
+            "2019-12-28|2021-01-04|374",
+        )
+        self.assertEqual(
+            self.psql("""SELECT date_key,calendar_year,calendar_quarter,calendar_month,day_of_month,
+                iso_year,iso_week,iso_day_of_week,is_weekend FROM analytics.dim_date
+                WHERE calendar_date IN ('2019-12-30','2020-02-29','2021-01-01') ORDER BY calendar_date"""),
+            "20191230|2019|4|12|30|2020|1|1|f\n20200229|2020|1|2|29|2020|9|6|t\n20210101|2021|1|1|1|2020|53|5|f",
+        )
+        for model, count in (
+            ("fct_orders", 5),
+            ("fct_order_items", 4),
+            ("fct_payments", 5),
+            ("fct_delivery", 5),
+        ):
+            self.assertEqual(
+                self.psql(
+                    f"SELECT COUNT(*) FROM analytics.{model} WHERE order_purchase_date_key = CASE WHEN order_id='pending' THEN 20210101 ELSE 20191230 END"
+                ),
+                str(count),
+            )
+        expected = "a|20200301|20200229\nb|20200301|\ncancel|20200301|20191228\npending|20210104|\nzero|20200301|"
+        query = "SELECT order_id,estimated_delivery_date_key,delivered_date_key FROM analytics.fct_delivery ORDER BY order_id"
+        self.assertEqual(self.psql(query), expected)
+        self.assertEqual(
+            self.psql("SET TIME ZONE 'Asia/Tokyo'; " + query).splitlines()[-5:],
+            expected.splitlines(),
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT is_delivery_observed,delivered_date_key FROM analytics.fct_delivery WHERE order_id='a'"
+            ),
+            "f|20200229",
+        )
+
+    def test_date_reconciliation_rejects_valid_but_wrong_keys_and_attributes(self):
+        self.dbt()
+        self.psql("""CREATE OR REPLACE VIEW analytics.fct_payments AS
+            SELECT p.order_id,p.payment_sequential,o.customer_key,o.order_purchase_date,
+                o.order_status,o.is_metric_eligible,p.payment_type,p.payment_installments,p.payment_value,
+                20200101::integer AS order_purchase_date_key
+            FROM analytics.stg_payments p LEFT JOIN analytics.fct_orders o USING (order_id);""")
+        results = self.dbt("test", success=False)
+        self.assertTrue(
+            any(
+                r["unique_id"].endswith("fact_date_reconciliation")
+                and r["status"] == "fail"
+                for r in results["results"]
+            )
+        )
+        relationships = [
+            r
+            for r in results["results"]
+            if "relationships_fct_payments_order_purchase_date_key" in r["unique_id"]
+        ]
+        self.assertEqual(len(relationships), 1)
+        self.assertEqual(relationships[0]["status"], "pass")
+        self.dbt()
+        self.psql("""CREATE OR REPLACE VIEW analytics.dim_date AS
+            SELECT TO_CHAR(d,'YYYYMMDD')::integer AS date_key,d AS calendar_date,
+                EXTRACT(YEAR FROM d)::integer AS calendar_year,
+                EXTRACT(QUARTER FROM d)::integer AS calendar_quarter,
+                EXTRACT(MONTH FROM d)::integer AS calendar_month,
+                EXTRACT(DAY FROM d)::integer AS day_of_month,
+                9999::integer AS iso_year, EXTRACT(WEEK FROM d)::integer AS iso_week,
+                EXTRACT(ISODOW FROM d)::integer AS iso_day_of_week,
+                EXTRACT(ISODOW FROM d) IN (6,7) AS is_weekend
+            FROM (SELECT '2019-12-31'::date+n AS d FROM generate_series(0,9) n) dates;""")
+        results = self.dbt("test", success=False)
+        self.assertTrue(
+            any(
+                r["unique_id"].endswith("date_dimension_reconciliation")
+                and r["status"] == "fail"
+                for r in results["results"]
+            )
+        )
+
     def test_delivery_reconciliation_detects_a_corrupted_duration(self):
         self.psql("""UPDATE raw_staging.orders SET order_status='delivered',
             order_delivered_customer_date=order_purchase_timestamp+INTERVAL '48 hours'
@@ -948,8 +1041,12 @@ class DbtModelsTest(PostgresIntegrationCase):
                 CASE WHEN o.order_status='delivered' THEN
                     (o.order_delivered_customer_date AT TIME ZONE 'America/Sao_Paulo')::date > (o.order_estimated_delivery_date AT TIME ZONE 'America/Sao_Paulo')::date END AS is_late_delivery,
                 CASE WHEN o.order_status='delivered' THEN 999::numeric END AS delivery_elapsed_hours,
-                NULL::numeric AS carrier_to_delivery_hours
-            FROM analytics.stg_orders o LEFT JOIN analytics.fct_orders f USING (order_id);""")
+                NULL::numeric AS carrier_to_delivery_hours,
+                f.order_purchase_date_key, ed.date_key AS estimated_delivery_date_key,
+                dd.date_key AS delivered_date_key
+            FROM analytics.stg_orders o LEFT JOIN analytics.fct_orders f USING (order_id)
+            LEFT JOIN analytics.dim_date ed ON ed.calendar_date=(o.order_estimated_delivery_date AT TIME ZONE 'America/Sao_Paulo')::date
+            LEFT JOIN analytics.dim_date dd ON dd.calendar_date=(o.order_delivered_customer_date AT TIME ZONE 'America/Sao_Paulo')::date;""")
         results = self.dbt("test", success=False)
         for test in ("delivery_fact_reconciliation", "delivery_metric_reconciliation"):
             self.assertTrue(

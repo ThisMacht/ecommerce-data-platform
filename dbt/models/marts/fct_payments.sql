@@ -7,6 +7,7 @@ SELECT
     o.is_metric_eligible,
     p.payment_type,
     p.payment_installments,
-    p.payment_value
+    p.payment_value,
+    o.order_purchase_date_key
 FROM {{ ref('stg_payments') }} p
 LEFT JOIN {{ ref('fct_orders') }} o ON p.order_id = o.order_id

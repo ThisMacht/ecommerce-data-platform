@@ -11,7 +11,8 @@ SELECT
     o.is_metric_eligible,
     i.shipping_limit_date,
     i.price,
-    i.freight_value
+    i.freight_value,
+    o.order_purchase_date_key
 FROM {{ ref('stg_order_items') }} i
 LEFT JOIN {{ ref('fct_orders') }} o ON i.order_id = o.order_id
 LEFT JOIN {{ ref('dim_product') }} p ON i.product_id = p.product_id

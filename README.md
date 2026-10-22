@@ -25,7 +25,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Operational dashboard | Implemented — standalone HTML health snapshot; manual refresh |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
 | Full products/sellers Bronze/Silver, staging and Type 1 dimensions | Implemented — scheduled in all core modes, frozen full snapshots and item FK v2 |
-| dbt dimensions, order/item/payment/delivery facts and daily marts | Implemented — GMV/AOV, product/seller/payment-type and delivery cohort metrics; exact reconciliation and relationship tests |
+| dbt calendar/Type 1 dimensions, order/item/payment/delivery facts and daily marts | Implemented — GMV/AOV, product/seller/payment-type and delivery cohort metrics; exact reconciliation and relationship tests |
 | Airflow orchestration | Implemented — paused daily full/incremental and manual backfill DAGs, isolated runtime and stable retry identity |
 | Business dashboard / Metabase | Implemented — date-filtered GMV/paid/AOV, product/seller rankings and payment-type charts; restricted reader and publication gate |
 
@@ -271,6 +271,14 @@ payment type/date và observed gross paid. Không nhân amount với installment
 không join items và không dùng type order counts làm AOV denominator. `make dataset`
 tự build/test; standalone dùng `make dbt-build` với PG/dbt environment hiện có.
 Xem [payment metric contract](docs/data_contracts/09_analytics_models.md#payment-facts-and-type-metrics).
+
+## Calendar dimension
+
+`dim_date` chứa liên tục các ngày từ min/max local purchase, estimated và actual
+delivery dates; dữ liệu rỗng cho lịch rỗng. Bốn facts có purchase date key YYYYMMDD;
+delivery thêm estimated/actual role keys. ISO week dùng cùng ISO year, weekday
+Monday=1; không tự suy diễn holiday calendar. `make dbt-build` hoặc các core runners
+tự build/test; BI grants giữ nguyên. Xem [calendar contract](docs/data_contracts/09_analytics_models.md#calendar-dimension-and-fact-date-roles).
 
 ## Delivery analytics
 

@@ -647,7 +647,8 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 - [ ] Ingest reviews và geolocation.
 - [ ] Tạo `int_geolocation_by_zip` bằng median latitude/longitude và mode city/state.
 - [ ] Hoàn thiện dimensions với surrogate keys, unique business keys và explicit unknown-member policy.
-- [ ] Hoàn thiện `dim_customer`, `dim_product`, `dim_seller`, `dim_location` và `dim_date`.
+- [x] Current Type 1 `dim_customer`, `dim_product`, `dim_seller`; continuous `dim_date` with local date role keys in all facts, ISO/leap/empty/corruption checks.
+- [ ] Hoàn thiện `dim_location` sau geolocation ingestion.
 - [x] Add `fct_order_items` at composite item grain with order/customer/product/seller keys, exact source reconciliation and no payment fan-out.
 - [x] Add daily product/seller GMV, freight and item/group-order counts; independent fixtures and failure gates.
 - [x] Add `fct_payments` at composite payment-entry grain and daily payment-type observed amounts/counts; exact source reconciliation without installment multiplication or item fan-out.

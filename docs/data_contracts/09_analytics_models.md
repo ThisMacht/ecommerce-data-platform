@@ -36,6 +36,7 @@ khi chạy runner. Analytics dependency sync có thể bỏ Spark extra; dùng
 | `stg_customers`, `stg_orders`, `stg_order_items`, `stg_payments` | Giữ source business grain, đã được Silver/staging normalize |
 | `int_order_item_summary` | Một order: item count, SUM(price), SUM(freight) |
 | `int_payment_summary` | Một order: payment count, SUM(payment_value) |
+| `dim_date` | Một ngày liên tục giữa min/max observed local purchase/estimated/actual dates; integer YYYYMMDD key |
 | `dim_customer` | Một `customer_unique_id`; current attributes, stable surrogate key |
 | `fct_orders` | Một order; join hai summaries để tránh items × payments fan-out |
 | `fct_order_items` | Một `(order_id, order_item_id)`; order/customer/product/seller keys, price và freight ở item grain |
@@ -215,6 +216,32 @@ counts/rates với raw staging. Independent fixtures kiểm tra same-day midnigh
 early/late, Sao Paulo DST, session timezone, missing carrier/actual, canceled actual,
 invalid ordering, empty inputs và cố tình corrupt duration để xác minh gates fail.
 
+## Calendar dimension and fact date roles
+
+`dim_date` là continuous calendar từ min đến max của purchase date đã normalize
+và estimated/actual delivery dates chuyển rõ bằng `America/Sao_Paulo`. Bao gồm
+ngày không có orders; không có source dates thì dimension rỗng. Dùng integer day
+offsets, không dùng timestamp series hoặc session timezone. Không tự thêm future
+dates, holiday/fiscal calendar hay unknown member.
+
+`date_key` là integer YYYYMMDD, ổn định qua rebuild. Attributes gồm calendar
+năm/quý/tháng/ngày, `iso_year`, `iso_week`, `iso_day_of_week` (Monday=1) và
+`is_weekend` (Saturday/Sunday). ISO week phải ghép với ISO year: 2019-12-30 thuộc
+2020-W01; 2021-01-01 thuộc 2020-W53.
+
+Bốn facts giữ nguyên date columns và thêm `order_purchase_date_key`. Items/payments
+kế thừa purchase key từ order; delivery thêm `estimated_delivery_date_key` và
+`delivered_date_key`. Actual key NULL khi timestamp thiếu; chronology/status không
+xóa actual date key dù observation bị loại khỏi metrics. Đây là role-playing date
+joins, không thêm rows, phân bổ tiền hoặc đổi eligibility. Không cấp BI quyền đọc
+dimension. Lịch là view theo current staging: sửa source bounds có thể đổi phạm vi.
+
+`date_dimension_reconciliation` đối chiếu source bounds, từng ngày và attributes;
+`fact_date_reconciliation` so date keys với raw staging, phát hiện cả valid key
+nhưng trỏ sai ngày. Generic tests kiểm tra uniqueness, not-null và relationships.
+Fixtures kiểm tra giao năm ISO, leap day, gaps, delivery dates ngoài purchase range,
+NULL actual, session timezone, empty sources và corruption failure gates.
+
 ## Local Verification
 
 Full run `dataset_57c523f030ca4fe3b9bb88710412096f` ngày 2026-10-22 SUCCESS:
@@ -266,6 +293,26 @@ Evidence ignored: `build/reports/delivery_dbt/run_results.json`,
 `build/reports/delivery-models-local.json`, `build/reports/delivery-models-health.json`.
 Health HEALTHY, BI available; dedicated BI reader vẫn bị từ chối đọc hai delivery
 models. Modeling build không chứng nhận historical source versions hoặc carrier SLA.
+
+### Calendar Expansion
+
+Local locked dbt build ngày 2026-10-22: PASS=167 (22 views, 145 data tests), không
+error/skip. Lịch có 800 ngày liên tục từ 2016-09-04 đến 2018-11-12. Purchase keys
+map đúng cho 99,424 orders, 112,621 items, 103,869 payments và 99,424 delivery rows;
+không làm thay đổi các grains hoặc pipeline controls. Có 99,424 estimated keys,
+96,460 actual keys; 194 actual timestamps không đủ điều kiện valid observation
+vẫn giữ date key để truy vết.
+
+Build giữ staging SHARE locks; không extract hoặc tạo pipeline SUCCESS mới cho
+thay đổi modeling. Health HEALTHY, BI available; dedicated BI reader bị từ chối
+đọc `dim_date`. Evidence ignored: `build/reports/calendar_dbt/run_results.json`,
+`build/reports/calendar-models-local.json`, `build/reports/calendar-models-health.json`.
+
+117 unit và 26 distinct integration cases pass: 15 dbt, 1 full gate, 6 incremental,
+2 backfill và 2 recovery. Calendar boundary case được rerun sau khi thêm actual/
+estimated dates nằm ngoài purchase bounds. Valid-but-wrong date key vẫn qua
+relationship test nhưng fail source reconciliation; corrupt ISO year cũng fail.
+Ruff, contract/config/shell checks và package build thành công.
 
 ## References
 

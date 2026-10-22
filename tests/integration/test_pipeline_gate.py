@@ -149,7 +149,7 @@ class PipelineGateTest(CorePipelineCase):
                 Path(directory),
             )
             self.assertEqual(completed["status"], "SUCCESS")
-            self.assertEqual(completed["dbt"]["node_count"], 149)
+            self.assertEqual(completed["dbt"]["node_count"], 167)
             self.assertEqual(
                 self.psql("SELECT MIN(cursor_version) FROM audit.pipeline_control"), "1"
             )

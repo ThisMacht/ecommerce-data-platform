@@ -12,7 +12,7 @@ Implemented: core layers, dbt, deferred retries, full/incremental audit, isolate
 - `src/olist_platform/deferred/`: quarantine registration, bounded retry/expiry and atomic staging resolution.
 - `src/olist_platform/pipeline/`: run/task audit, receipt reconciliation and all-table cursor CAS.
 - `airflow/`: isolated Python 3.12 runtime/lock and paused full/incremental and manual backfill DAGs.
-- `dbt/`: staging views, customer/product/seller Type 1 dimensions, order/item/payment/delivery facts, daily GMV/AOV, product/seller/payment-type and delivery cohort marts.
+- `dbt/`: staging views, customer/product/seller Type 1 dimensions, continuous local-calendar dim_date, order/item/payment/delivery facts, daily GMV/AOV, product/seller/payment-type and delivery cohort marts.
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
 - `tests/processing/`: Spark checks with independent expected fixtures.
@@ -144,3 +144,10 @@ Lateness uses Sao Paulo calendar dates; durations use UTC elapsed hours, not loc
 wall-clock subtraction. Incomplete/invalid/non-delivered metrics stay NULL.
 Daily mart uses purchase-date cohorts; expose observation counts, keep undefined
 rates/means NULL and never average daily rates. No new BI grants for these models.
+
+Calendar: `dim_date` spans observed local purchase/estimated/actual dates including
+unused intervening days; no dates means no rows. Keys are integer YYYYMMDD;
+ISO weeks require iso_year, weekdays Monday=1. Purchase keys propagate through
+all four facts; actual delivery keys stay NULL only without a timestamp,
+independent of delivery observation eligibility. Preserve explicit Sao Paulo
+conversion, empty behavior and existing BI grants when extending date roles.

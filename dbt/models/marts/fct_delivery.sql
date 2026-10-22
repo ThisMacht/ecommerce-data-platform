@@ -16,11 +16,17 @@ WITH timeline AS (
         AND NOT has_invalid_delivery_chronology AS is_delivery_observed
     FROM timeline
 )
-SELECT *,
+SELECT o.*,
     CASE WHEN is_delivery_observed THEN delivered_date - estimated_delivery_date END AS delivery_delay_days,
     CASE WHEN is_delivery_observed THEN delivered_date > estimated_delivery_date END AS is_late_delivery,
     CASE WHEN is_delivery_observed
         THEN EXTRACT(EPOCH FROM (order_delivered_customer_date - order_purchase_timestamp)) / 3600 END AS delivery_elapsed_hours,
     CASE WHEN is_delivery_observed AND order_delivered_carrier_date IS NOT NULL
-        THEN EXTRACT(EPOCH FROM (order_delivered_customer_date - order_delivered_carrier_date)) / 3600 END AS carrier_to_delivery_hours
-FROM observed
+        THEN EXTRACT(EPOCH FROM (order_delivered_customer_date - order_delivered_carrier_date)) / 3600 END AS carrier_to_delivery_hours,
+    pd.date_key AS order_purchase_date_key,
+    ed.date_key AS estimated_delivery_date_key,
+    dd.date_key AS delivered_date_key
+FROM observed o
+LEFT JOIN {{ ref('dim_date') }} pd ON o.order_purchase_date = pd.calendar_date
+LEFT JOIN {{ ref('dim_date') }} ed ON o.estimated_delivery_date = ed.calendar_date
+LEFT JOIN {{ ref('dim_date') }} dd ON o.delivered_date = dd.calendar_date

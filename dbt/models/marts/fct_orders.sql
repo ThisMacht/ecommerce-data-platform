@@ -11,9 +11,11 @@ SELECT
     COALESCE(p.payment_count, 0) AS payment_count,
     i.item_amount,
     i.freight_amount,
-    p.gross_paid_amount
+    p.gross_paid_amount,
+    pd.date_key AS order_purchase_date_key
 FROM {{ ref('stg_orders') }} o
 LEFT JOIN {{ ref('stg_customers') }} c ON o.customer_id = c.customer_id
 LEFT JOIN {{ ref('dim_customer') }} d ON c.customer_unique_id = d.customer_unique_id
 LEFT JOIN {{ ref('int_order_item_summary') }} i ON o.order_id = i.order_id
 LEFT JOIN {{ ref('int_payment_summary') }} p ON o.order_id = p.order_id
+LEFT JOIN {{ ref('dim_date') }} pd ON o.order_purchase_date = pd.calendar_date

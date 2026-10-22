@@ -597,7 +597,20 @@ Không dùng wall clock để đo overdue; không điền NULL bằng zero hoặ
 rates/means để lấy whole-period metrics. Query fact hoặc weight bằng observation
 counts. Hai models không được thêm vào BI reader; xem [delivery contract](../data_contracts/09_analytics_models.md#delivery-facts-and-cohort-metrics).
 
-## 28. Change control
+## 28. Calendar and date keys
+
+Pipeline tự build/test `dim_date` và date keys trong bốn facts. Standalone dùng
+`make dbt-build` sau khi export PG/dbt environment ở mục 18; chạy
+`make test-dbt-integration` để kiểm tra dates/ISO/grain và failure gates.
+Join purchase keys hoặc estimated/actual delivery role keys với `dim_date.date_key`;
+ISO grouping cần `iso_year, iso_week`, không dùng calendar year cho ISO week.
+
+Dimension bao phủ local observed dates, gồm gaps; rỗng khi inputs rỗng. NULL actual
+key nghĩa là thiếu timestamp, không đồng nghĩa delivery chưa hợp lệ. Giữ nguyên
+local date columns cho date filters hiện có; không mở thêm quyền BI/dimension.
+Xem [calendar contract](../data_contracts/09_analytics_models.md#calendar-dimension-and-fact-date-roles).
+
+## 29. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 

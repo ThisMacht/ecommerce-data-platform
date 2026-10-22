@@ -70,6 +70,15 @@ models:
   - name: order_purchase_date
     data_tests:
     - not_null
+  - name: order_purchase_date_key
+    description: "YYYYMMDD key for the corresponding Sao Paulo calendar date."
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_date')
+          field: date_key
+
 - name: mart_revenue_daily
   columns:
   - name: order_purchase_date
@@ -249,6 +258,15 @@ models:
     description: "BRL source item freight; no payment or seller payout allocation."
     data_tests:
     - not_null
+  - name: order_purchase_date_key
+    description: "YYYYMMDD key for the corresponding Sao Paulo calendar date."
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_date')
+          field: date_key
+
 - name: mart_product_daily
   description: "One local purchase date and product; eligible item GMV/freight without payment joins. Order counts are distinct within a group, not additive across products."
   columns:
@@ -344,6 +362,15 @@ models:
     description: "Full observed BRL amount for this payment entry; never multiply by payment_installments."
     data_tests:
     - not_null
+  - name: order_purchase_date_key
+    description: "YYYYMMDD key for the corresponding Sao Paulo calendar date."
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_date')
+          field: date_key
+
 - name: mart_payment_type_daily
   description: "One local purchase date and payment type; eligible observed gross payments, not net revenue. Order counts are distinct within each type and cannot be added across types."
   columns:
@@ -424,6 +451,30 @@ models:
     description: "UTC elapsed hours purchase to actual delivery, numeric, NULL for missing/invalid/non-delivered observation."
   - name: carrier_to_delivery_hours
     description: "UTC elapsed hours carrier to delivery; NULL without a valid observation or carrier milestone."
+  - name: order_purchase_date_key
+    description: "YYYYMMDD key for the corresponding Sao Paulo calendar date."
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_date')
+          field: date_key
+  - name: estimated_delivery_date_key
+    description: "YYYYMMDD key for the corresponding Sao Paulo calendar date."
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_date')
+          field: date_key
+  - name: delivered_date_key
+    description: "YYYYMMDD key for the corresponding Sao Paulo calendar date."
+    data_tests:
+    - relationships:
+        arguments:
+          to: ref('dim_date')
+          field: date_key
+
 - name: mart_delivery_daily
   description: "Purchase-date cohort, not delivery-day throughput. Observed delivered timelines form the late-rate denominator; incomplete and invalid counts remain visible."
   columns:
@@ -461,3 +512,26 @@ models:
     description: "Mean UTC purchase-to-delivery hours over observed_delivery_count; NULL when no observations."
   - name: avg_carrier_to_delivery_hours
     description: "Mean UTC carrier-to-delivery hours over transit_observation_count; NULL when carrier observations are absent."
+
+- name: dim_date
+  description: "Continuous calendar covering observed purchase, promised and actual Sao Paulo delivery dates; empty without dates. Pair ISO week with iso_year."
+  columns:
+  - name: date_key
+    description: "Stable integer YYYYMMDD."
+    data_tests:
+    - not_null
+    - unique
+  - name: calendar_date
+    data_tests:
+    - not_null
+    - unique
+  - name: calendar_year
+  - name: calendar_quarter
+  - name: calendar_month
+  - name: day_of_month
+  - name: iso_year
+  - name: iso_week
+  - name: iso_day_of_week
+    description: "Monday=1 through Sunday=7."
+  - name: is_weekend
+    description: "Saturday or Sunday; no holiday calendar is inferred."
