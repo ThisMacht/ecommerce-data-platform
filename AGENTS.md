@@ -107,7 +107,7 @@ Full runner freezes six full streams and audits 26 tasks; incremental runner aud
 Airflow retries must retain original DAG/run context; clear the same task instance, never replace an unfinished run. Missing CSV/Java fails orchestration. Standalone SQLite metadata is local-only; don't install Airflow into the root environment.
 
 Business BI uses `olist_metabase_reader` inheriting `olist_bi_reader`: only SELECT on
-three business models plus publication-status view. Keep dbt grants through rebuild.
+six business models (fct_orders, mart_revenue_daily, mart_average_order_value, mart_product_daily, mart_seller_daily, mart_payment_type_daily) plus publication-status view. Keep dbt grants through rebuild.
 Managed Metabase content comes from `config/metabase_dashboard.json`; never commit
 credentials/metadata, expose admin/source credentials as datasource, average daily
 AOV, or treat live views as atomic snapshots. H2 metadata is local-only. A latest
@@ -124,10 +124,15 @@ order context and current Type 1 product/seller keys, fail missing parents via d
 Daily product/seller marts use eligible source item price/freight, never joined
 payments or allocated payout/AOV. Distinct order counts are local to each group,
 not additive across products/sellers. Reconcile against raw staging; BI grants
-remain limited to the existing three business models and status view.
+are limited to those six published models and status view; no item/payment facts, dimensions, staging or source.
 
 Payment analytics: `fct_payments` grain is `(order_id, payment_sequential)`, not
 installment grain. Never multiply payment_value by payment_installments or join
 items into payment metrics. Daily type mart sums eligible observed BRL payments;
 distinct eligible orders include zero-paid orders and are not additive across
-types. AOV stays at positive-payment order grain; BI grants stay unchanged.
+types. AOV stays at positive-payment order grain; BI access to the aggregate type mart stays SELECT-only.
+
+Dashboard payment-type series must match the five Silver-validated types. Daily
+trend pivots to one row/date to avoid Metabase's observed 2,000-row truncation;
+recheck limits when extending history or allowed types. Preserve managed IDs,
+inclusive date mappings and publication gates when changing cards.

@@ -651,6 +651,7 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 - [x] Add `fct_order_items` at composite item grain with order/customer/product/seller keys, exact source reconciliation and no payment fan-out.
 - [x] Add daily product/seller GMV, freight and item/group-order counts; independent fixtures and failure gates.
 - [x] Add `fct_payments` at composite payment-entry grain and daily payment-type observed amounts/counts; exact source reconciliation without installment multiplication or item fan-out.
+- [x] Extend Metabase with product/seller top-10 tables and payment-type charts; SELECT-only aggregate grants, date filters and publication gates.
 - [ ] Hoàn thiện `fct_delivery`.
 - [ ] Kiểm tra fact foreign keys, BRL numeric precision và UTC/local-date semantics.
 - [ ] Tạo các marts về revenue, customer value, repeat purchase, product, seller, delivery delay và order status.

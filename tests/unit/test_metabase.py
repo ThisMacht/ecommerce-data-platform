@@ -33,7 +33,7 @@ class MetabaseTest(unittest.TestCase):
     def test_native_cards_have_stable_date_tags_and_do_not_mutate_definitions(self):
         definition = json.loads((ROOT / "config/metabase_dashboard.json").read_text())
         original = deepcopy(definition)
-        self.assertEqual(len({c["key"] for c in definition["cards"]}), 9)
+        self.assertEqual(len({c["key"] for c in definition["cards"]}), 13)
         for spec in definition["cards"]:
             first = native_card(spec, 12, 3)
             self.assertEqual(native_card(spec, 12, 3), first)

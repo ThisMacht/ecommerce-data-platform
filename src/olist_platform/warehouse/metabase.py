@@ -229,7 +229,7 @@ def provision(api: API, services: dict, secret: dict, definition: dict) -> dict:
             "row": 0,
             "col": 0,
             "size_x": 24,
-            "size_y": 6,
+            "size_y": 8,
             "visualization_settings": {
                 "virtual_card": {"display": "text"},
                 "text": definition["policy"],

@@ -5,7 +5,8 @@
 Status: **Active — dbt views for six staging datasets**.
 `dbt/` dùng locked `analytics` extra, PostgreSQL adapter và schema `analytics`
 được tạo bởi migration `007`. Existing loader role sở hữu schema; reader chỉ SELECT. Migration `012` thêm
-`olist_bi_reader` NOLOGIN group chỉ đọc fct_orders, hai daily marts và publication-status view; dbt giữ grants của ba models qua rebuild.
+`olist_bi_reader` NOLOGIN group chỉ đọc fct_orders, hai order daily marts, ba
+product/seller/payment-type marts và publication-status view; dbt giữ grants qua rebuild.
 Không dùng dbt packages hoặc remote model dependencies. Local profile dùng một thread:
 rebuild song song các views có dependencies chung đã gây PostgreSQL deadlock
 trong integration test; final gate vẫn giữ staging locks và không bypass lỗi.
@@ -126,8 +127,8 @@ Marts group theo `order_purchase_date` (America/Sao_Paulo) và product/seller ID
 Không phân bổ payment, AOV, net revenue hoặc seller payout xuống item/product/seller.
 Mỗi item chỉ đóng góp một lần; tổng GMV/freight qua product hoặc seller groups
 khớp eligible source item totals và order daily metrics khi integrity tests đạt.
-Hai marts không thêm quyền cho Metabase; BI reader vẫn chỉ đọc ba business models
-đã cấu hình và publication-status view.
+Metabase đọc hai aggregate marts này qua SELECT grants; không được đọc item fact
+hoặc dimensions. Xem [BI contract](14_business_dashboard.md).
 
 `item_model_grains`, `item_fact_reconciliation`, `item_mart_reconciliation` đối
 chiếu exact keys, mapping, money, statuses, dates và grouped counts với raw staging.
@@ -162,8 +163,8 @@ order-grain positive payment total ở `mart_average_order_value`.
 
 `payment_model_grains`, `payment_fact_reconciliation` và
 `payment_type_reconciliation` kiểm tra keys, customer mapping, dates, status,
-installments, exact money và grouped counts bằng raw staging độc lập. BI reader
-vẫn chỉ có quyền trên ba business models và publication-status view hiện có.
+installments, exact money và grouped counts bằng raw staging độc lập. BI reader có SELECT trên aggregate type mart, cùng năm business models khác và
+publication-status view; không được đọc payment fact.
 
 ## Local Verification
 

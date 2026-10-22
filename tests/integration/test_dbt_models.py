@@ -6,6 +6,7 @@ import re
 import subprocess
 import sys
 import tempfile
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -85,6 +86,40 @@ class DbtModelsTest(PostgresIntegrationCase):
             )
             self.assertEqual(query("aov", start_date="2050-01-01"), [(None,)])
             self.assertEqual(query("gmv", start_date="2050-01-01"), [(Decimal(0),)])
+            new_cards = (
+                "top_products",
+                "top_sellers",
+                "payment_types",
+                "daily_payment_types",
+            )
+            self.assertEqual(
+                query("top_products"),
+                [("product", Decimal("37.25"), Decimal("6.75"), 3, 2)],
+            )
+            self.assertEqual(
+                query("top_sellers"),
+                [("seller", Decimal("37.25"), Decimal("6.75"), 3, 2)],
+            )
+            self.assertEqual(
+                query("payment_types"), [("credit_card", Decimal("48.25"), 4, 3)]
+            )
+            self.assertEqual(
+                query("daily_payment_types"),
+                [
+                    (date(2019, 12, 31), Decimal("40.00"), 0, 0, 0, 0),
+                    (date(2020, 1, 2), Decimal("8.25"), 0, 0, 0, 0),
+                ],
+            )
+            for key in new_cards:
+                self.assertEqual(query(key, start_date="2050-01-01"), [])
+            self.assertEqual(
+                query("top_products", start_date="2020-01-02", end_date="2020-01-02"),
+                [("product", Decimal("7.25"), Decimal("1.75"), 1, 1)],
+            )
+            self.assertEqual(
+                query("payment_types", start_date="2020-01-02", end_date="2020-01-02"),
+                [("credit_card", Decimal("8.25"), 1, 1)],
+            )
             for key in specs:
                 query(key)
             for table in (
@@ -93,10 +128,9 @@ class DbtModelsTest(PostgresIntegrationCase):
                 "audit.pipeline_runs",
                 "analytics.stg_orders",
                 "analytics.fct_payments",
-                "analytics.mart_payment_type_daily",
+                "analytics.dim_product",
+                "analytics.dim_seller",
                 "analytics.fct_order_items",
-                "analytics.mart_product_daily",
-                "analytics.mart_seller_daily",
             ):
                 with (
                     self.subTest(table=table),
@@ -107,6 +141,20 @@ class DbtModelsTest(PostgresIntegrationCase):
             with self.assertRaises(psycopg.errors.InsufficientPrivilege):
                 reader.execute("UPDATE raw_staging.orders SET order_status='canceled'")
             self.dbt()
+            for key in new_cards:
+                self.assertTrue(query(key))
+            for model in (
+                "mart_product_daily",
+                "mart_seller_daily",
+                "mart_payment_type_daily",
+            ):
+                for privilege in ("INSERT", "UPDATE", "DELETE"):
+                    self.assertFalse(
+                        reader.execute(
+                            "SELECT has_table_privilege(current_user,%s,%s)",
+                            (f"analytics.{model}", privilege),
+                        ).fetchone()[0]
+                    )
             self.assertEqual(query("gmv"), [(Decimal("37.25"),)])
             self.psql("""INSERT INTO audit.pipeline_runs
                 (run_id,pipeline_name,run_type,request,request_sha256,control_before,status)
@@ -118,6 +166,8 @@ class DbtModelsTest(PostgresIntegrationCase):
             self.psql(
                 "UPDATE audit.pipeline_runs SET status='FAILED',completed_at=clock_timestamp() WHERE run_id='pending'"
             )
+            for key in new_cards:
+                self.assertEqual(query(key), [])
             self.assertEqual(query("gmv"), [])
             self.psql(
                 "UPDATE audit.pipeline_runs SET status='SUCCESS',completed_at=clock_timestamp() WHERE run_id='pending'"
@@ -127,6 +177,8 @@ class DbtModelsTest(PostgresIntegrationCase):
                 "UPDATE audit.warehouse_load_runs SET committed_at=clock_timestamp() WHERE source_table='orders'"
             )
             self.assertEqual(query("gmv"), [])
+            for key in new_cards:
+                self.assertEqual(query(key), [])
 
     def test_product_type1_keys_nulls_hash_and_reconciliation(self):
         def load(row, run_id):

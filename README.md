@@ -27,7 +27,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Full products/sellers Bronze/Silver, staging and Type 1 dimensions | Implemented — scheduled in all core modes, frozen full snapshots and item FK v2 |
 | dbt dimensions, order/item/payment facts and daily marts | Implemented — GMV/AOV, product/seller and payment-type metrics; exact reconciliation and relationship tests |
 | Airflow orchestration | Implemented — paused daily full/incremental and manual backfill DAGs, isolated runtime and stable retry identity |
-| Business dashboard / Metabase | Implemented — local date-filtered GMV/paid/AOV/status, dedicated reader and publication-status gate |
+| Business dashboard / Metabase | Implemented — date-filtered GMV/paid/AOV, product/seller rankings and payment-type charts; restricted reader and publication gate |
 
 ## Quick start
 
@@ -260,7 +260,8 @@ counts, distinct orders trong từng group, GMV và freight theo local purchase 
 Không join payments hoặc phân bổ AOV/payout xuống items. Order counts không cộng
 được giữa products/sellers. Xem [metric contract](docs/data_contracts/09_analytics_models.md#item-facts-and-productseller-metrics).
 Chạy `make test-dbt-integration`; `make dataset` tự build/test các models mới.
-Quyền và nội dung Metabase hiện tại giữ nguyên.
+Metabase có top-10 product/seller tables và payment-type charts, chỉ SELECT trên
+aggregate marts; xem [dashboard contract](docs/data_contracts/14_business_dashboard.md).
 
 ## Payment analytics
 

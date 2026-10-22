@@ -1,7 +1,7 @@
 {
   "name": "Olist Business Overview",
-  "description": "GMV excludes freight; gross paid is not net revenue. AOV = total positive eligible paid amount / paid order count. Dates use America/Sao_Paulo purchase date.",
-  "policy": "### Metric policy\nAmounts: BRL. Eligible statuses: delivered, shipped, invoiced, processing, approved, created; canceled/unavailable are excluded from money KPIs. GMV excludes freight. Gross paid is observed payments, not net revenue. AOV uses positive-payment eligible orders once; no paid orders gives NULL.\n\nDates are local purchase dates; start/end are both inclusive. Empty filters show all history. Missing items/payments are reported below.\n\nData is available after the latest pipeline run succeeds. Check publication status below and refresh after a run. Cards may refresh at different times.",
+  "description": "GMV excludes freight; gross paid is not net revenue. AOV = total positive eligible paid amount / paid order count. Dates use America/Sao_Paulo purchase date. Product/seller rankings and payment-type mix use observed item/payment amounts.",
+  "policy": "### Metric policy\nAmounts: BRL. Eligible statuses: delivered, shipped, invoiced, processing, approved, created; canceled/unavailable are excluded from money KPIs. GMV excludes freight. Gross paid is observed payments, not net revenue. AOV uses positive-payment eligible orders once; no paid orders gives NULL.\n\nDates are local purchase dates; start/end are both inclusive. Empty filters show all history. Missing items/payments are reported below.\n\nData is available after the latest pipeline run succeeds. Check publication status below and refresh after a run. Cards may refresh at different times.\n\nProduct/seller tables show the top 10 by eligible item GMV (ties by business ID). Order counts are distinct within each product/seller and must not be summed across groups. Payment-type charts show observed gross paid, not installment-adjusted revenue or payout. Counts per type include zero-paid orders and are not the AOV denominator.",
   "cards": [
     {
       "key": "gmv",
@@ -9,7 +9,7 @@
       "display": "scalar",
       "query": "SELECT COALESCE(SUM(gmv),0) AS gmv FROM analytics.mart_revenue_daily WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] HAVING (SELECT available FROM analytics.bi_publication_status)",
       "layout": [
-        6,
+        8,
         0,
         6,
         4
@@ -24,7 +24,7 @@
       "display": "scalar",
       "query": "SELECT COALESCE(SUM(gross_paid_amount),0) AS paid FROM analytics.mart_revenue_daily WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] HAVING (SELECT available FROM analytics.bi_publication_status)",
       "layout": [
-        6,
+        8,
         6,
         6,
         4
@@ -39,7 +39,7 @@
       "display": "scalar",
       "query": "SELECT ROUND(SUM(paid_amount)/NULLIF(SUM(paid_order_count),0),2) AS aov FROM analytics.mart_average_order_value WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] HAVING (SELECT available FROM analytics.bi_publication_status)",
       "layout": [
-        6,
+        8,
         12,
         6,
         4
@@ -54,7 +54,7 @@
       "display": "scalar",
       "query": "SELECT COALESCE(SUM(eligible_order_count),0) AS eligible FROM analytics.mart_revenue_daily WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] HAVING (SELECT available FROM analytics.bi_publication_status)",
       "layout": [
-        6,
+        8,
         18,
         6,
         4
@@ -69,7 +69,7 @@
       "display": "line",
       "query": "SELECT order_purchase_date,gmv,gross_paid_amount FROM analytics.mart_revenue_daily WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] AND (SELECT available FROM analytics.bi_publication_status) ORDER BY order_purchase_date",
       "layout": [
-        10,
+        12,
         0,
         12,
         8
@@ -90,7 +90,7 @@
       "display": "line",
       "query": "SELECT order_purchase_date,average_order_value FROM analytics.mart_average_order_value WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] AND (SELECT available FROM analytics.bi_publication_status) ORDER BY order_purchase_date",
       "layout": [
-        10,
+        12,
         12,
         12,
         8
@@ -110,7 +110,7 @@
       "display": "bar",
       "query": "SELECT order_status,COUNT(*) AS order_count FROM analytics.fct_orders WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] AND (SELECT available FROM analytics.bi_publication_status) GROUP BY order_status ORDER BY order_count DESC,order_status",
       "layout": [
-        18,
+        20,
         0,
         12,
         7
@@ -130,7 +130,7 @@
       "display": "table",
       "query": "SELECT SUM(eligible_order_count) AS eligible_orders,SUM(orders_without_items) AS orders_without_items,SUM(orders_without_payments) AS orders_without_payments FROM analytics.mart_revenue_daily WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] HAVING (SELECT available FROM analytics.bi_publication_status)",
       "layout": [
-        18,
+        20,
         12,
         12,
         7
@@ -143,12 +143,84 @@
       "display": "table",
       "query": "SELECT run_id,status,completed_at,available FROM analytics.bi_publication_status",
       "layout": [
-        25,
+        27,
         0,
         24,
         4
       ],
       "visualization_settings": {}
+    },
+    {
+      "key": "top_products",
+      "name": "Top 10 products by GMV (BRL)",
+      "display": "table",
+      "query": "SELECT product_id,SUM(gmv) AS gmv,SUM(freight_amount) AS freight_amount,SUM(eligible_item_count) AS eligible_items,SUM(eligible_order_count) AS orders_with_product FROM analytics.mart_product_daily WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] AND (SELECT available FROM analytics.bi_publication_status) GROUP BY product_id HAVING SUM(eligible_item_count)>0 ORDER BY gmv DESC,product_id LIMIT 10",
+      "layout": [
+        31,
+        0,
+        24,
+        10
+      ],
+      "visualization_settings": {}
+    },
+    {
+      "key": "top_sellers",
+      "name": "Top 10 sellers by GMV (BRL)",
+      "display": "table",
+      "query": "SELECT seller_id,SUM(gmv) AS gmv,SUM(freight_amount) AS freight_amount,SUM(eligible_item_count) AS eligible_items,SUM(eligible_order_count) AS orders_with_seller FROM analytics.mart_seller_daily WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] AND (SELECT available FROM analytics.bi_publication_status) GROUP BY seller_id HAVING SUM(eligible_item_count)>0 ORDER BY gmv DESC,seller_id LIMIT 10",
+      "layout": [
+        41,
+        0,
+        24,
+        10
+      ],
+      "visualization_settings": {}
+    },
+    {
+      "key": "payment_types",
+      "name": "Gross paid by payment type (BRL)",
+      "display": "bar",
+      "query": "SELECT payment_type,SUM(gross_paid_amount) AS gross_paid_amount,SUM(eligible_payment_count) AS eligible_payments,SUM(eligible_order_count) AS orders_with_type FROM analytics.mart_payment_type_daily WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] AND (SELECT available FROM analytics.bi_publication_status) GROUP BY payment_type HAVING SUM(eligible_payment_count)>0 ORDER BY gross_paid_amount DESC,payment_type",
+      "layout": [
+        51,
+        0,
+        12,
+        8
+      ],
+      "visualization_settings": {
+        "graph.dimensions": [
+          "payment_type"
+        ],
+        "graph.metrics": [
+          "gross_paid_amount"
+        ],
+        "graph.y_axis.auto_split": false
+      }
+    },
+    {
+      "key": "daily_payment_types",
+      "name": "Daily gross paid by payment type (BRL)",
+      "display": "line",
+      "query": "SELECT order_purchase_date,COALESCE(SUM(gross_paid_amount) FILTER (WHERE payment_type='credit_card'),0) AS credit_card,COALESCE(SUM(gross_paid_amount) FILTER (WHERE payment_type='boleto'),0) AS boleto,COALESCE(SUM(gross_paid_amount) FILTER (WHERE payment_type='voucher'),0) AS voucher,COALESCE(SUM(gross_paid_amount) FILTER (WHERE payment_type='debit_card'),0) AS debit_card,COALESCE(SUM(gross_paid_amount) FILTER (WHERE payment_type='not_defined'),0) AS not_defined FROM analytics.mart_payment_type_daily WHERE TRUE [[AND order_purchase_date >= {{start_date}}]] [[AND order_purchase_date <= {{end_date}}]] AND (SELECT available FROM analytics.bi_publication_status) AND eligible_payment_count>0 GROUP BY order_purchase_date ORDER BY order_purchase_date",
+      "layout": [
+        51,
+        12,
+        12,
+        8
+      ],
+      "visualization_settings": {
+        "graph.dimensions": [
+          "order_purchase_date"
+        ],
+        "graph.metrics": [
+          "credit_card",
+          "boleto",
+          "voucher",
+          "debit_card",
+          "not_defined"
+        ],
+        "graph.y_axis.auto_split": false
+      }
     }
   ]
 }

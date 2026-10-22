@@ -555,8 +555,8 @@ Order counts distinct trong từng group, không cộng qua products/sellers. Mi
 parent làm build fail, không drop rows để ép success. Profile local dùng một dbt
 thread để tránh deadlock khi replace views có dependencies chung.
 
-Các models mới dành cho analytics reader hiện có; Metabase chưa được cấp quyền
-hoặc thêm cards. Đối chiếu status SUCCESS và source-based reconciliation trước khi
+Metabase đọc product/seller aggregate marts qua SELECT-only grants; top-10
+tables dùng cùng date filters và publication gate. Không cấp quyền facts/dimensions. Đối chiếu status SUCCESS và source-based reconciliation trước khi
 sử dụng. Xem [metric contract](../data_contracts/09_analytics_models.md#item-facts-and-productseller-metrics).
 
 ## 25. Payment analytics
@@ -569,10 +569,22 @@ installments, zero amount, canceled/unavailable, empty input và corruption gate
 Giữ `(order_id, payment_sequential)` làm key; `payment_value` đã là amount của
 entry, không nhân với installments hoặc join items. Type/date order counts không
 cộng được qua types, gồm zero-paid orders và không thay AOV denominator. Missing
-parent làm build fail; giữ pending run để resume. Không thêm quyền/cards Metabase.
+parent làm build fail; giữ pending run để resume. Metabase đọc aggregate type mart qua SELECT-only grants; không cấp quyền payment fact.
 Xem [payment metrics](../data_contracts/09_analytics_models.md#payment-facts-and-type-metrics).
 
-## 26. Change control
+## 26. Aggregate BI permissions and cards
+
+Chạy `make migrate` rồi `make metabase-setup` khi latest pipeline SUCCESS và marts
+đã tồn tại. Migration `017` cấp SELECT cho ba aggregate marts mới; dbt grants giữ
+quyền qua rebuild. Trên database mới, chạy pipeline để tạo marts trước setup.
+Không cấp source/staging/fact/dimension privileges hoặc tạo datasource admin.
+
+Dashboard có 13 saved cards và một policy text: rankings top 10 products/sellers,
+payment-type amounts/trends dùng cùng inclusive date filters và publication gate.
+Chạy setup lại giữ IDs, không duplicate cards. Kiểm tra `build/metabase/dashboard.json`
+và [BI contract](../data_contracts/14_business_dashboard.md); không commit credentials.
+
+## 27. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 
