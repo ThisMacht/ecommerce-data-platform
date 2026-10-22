@@ -8,13 +8,13 @@ from airflow.sdk import DAG
 
 with DAG(
     dag_id="olist_core_incremental",
-    description="Frozen deltas with 48-hour lookback and full FK snapshots",
+    description="Four frozen deltas, four full FK parents and three-parent item gates",
     schedule="@daily",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     catchup=False,
     max_active_runs=1,
     is_paused_upon_creation=True,
-    tags=["olist", "local", "incremental"],
+    tags=["olist", "local", "item-fk-v2", "incremental"],
 ) as dag:
     BashOperator(
         task_id="run_core_pipeline",

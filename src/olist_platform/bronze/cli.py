@@ -40,7 +40,9 @@ def main() -> int:
     )
     extract.add_argument("--pipeline-parent", action="store_true")
     extract.add_argument(
-        "--pipeline-mode", choices=("incremental", "backfill"), default="incremental"
+        "--pipeline-mode",
+        choices=("full", "incremental", "backfill"),
+        default="incremental",
     )
     extract.add_argument(
         "--full-snapshot",

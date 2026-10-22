@@ -28,7 +28,7 @@ class ProductContractTest(unittest.TestCase):
             self.contract, store, "http://localhost:9000", 2, "products"
         )
         self.assertEqual(config["pipeline"], "bronze_products_v1")
-        with self.assertRaisesRegex(BronzeError, "not part of the core"):
+        with self.assertRaisesRegex(BronzeError, "Invalid incremental stream"):
             configuration(
                 self.contract,
                 store,
@@ -37,6 +37,24 @@ class ProductContractTest(unittest.TestCase):
                 "products",
                 pipeline_run_id="core",
             )
+
+    def test_product_supports_owned_full_and_bounded_parent_streams(self):
+        for mode, parent in (
+            ("full", False),
+            ("incremental", True),
+            ("backfill", True),
+        ):
+            config = configuration(
+                self.contract,
+                ObjectStore(None, "bucket"),
+                "http://localhost:9000",
+                2,
+                "products",
+                pipeline_run_id="owner",
+                pipeline_mode=mode,
+                pipeline_parent=parent,
+            )
+            self.assertEqual(config["snapshot_kind"], "FULL")
 
     def test_products_require_full_bronze_and_silver(self):
         manifest = {

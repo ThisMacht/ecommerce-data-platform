@@ -1,6 +1,6 @@
 # Olist E-commerce Data Platform
 
-Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source simulator, immutable Bronze/Silver layers, warehouse models và dashboards. Hiện đã có source validation, PostgreSQL source layer/simulator và bốn core datasets Bronze/PySpark Silver trên MinIO; các phase sau được theo dõi trong [Pipeline Implementation Plan](ecommerce_data_warehouse_pipeline_plan_v4.md).
+Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source simulator, immutable Bronze/Silver layers, warehouse models và dashboards. Hiện đã có source validation, PostgreSQL source layer/simulator và sáu datasets Bronze/PySpark Silver trên MinIO; các phase sau được theo dõi trong [Pipeline Implementation Plan](ecommerce_data_warehouse_pipeline_plan_v4.md).
 
 ## Current status
 
@@ -12,19 +12,19 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Dockerized PostgreSQL, migrations and source seed | Implemented |
 | Live schema contract checks and isolated source integration tests | Implemented |
 | Source simulator mutation batches | Implemented — 4 core tables |
-| Bounded extraction and immutable Bronze on MinIO | Implemented — all four core datasets; full parent snapshots |
+| Bounded extraction and immutable Bronze on MinIO | Implemented — four core deltas plus full products/sellers and parent snapshots |
 | Orders PySpark normalization, routing and immutable Silver Parquet | Implemented — local rules and optional customer FK/deferred routing |
 | Full customer snapshots and normalized customer Silver | Implemented — parent manifest/hash pinned to orders runs |
-| Items/payments Silver with composite grain and decimal money | Implemented — pinned full orders FK checks; standalone v2 adds product/seller FK; scheduled v1 remains order-only |
+| Items/payments Silver with composite grain and decimal money | Implemented — scheduled item v2 pins full order/product/seller snapshots; payments pin orders |
 | PostgreSQL raw staging and transactional load audit | Implemented — version-aware merges, canonical hashes and exact load reconciliation |
 | Durable deferred lifecycle | Implemented — bounded retry passes, pinned full snapshots, expiry and atomic staging resolution |
 | Local pipeline audit and watermarks | Implemented — verified receipts, fresh dbt gate and all-table atomic CAS commit |
-| Incremental core pipeline | Implemented — separate cursors, atomic six-stream freeze, inclusive 48h lookback and full FK dependencies |
+| Incremental core pipeline | Implemented — separate cursors, atomic eight-stream freeze, inclusive 48h lookback and full FK dependencies |
 | Isolated backfill | Implemented — explicit UTC window, frozen retry, origin-scoped queue and unchanged scheduled cursors |
 | Operational health checks | Implemented — read-only audit JSON, configurable thresholds and CLI failure status |
 | Operational dashboard | Implemented — standalone HTML health snapshot; manual refresh |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
-| Full products/sellers Bronze/Silver, staging and Type 1 dimensions | Implemented — standalone slice; core scheduling remains planned; item FK available in standalone v2 |
+| Full products/sellers Bronze/Silver, staging and Type 1 dimensions | Implemented — scheduled in all core modes, frozen full snapshots and item FK v2 |
 | dbt customer dimension, order fact and daily GMV/AOV views | Implemented — exact reconciliation and relationship tests |
 | Airflow orchestration | Implemented — paused daily full/incremental and manual backfill DAGs, isolated runtime and stable retry identity |
 | Business dashboard / Metabase | Implemented — local date-filtered GMV/paid/AOV/status, dedicated reader and publication-status gate |
@@ -37,9 +37,9 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 make dataset
 ```
 
-[`scripts/make_dataset.sh`](scripts/make_dataset.sh) tự tạo `.env` nếu thiếu, sync dependencies, verify/seed PostgreSQL, start MinIO và chạy customers → full orders → order_items → order_payments qua Bronze/Silver rồi PostgreSQL staging và dbt build/tests, tự truyền parent snapshots cho FK checks. Không cần nhập run IDs, prefixes hay export local credentials; runner lấy cấu hình từ Compose và lưu kết quả trong ignored `build/reports/dataset/`. Cần Python 3.10+, uv, Docker Compose; Java 17 cho Silver/staging (tự nhận diện JDK 17 trong `/usr/lib/jvm` nếu chưa đặt `JAVA_HOME`).
+[`scripts/make_dataset.sh`](scripts/make_dataset.sh) tự tạo `.env` nếu thiếu, sync dependencies, verify/seed PostgreSQL, start MinIO và chạy customers/products/sellers → full orders → order_items → order_payments qua Bronze/Silver rồi PostgreSQL staging và dbt build/tests, tự truyền parent snapshots cho FK checks. Không cần nhập run IDs, prefixes hay export local credentials; runner lấy cấu hình từ Compose và lưu kết quả trong ignored `build/reports/dataset/`. Cần Python 3.10+, uv, Docker Compose; Java 17 cho Silver/staging (tự nhận diện JDK 17 trong `/usr/lib/jvm` nếu chưa đặt `JAVA_HOME`).
 
-Runner xử lý full snapshots cả 4 core datasets. Thiếu bất kỳ CSV nào trong snapshot 9 files thì seed/downstream được bỏ qua và liệt kê file thiếu; loader hiện không hỗ trợ partial seed. Thiếu Java thì chỉ chạy Bronze, báo `PARTIAL` và giữ pending ID để resume. CSV có sẵn nhưng sai checksum, migration hoặc processing/load lỗi sẽ dừng. Sau lỗi, gọi lại `make dataset` với code/config cũ để resume; sau success, lần gọi tiếp tạo run mới. Runner giữ local file lock; services/volumes được giữ lại. Pending runs từ bounded runner cũ phải hoàn tất bằng config cũ trước khi chuyển sang full mode; xem [pipeline contract](docs/data_contracts/11_pipeline_control.md).
+Runner xử lý full snapshots cả 6 datasets, freeze cùng source snapshot trước publication. Thiếu bất kỳ CSV nào trong snapshot 9 files thì seed/downstream được bỏ qua và liệt kê file thiếu; loader hiện không hỗ trợ partial seed. Thiếu Java thì chỉ chạy Bronze, báo `PARTIAL` và giữ pending ID để resume. CSV có sẵn nhưng sai checksum, migration hoặc processing/load lỗi sẽ dừng. Sau lỗi, gọi lại `make dataset` với code/config cũ để resume; sau success, lần gọi tiếp tạo run mới. Runner giữ local file lock; services/volumes được giữ lại. Pending runs từ bounded runner cũ phải hoàn tất bằng config cũ trước khi chuyển sang full mode; xem [pipeline contract](docs/data_contracts/11_pipeline_control.md).
 
 Prerequisites: Python `>=3.10`, [uv](https://docs.astral.sh/uv/getting-started/installation/), Docker Engine và Docker Compose.
 
@@ -176,18 +176,18 @@ Muốn kiểm tra customer FK, tạo full customer Bronze/Silver bằng `make in
 
 Bronze hỗ trợ composite cursors, decimal-as-string và checkpoint độc lập cho hai bảng con. Silver dùng toàn bộ business key, `decimal(18,2)` và bắt buộc full orders snapshot để kiểm tra FK; missing orders vào deferred. Tạo parent bằng `make ingest-orders BRONZE_RUN_ID=<id> BRONZE_FULL_SNAPSHOT=1`, rồi process orders và truyền `ORDER_SNAPSHOT=<orders Silver prefix>` cho `make process-order-items` / `make process-order-payments`.
 
-Items v1 chỉ kiểm tra product/seller ID không thiếu. [V2 standalone](docs/data_contracts/17_item_dependency_snapshots.md) kiểm tra đủ order/product/seller FK khi cấp ba full snapshots; scheduled core vẫn dùng v1. Xem [contract và commands](docs/data_contracts/07_order_children.md). Chạy `make test-order-children-integration` sau thay đổi; suite dùng fixtures và disposable services.
+Items v1 chỉ kiểm tra product/seller ID không thiếu. [V2](docs/data_contracts/17_item_dependency_snapshots.md) kiểm tra đủ order/product/seller FK khi cấp ba full snapshots; cả ba core modes tự bật v2. Xem [contract và commands](docs/data_contracts/07_order_children.md). Chạy `make test-order-children-integration` sau thay đổi; suite dùng fixtures và disposable services.
 
 Products có vertical slice riêng: `make ingest-products`, `make process-products`,
 `make load-warehouse SOURCE_TABLE=products`, rồi `make dbt-build`. Xem
 [product contract và prerequisites](docs/data_contracts/15_product_snapshots.md).
-`make dataset` vẫn chỉ xử lý bốn core tables; products chưa được schedule hoặc dùng
-làm FK parent của items.
+Products được full refresh trong full/incremental/backfill và là FK parent của items.
+Không có product delta cursor; full/empty snapshots không xóa staging rows.
 
 Sellers có luồng tương tự: `make ingest-sellers`, `make process-sellers`, rồi
 `make load-warehouse SOURCE_TABLE=sellers` và `make dbt-build`. Xem
-[seller contract](docs/data_contracts/16_seller_snapshots.md). Hai slice này chưa
-được schedule bởi core runner; item FK v2 cần bật bằng flags theo [contract 17](docs/data_contracts/17_item_dependency_snapshots.md).
+[seller contract](docs/data_contracts/16_seller_snapshots.md). Hai slice được
+schedule bởi core runner; standalone item FK v2 bật bằng flags theo [contract 17](docs/data_contracts/17_item_dependency_snapshots.md).
 
 ## Silver to PostgreSQL staging
 
@@ -256,13 +256,13 @@ file cũ có thể còn tồn tại nên cần kiểm tra timestamp và exit cod
 
 `make dataset-incremental` bootstrap namespace riêng lần đầu, sau đó lấy window từ
 **pipeline watermark** với lookback 48 giờ inclusive. Freeze chốt đồng thời bốn
-source deltas và hai full parent snapshots trong một PostgreSQL snapshot, lưu
+source deltas và bốn full parent snapshots (customers/orders/products/sellers) trong một PostgreSQL snapshot, lưu
 bytes/bounds trước publication. Retry không lấy lại upper mới; delivery checkpoint
-không điều khiển window. Full mode `make dataset` vẫn dùng luồng cũ.
+không điều khiển window. Full mode `make dataset` freeze sáu full streams.
 
 Orders/items/payments FK và deferred retries luôn dùng full parents, không dùng
 delta làm key set. Customer delta là Silver v2, full customer parent vẫn v1.
-Pipeline audits 24 tasks, dùng cùng final receipt/reconciliation/dbt/CAS gates.
+Pipeline audits 30 tasks, dùng cùng final receipt/reconciliation/dbt/CAS gates.
 Bootstrap/after-cursor/lookback, FK scans và retry inputs có counters riêng;
 after-cursor không phải net business growth. Full parent scans vẫn có chi phí.
 
@@ -285,7 +285,7 @@ watermark full/incremental. Chạy lại cùng command/bounds để resume sau l
 make dataset-backfill BACKFILL_START=2020-01-01T00:00:00Z BACKFILL_END=2020-02-01T00:00:00Z
 ```
 
-Bốn deltas và hai full FK snapshots được freeze cùng transaction. Backfill chỉ
+Bốn deltas và bốn full FK snapshots được freeze cùng transaction. Backfill chỉ
 retry queue thuộc run đó; merge không ghi đè newer source versions. Final gate
 vẫn chạy fresh dbt và reconciliation. Dữ liệu sửa đi vào staging/marts dùng chung;
 đây không phải historical restore của source versions đã bị overwrite.

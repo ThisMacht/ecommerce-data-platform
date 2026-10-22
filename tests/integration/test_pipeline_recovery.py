@@ -16,6 +16,8 @@ from olist_platform.bronze.extraction import state_sql
 from olist_platform.bronze.storage import sha256
 from olist_platform.pipeline.cli import configuration, finish
 from olist_platform.pipeline.control import (
+    ANALYTICS_SOURCES,
+    DIMENSIONS,
     TABLES,
     begin,
     fail,
@@ -36,11 +38,13 @@ class PipelineRecoveryTest(CorePipelineCase):
 
     def frozen_inputs(self, c, identity):
         result = {}
-        for table in TABLES:
+        for table in ANALYTICS_SOURCES:
             for run_id in (
                 (identity, parent_run_id(identity))
                 if table in TABLES[:2]
-                else (identity,)
+                else (
+                    (parent_run_id(identity),) if table in DIMENSIONS else (identity,)
+                )
             ):
                 manifest = c.execute(
                     state_sql("SELECT manifest FROM {runs} WHERE run_id=%s", table),
@@ -115,7 +119,7 @@ class PipelineRecoveryTest(CorePipelineCase):
             before = self.controls(c)
             self.frozen(c, identity, 1)
             frozen = self.frozen_inputs(c, identity)
-            self.assertEqual(len(frozen), 6)
+            self.assertEqual(len(frozen), 8)
             self.assertEqual(len({m["source_snapshot"] for m, _ in frozen.values()}), 1)
 
             earlier_objects = {}
@@ -161,7 +165,8 @@ class PipelineRecoveryTest(CorePipelineCase):
                             0,
                         )
                         self.psql("""UPDATE olist.orders SET order_status='shipped',source_sequence=500,
-                            source_updated_at='2020-01-12T00:00:00Z' WHERE order_id='order_a';""")
+                            source_updated_at='2020-01-12T00:00:00Z' WHERE order_id='order_a';
+                            DELETE FROM olist.products; DELETE FROM olist.sellers;""")
                     elif function == "process_batch":
                         self.assertIn(
                             f"silver/orders/run_id={identity}/_SUCCESS", preserved
@@ -278,13 +283,13 @@ class PipelineRecoveryTest(CorePipelineCase):
             )
             self.assertEqual(
                 sum(x["source_rows_extracted"] for x in completed["datasets"].values()),
-                9,
+                11,
             )
             self.assertEqual(
                 sum(
                     x["warehouse_inserted_rows"] for x in completed["datasets"].values()
                 ),
-                8,
+                10,
             )
             self.assertEqual(
                 sum(
@@ -302,6 +307,22 @@ class PipelineRecoveryTest(CorePipelineCase):
                     ).fetchone(),
                     (1, 1),
                 )
+            for dimension in DIMENSIONS:
+                self.assertEqual(
+                    completed["datasets"][dimension]["dimension_snapshot_rows"], 1
+                )
+                self.assertEqual(
+                    c.execute(
+                        f"SELECT COUNT(*) FROM raw_staging.{dimension}"
+                    ).fetchone()[0],
+                    1,
+                )
+            self.assertEqual(
+                c.execute(
+                    "SELECT COUNT(*) FROM audit.pipeline_control WHERE source_table IN ('products','sellers')"
+                ).fetchone()[0],
+                0,
+            )
             after = self.controls(c)
             self.assertEqual(begin(c, identity, request)["status"], "NOOP")
             self.assertEqual(
@@ -323,7 +344,7 @@ class PipelineRecoveryTest(CorePipelineCase):
                     "SELECT COUNT(*),BOOL_AND(status='SUCCESS') FROM audit.pipeline_task_runs WHERE run_id=%s AND run_attempt=5",
                     (identity,),
                 ).fetchone(),
-                (24, True),
+                (30, True),
             )
 
     def test_incremental_recovers_each_committed_stage_and_final_transaction(self):

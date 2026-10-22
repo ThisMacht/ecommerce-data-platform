@@ -174,9 +174,13 @@ class BackfillPipelineTest(CorePipelineCase):
             self.assertTrue(
                 all(
                     b["row_count"] == 0 and b["run_upper_cursor"] is None
-                    for b, _ in published.values()
+                    for t, (b, _) in published.items()
+                    if t not in ("products", "sellers")
                 )
             )
+            for dimension in ("products", "sellers"):
+                self.assertEqual(published[dimension][0]["row_count"], 1)
+                self.assertEqual(published[dimension][0]["snapshot_kind"], "FULL")
             result = finish(
                 c,
                 self.store,
@@ -188,7 +192,11 @@ class BackfillPipelineTest(CorePipelineCase):
                 Path(directory),
             )
             self.assertEqual(
-                sum(x["source_backfill_rows"] for x in result["datasets"].values()), 0
+                sum(
+                    result["datasets"][t]["source_backfill_rows"]
+                    for t in ("customers", "orders", "order_items", "order_payments")
+                ),
+                0,
             )
             self.assertEqual(
                 c.execute(
@@ -287,7 +295,11 @@ class BackfillPipelineTest(CorePipelineCase):
                 published = self.process(c, "repair", 1, mode="backfill")
                 self.assertEqual(published["customers"][0]["row_count"], 2)
                 self.assertEqual(published["orders"][0]["row_count"], 3)
-                for bronze, _ in published.values():
+                for table, (bronze, _) in published.items():
+                    if table in ("products", "sellers"):
+                        self.assertEqual(bronze["row_count"], 1)
+                        self.assertEqual(bronze["snapshot_kind"], "FULL")
+                        continue
                     self.assertTrue(
                         all(
                             "2020-01-06" <= r["source_updated_at"] < "2020-01-08"
@@ -342,7 +354,15 @@ class BackfillPipelineTest(CorePipelineCase):
                     result["datasets"]["orders"]["warehouse_stale_ignored_rows"], 1
                 )
                 self.assertEqual(
-                    sum(x["source_backfill_rows"] for x in result["datasets"].values()),
+                    sum(
+                        result["datasets"][t]["source_backfill_rows"]
+                        for t in (
+                            "customers",
+                            "orders",
+                            "order_items",
+                            "order_payments",
+                        )
+                    ),
                     11,
                 )
                 self.assertEqual(

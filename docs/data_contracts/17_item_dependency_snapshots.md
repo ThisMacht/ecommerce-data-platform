@@ -9,8 +9,7 @@ verified Silver, đúng dataset/version và cùng source contract; chỉ valid u
 nonblank keys được dùng. Empty full snapshots là hợp lệ, không đồng nghĩa tắt FK.
 
 Không cấp product/seller flags thì vẫn là v1, chỉ kiểm tra order và khai báo hai
-unchecked relationships. Core runner/Airflow hiện vẫn chạy v1; v2 là standalone
-slice, chưa được core receipt gate chấp nhận. Các staging rows đã load bằng v1
+unchecked relationships. Core runner/Airflow full/incremental/backfill đều yêu cầu v2, kiểm tra đủ receipts và pins tại final gate. Các staging rows đã load bằng v1
 không tự được kiểm tra lại hoặc xóa. Chưa thêm product/seller keys vào fact models.
 
 ## Routing and Pinned Evidence
@@ -24,9 +23,9 @@ Request pin prefix và SHA-256 của cả ba manifests. Output khai báo
 Đổi bất kỳ parent/input nào cần Silver run ID mới. Replay kiểm tra lại inputs,
 parents và sealed output; resume missing `_SUCCESS` dùng sealed manifest.
 
-Snapshots hiện được capture độc lập; không phải atomic cross-table source snapshot.
-Core integration cần bổ sung freeze và audit cho product/seller parents trước khi
-chuyển scheduled jobs sang v2. Thay đổi key sets có thể cần retry với snapshots mới.
+Standalone snapshots được capture độc lập. Core full freeze sáu full streams;
+incremental/backfill freeze bốn deltas và bốn full FK streams trong cùng transaction
+(migration `016`). Tất cả được audit trước fresh dbt và four-table CAS gate. Thay đổi key sets có thể cần retry với snapshots mới.
 
 ## Deferred Identity and Atomic Retry
 
@@ -49,7 +48,17 @@ Resolver v1 chỉ chọn legacy rule; resolver v2 chỉ chọn composite rule. C
 và `remaining_pending_rows` dùng cùng scope/origin filter. Origin là payload
 `_run_id` ban đầu (Bronze identity), có thể khác Silver processing run ID. Thiếu flags không được
 làm v2 rows resolve theo policy yếu hơn. Legacy và v2 có thể có cùng physical UID
-nhưng khác rule identity; không chuyển hoặc rewrite legacy queue tự động.
+nhưng khác rule identity; không chuyển hoặc rewrite legacy queue tự động. Core v2
+không consume legacy item `missing_order` backlog; health vẫn báo backlog chung.
+Không coi việc chuyển core sang v2 là đã xác minh lại mọi staging row cũ.
+
+## Upgrade and Existing State
+
+Hoàn tất pending runs bằng code/config cũ trước khi nâng cấp; không sửa request
+hashes hoặc prepared pages để ép resume. `make dataset` tự apply migration `016`.
+Health yêu cầu đủ sáu dataset receipts: success lịch sử chỉ có bốn receipts sẽ báo
+thiếu products/sellers cho đến một run mới thành công trong namespace tương ứng.
+Standalone v1 vẫn dùng được, nhưng không thể thay cho item v2 tại core gate.
 
 ## Commands and Validation
 
@@ -81,3 +90,15 @@ Smoke test ngày 2026-10-22 publish 112,650 source items bằng v2: 112,621 vali
 có duplicate/warning hoặc missing product/seller trong các snapshots đã pin.
 Replay trả NOOP. Chỉ publish Silver: warehouse loads và toàn bộ core controls giữ
 nguyên; BI vẫn available. Runtime evidence: ignored `build/reports/item-fk-smoke.json`.
+
+Full core smoke cùng ngày sau tích hợp orchestration: 6 full streams cùng một
+`source_snapshot`, 6 dataset reconciliations PASS, 26 tasks SUCCESS và 61 dbt
+model/test nodes. Products 32,951 và sellers 3,095 rows đều merge `unchanged`;
+items v2 giữ 112,621 valid, 23 deferred và 6 rejected. Không thêm dimension
+completion cursors. Read-only health báo HEALTHY cho sáu datasets; BI publication
+available sau final gate.
+
+Evidence local: ignored `build/reports/dataset/dataset_f54725ffd2db4bc78fe9729251521548_pipeline.json`,
+`build/reports/core-v2-health.json` và Silver reports của cùng run. Incremental/backfill
+được kiểm tra bằng disposable fixtures (kể cả independent full reload equivalence
+và recovery sau commit), chưa chạy lại toàn bộ CSV local trong lần kiểm chứng này.

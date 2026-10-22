@@ -65,7 +65,8 @@ def render(result: dict) -> str:
         "Input accounting (last successful run)",
         [
             "Dataset",
-            "Source window",
+            "Source input",
+            "Dimension snapshot",
             "Bootstrap",
             "Backfill",
             "After cursor",
@@ -79,6 +80,7 @@ def render(result: dict) -> str:
                 value(data.get(key))
                 for key in (
                     "source_rows_extracted",
+                    "dimension_snapshot_rows",
                     "source_bootstrap_rows",
                     "source_backfill_rows",
                     "source_after_cursor_rows",
@@ -143,7 +145,8 @@ th{background:#e9eff5}li{overflow-wrap:anywhere}
         "limits. Unavailable values are not zero.</p>"
         "<p>After-cursor rows count source versions beyond the previous ordered cursor, "
         "not business inserts or net source growth. Bootstrap, backfill, after-cursor and "
-        "lookback partition the source window. Full FK scans are separate auxiliary inputs.</p>"
+        "lookback partition the source window. Customers/orders full FK scans are separate auxiliary inputs. Products/sellers "
+        "use full dimension snapshots, not delta growth.</p>"
         "<p>This read-only snapshot does not verify live source or object storage "
         "and does not publish analytics or change watermarks.</p></main></body></html>"
     )

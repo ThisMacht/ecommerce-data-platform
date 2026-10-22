@@ -5,9 +5,9 @@
 `olist.products` → full Bronze → Silver Parquet → `raw_staging.products` →
 `analytics.stg_products` → `analytics.dim_product`. Một dòng hiện tại trên
 `product_id`; dimension Type 1 dùng `MD5(product_id)` làm stable surrogate key.
-Snapshot v1 độc lập với bốn bảng core: chưa có task/cursor products trong
-`make dataset`, incremental, backfill hay Airflow. Membership có trong [item v2 standalone](17_item_dependency_snapshots.md);
-core runner vẫn dùng item v1 và chưa bật các checks này.
+Snapshot v1 dùng cho standalone và cả ba core modes/Airflow. Core freeze và load
+full products, pin vào [item v2](17_item_dependency_snapshots.md). Không tạo
+product delta/completion cursor; dimension refresh được đếm riêng.
 
 ## Extraction and Replay
 
@@ -49,9 +49,9 @@ source deletes chưa được hỗ trợ.
 chấp nhận gần nhất, gồm cả unchanged replay. Hash gồm toàn bộ business attributes,
 không gồm metadata/lineage. Type 1 không lưu lịch sử category/measurements.
 
-Full dbt build kiểm tra cả products, dù core chỉ có receipts/cursors của bốn bảng.
+Full dbt build kiểm tra cả products; core có receipts cho sáu datasets và cursors cho bốn core tables.
 Final gate giữ SHARE locks trên cả sáu staging sources (gồm sellers) và kiểm tra artifact source
-set. Gate không chứng nhận freshness hay extraction receipt của products. BI role
+set. Gate xác minh frozen products extraction/Silver/load receipts và item pins. BI role
 vẫn chỉ đọc ba business models và status view; không tự cấp quyền dimension.
 Load products độc lập khiến BI publication gate unavailable như mọi audited load
 mới; chạy thành công core pipeline với fresh dbt gate để công bố lại.

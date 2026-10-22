@@ -21,24 +21,26 @@ Raw CSV/seed, Docker Compose và Java 17 là prerequisites như incremental runn
 ## Frozen inputs and dependencies
 
 Tái sử dụng transaction `source.freeze` của contract 12: bốn bounded deltas cùng
-hai full customers/orders FK snapshots được chốt atomically, sau đó mới publish.
+bốn full customers/orders/products/sellers FK snapshots được chốt atomically, sau đó mới publish.
 Window và code/config nằm trong immutable pipeline request. Retry sau freeze giữ
 nguyên bytes, upper bounds và parent hashes dù live source đã thay đổi.
 
 Delta streams là `backfill_<table>_delta_v1`; full FK streams là
 `backfill_<table>_parent_v1`. Object paths giữ layout Bronze/Silver hiện có, với
 run ID duy nhất và hashed parent ID; không ghi đè artifacts của mode khác.
-Customer delta không được dùng làm full parent. Full parents chỉ kiểm tra FK,
-không tự load records nằm ngoài requested window.
+Customer delta không được dùng làm full parent. Customers/orders full parents chỉ kiểm tra FK, không tự load records ngoài window.
+Products/sellers luôn full refresh và load Type 1, kể cả window rỗng; đây là current
+dimension snapshots, không phải ảnh chụp lịch sử tại end bound.
 
 ## Reconciliation and completion
 
-24 audited tasks và fresh dbt/receipt gates như incremental. Các deltas ghi
+30 audited tasks và fresh dbt/receipt gates như incremental. Bốn core deltas ghi
 `source_backfill_rows`; bootstrap/after-cursor/lookback bằng 0. Auxiliary parent
 scans được đếm riêng; retry input không phải source growth.
 
 ```text
 source_rows_extracted = source_backfill_rows
+# Four bounded core tables only; dimensions use dimension_snapshot_rows.
 processing_input_rows = source_backfill_rows + deferred_retry_input_rows
 ```
 
@@ -50,7 +52,7 @@ hoặc tăng attempts. Giới hạn 1.000 pending rows/bảng/pass vẫn áp d�
 Staging commit theo dataset; newer `source_sequence` thắng, older version ghi
 `stale_ignored`, equal-version/different-payload fail. Final gate giữ staging SHARE
 locks qua dbt, ghi candidate và counters vào dataset audit, giữ watermark_after
-bằng watermark_before. Backfill controls luôn null/version 0. Dbt failure không
+bằng watermark_before. Backfill core controls luôn null/version 0; dimensions không có completion controls và audit watermarks đều null. Dbt failure không
 rollback staging đã commit; resume cùng ID replay receipts.
 
 ## Recovery and Airflow

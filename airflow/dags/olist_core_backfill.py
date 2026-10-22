@@ -14,7 +14,7 @@ with DAG(
     catchup=False,
     max_active_runs=1,
     is_paused_upon_creation=True,
-    tags=["olist", "local", "backfill"],
+    tags=["olist", "local", "item-fk-v2", "backfill"],
 ) as dag:
     BashOperator(
         task_id="run_core_pipeline",

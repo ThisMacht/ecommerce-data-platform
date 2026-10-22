@@ -6,31 +6,20 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
+import psycopg
 from botocore.exceptions import ClientError
-from bronze_case import BronzeFixtureCase
+from pipeline_case import CorePipelineCase
 from postgres_case import REPOSITORY_ROOT
 from psycopg.errors import LockNotAvailable
+from psycopg.types.json import Jsonb
 
-from olist_platform.bronze.extraction import ingest_source
 from olist_platform.bronze.storage import BronzeError
-from olist_platform.deferred.lifecycle import register_silver, resolve_snapshot
 from olist_platform.pipeline.cli import configuration, finish
-from olist_platform.pipeline.control import TABLES, TASKS, begin, task
-from olist_platform.silver.batch import process_batch
-from olist_platform.silver.orders import spark_session
-from olist_platform.warehouse.loading import load_silver
+from olist_platform.pipeline.control import TASKS, begin, evidence, task
 
 
-class PipelineGateTest(BronzeFixtureCase):
-    @classmethod
-    def setUpClass(cls):
-        super().setUpClass()
-        cls.spark = spark_session()
-        cls.addClassCleanup(cls.spark.stop)
-
+class PipelineGateTest(CorePipelineCase):
     def test_full_receipts_corrupt_marker_failure_resume_and_real_dbt_commit(self):
-        for name in ("customers.sql", "order_children.sql"):
-            self.psql((REPOSITORY_ROOT / "tests/fixtures/bronze" / name).read_text())
         env = {
             "PGHOST": "127.0.0.1",
             "PGPORT": str(self.port),
@@ -49,79 +38,37 @@ class PipelineGateTest(BronzeFixtureCase):
         ):
             request = configuration(REPOSITORY_ROOT, self.contract)
             self.assertEqual(begin(c, "gate", request)["attempt"], 1)
-            snapshots = {}
-            for table in TABLES:
-                name = f"{table}.bronze.extract"
-                task(c, "gate", 1, name, "RUNNING")
-                bronze = ingest_source(
-                    c,
-                    self.store,
-                    self.contract,
-                    table=table,
-                    run_id="gate",
-                    endpoint=self.endpoint,
-                    full_snapshot=table != "customers",
-                )["manifest"]
-                task(c, "gate", 1, name, "SUCCESS")
-                dependencies = (
-                    {"customer_snapshot": snapshots["customers"]}
-                    if table == "orders"
-                    else {"order_snapshot": snapshots["orders"]}
-                    if table != "customers"
-                    else {}
-                )
-                name = f"{table}.silver.process"
-                task(c, "gate", 1, name, "RUNNING")
-                silver = process_batch(
-                    self.spark,
-                    self.store,
-                    self.contract,
-                    table=table,
-                    run_id="gate",
-                    bronze_prefix=bronze["prefix"],
-                    **dependencies,
-                )["manifest"]
-                snapshots[table] = silver["prefix"]
-                task(c, "gate", 1, name, "SUCCESS")
-                name = f"{table}.warehouse.load"
-                task(c, "gate", 1, name, "RUNNING")
-                load_silver(
-                    self.spark,
-                    c,
-                    self.store,
-                    self.contract,
-                    table=table,
-                    run_id="gate",
-                    silver_prefix=silver["prefix"],
-                )
-                task(c, "gate", 1, name, "SUCCESS")
-                if table != "customers":
-                    name = f"{table}.deferred.register"
-                    task(c, "gate", 1, name, "RUNNING")
-                    register_silver(
-                        self.spark,
-                        c,
-                        self.store,
-                        self.contract,
-                        table=table,
-                        run_id="gate",
-                        silver_prefix=silver["prefix"],
+            published = self.process(c, "gate", 1, mode="full")
+            snapshots = {t: s["prefix"] for t, (b, s) in published.items()}
+            receipts = evidence(c, self.store, self.contract, "gate")
+            self.assertEqual(
+                len({x["bronze"]["source_snapshot"] for x in receipts.values()}), 1
+            )
+            with psycopg.connect(
+                host="127.0.0.1",
+                port=self.port,
+                dbname=self.database,
+                user="olist_test_admin",
+                password="isolated_test_admin",
+                autocommit=True,
+            ) as auditor:
+                for parent in ("products", "sellers"):
+                    with auditor.transaction(force_rollback=True):
+                        auditor.execute(
+                            "DELETE FROM audit.warehouse_load_runs WHERE source_table=%s AND run_id='gate'",
+                            (parent,),
+                        )
+                        with self.assertRaisesRegex(BronzeError, "warehouse receipt"):
+                            evidence(auditor, self.store, self.contract, "gate")
+                with auditor.transaction(force_rollback=True):
+                    wrong = dict(receipts["order_items"]["resolution"]["request"])
+                    wrong["product_snapshot"] = wrong["seller_snapshot"]
+                    auditor.execute(
+                        "UPDATE audit.deferred_resolution_runs SET request=%s WHERE source_table='order_items' AND run_id='gate'",
+                        (Jsonb(wrong),),
                     )
-                    task(c, "gate", 1, name, "SUCCESS")
-                    name = f"{table}.deferred.resolve"
-                    task(c, "gate", 1, name, "RUNNING")
-                    resolve_snapshot(
-                        self.spark,
-                        c,
-                        self.store,
-                        self.contract,
-                        table=table,
-                        run_id="gate",
-                        parent_snapshot=snapshots[
-                            "customers" if table == "orders" else "orders"
-                        ],
-                    )
-                    task(c, "gate", 1, name, "SUCCESS")
+                    with self.assertRaisesRegex(BronzeError, "product/seller parents"):
+                        evidence(auditor, self.store, self.contract, "gate")
             marker = f"{snapshots['orders']}/_SUCCESS"
             body = self.store.read(marker)
             self.client.delete_object(Bucket=self.store.bucket, Key=marker)
@@ -207,7 +154,7 @@ class PipelineGateTest(BronzeFixtureCase):
                 self.psql("SELECT MIN(cursor_version) FROM audit.pipeline_control"), "1"
             )
             self.assertEqual(
-                self.psql("SELECT COUNT(*) FROM audit.pipeline_dataset_runs"), "4"
+                self.psql("SELECT COUNT(*) FROM audit.pipeline_dataset_runs"), "6"
             )
             for values in completed["datasets"].values():
                 self.assertEqual(
@@ -234,7 +181,7 @@ class PipelineGateTest(BronzeFixtureCase):
                 self.psql("SELECT MAX(cursor_version) FROM audit.pipeline_control"), "1"
             )
             self.assertEqual(
-                self.psql("SELECT COUNT(*) FROM analytics.fct_orders"), "1"
+                self.psql("SELECT COUNT(*) FROM analytics.fct_orders"), "2"
             )
             with self.assertRaisesRegex(BronzeError, "configuration"):
                 begin(c, "gate", request | {"changed": True})

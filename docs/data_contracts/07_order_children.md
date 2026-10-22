@@ -63,7 +63,7 @@ Child request pin parent prefix và manifest SHA-256; đổi parent cần Silver
 Local rejects/duplicates giữ priority, không chuyển sang deferred. Manifest ghi
 `relationship_checks=ORDER_SNAPSHOT`; items còn ghi
 `unchecked_relationships=["product_id", "seller_id"]`: chỉ kiểm tra nonblank,
-**v1 chưa xác minh membership**. [V2](17_item_dependency_snapshots.md) kiểm tra đủ ba parents khi cấp cả product/seller snapshots; core runner vẫn dùng v1.
+**v1 chưa xác minh membership**. [V2](17_item_dependency_snapshots.md) kiểm tra đủ ba parents khi cấp cả product/seller snapshots; core runner yêu cầu item v2 với ba frozen full parents.
 
 ```text
 input_rows = valid_rows + rejected_rows + deferred_rows + duplicates_rows

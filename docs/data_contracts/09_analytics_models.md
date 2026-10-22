@@ -2,7 +2,7 @@
 
 ## Scope and execution
 
-Status: **Active — dbt views for the four core staging datasets**.
+Status: **Active — dbt views for six staging datasets**.
 `dbt/` dùng locked `analytics` extra, PostgreSQL adapter và schema `analytics`
 được tạo bởi migration `007`. Existing loader role sở hữu schema; reader chỉ SELECT. Migration `012` thêm
 `olist_bi_reader` NOLOGIN group chỉ đọc fct_orders, hai daily marts và publication-status view; dbt giữ grants của ba models qua rebuild.
@@ -20,7 +20,7 @@ make test-dbt-integration
 
 Profile đọc process environment, không tự load Compose `.env` hoặc `WAREHOUSE_DSN`.
 Password dùng `DBT_ENV_SECRET_*` để dbt scrub trong logs. Không ghi credentials vào
-profile. `make dataset` tự cấu hình local credentials, chạy dbt sau bốn staging loads,
+profile. `make dataset` tự cấu hình local credentials, chạy dbt sau sáu staging loads,
 và giữ run pending khi build/tests fail. Retry cùng run IDs để staging trả `NOOP`.
 Artifacts nằm trong ignored `dbt/target`, hoặc `build/reports/dataset/<run_id>_dbt`
 khi chạy runner. Analytics dependency sync có thể bỏ Spark extra; dùng

@@ -13,7 +13,7 @@ from psycopg.rows import dict_row
 
 from olist_platform.raw.profiling import atomic_write_text
 
-from .control import BACKFILL, INCREMENTAL, PIPELINE, TABLES
+from .control import ANALYTICS_SOURCES, BACKFILL, INCREMENTAL, PIPELINE
 from .dashboard import render
 
 
@@ -29,9 +29,9 @@ def load_thresholds(path: Path) -> dict:
         not isinstance(limits, dict)
         or set(limits) != {"max_run_seconds", "datasets"}
         or not isinstance(limits["datasets"], dict)
-        or set(limits["datasets"]) != set(TABLES)
+        or set(limits["datasets"]) != set(ANALYTICS_SOURCES)
     ):
-        raise ValueError("Expected runtime limit and thresholds for all four datasets")
+        raise ValueError("Expected runtime limit and thresholds for all six datasets")
     for dataset in limits["datasets"].values():
         if not isinstance(dataset, dict) or set(dataset) != keys:
             raise ValueError("Dataset threshold keys are invalid")
@@ -73,7 +73,7 @@ def evaluate(now, latest, success, counters, queue, limits, pipeline=PIPELINE) -
         (now - success["completed_at"]).total_seconds() / 3600 if success else None
     )
     datasets = {}
-    for table in TABLES:
+    for table in ANALYTICS_SOURCES:
         policy = limits["datasets"][table]
         counts = counters.get(table)
         pending = queue.get(table, {})
@@ -90,6 +90,7 @@ def evaluate(now, latest, success, counters, queue, limits, pipeline=PIPELINE) -
             "due_pending_rows": pending.get("due_pending_rows", 0),
         }
         for key in (
+            "dimension_snapshot_rows",
             "source_rows_extracted",
             "source_bootstrap_rows",
             "source_backfill_rows",

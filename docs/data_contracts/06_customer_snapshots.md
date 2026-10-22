@@ -5,7 +5,7 @@
 Incremental pipeline bổ sung `customers-silver-v2` với `snapshot_kind=INCREMENTAL`
 cho staging loads. V2 không được dùng làm FK parent. Các full snapshots và parent
 checks bên dưới giữ `customers-silver-v1`; xem [incremental contract](12_incremental_pipeline.md)
-về frozen windows và hai full FK inputs.
+về frozen windows và bốn full FK inputs.
 
 Status: **Active — full customers Bronze/Silver và optional orders FK routing**. Source contract vẫn là `1.0.0`. Customer artifacts dùng `customers-bronze-v1` / `customers-silver-v1`; orders có parent snapshot dùng `orders-silver-v2`. Orders Bronze windows và `orders-silver-v1` local-rule mode giữ nguyên contract/replay behavior.
 

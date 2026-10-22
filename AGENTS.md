@@ -46,7 +46,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make ingest-orders BRONZE_RUN_ID=<id>`: extract/resume orders.
 - `make ingest-sellers` / `make process-sellers`: standalone full seller snapshots, then staging/dbt; location warnings preserve NULLs and ZIP leading zeros.
 - `make test-seller-integration`: frozen retries, dirty location/ID rules, version-aware merges, corruption, empty snapshots and cursor isolation.
-- `make ingest-products` / `make process-products`: standalone full product snapshots; load with `SOURCE_TABLE=products`, then dbt. Not scheduled by core runner; item v2 can pin these snapshots.
+- `make ingest-products` / `make process-products`: standalone full product snapshots; load with `SOURCE_TABLE=products`, then dbt. Core modes also publish/load these full snapshots and pin them to items v2.
 - `make test-product-integration`: frozen retry, replay, dirty/null handling, version-aware staging and cursor isolation.
 - `make ingest-customers` / `make process-customers`: publish full customer snapshots.
 - `make ingest-order-items` / `make ingest-order-payments`: extract composite-key windows.
@@ -94,7 +94,7 @@ Bronze: `BRONZE_SOURCE_DSN`/`PG*` and AWS credentials. Resume unfinished run IDs
 
 Use full customer snapshots for FK checks. Snapshot hashes are immutable per Silver/resolution run; use a new run ID when dependencies change. Deferred limits are immutable per physical UID/rule; terminal states never reopen on replay.
 
-Child FK checks require full orders snapshots; never use a delta as a complete parent key set. Preserve composite grain and decimal money. Standalone item v2 checks all three parents when both PRODUCT_SNAPSHOT and SELLER_SNAPSHOT are set; scheduled core remains v1/order-only.
+Child FK checks require full orders snapshots; never use a delta as a complete parent key set. Preserve composite grain and decimal money. Core modes require item v2 with full order/product/seller pins; standalone v1 remains available when extra flags are omitted.
 
 Warehouse uses authoritative `source_sequence`, versioned business hashes and atomic data/audit commits. Never overwrite newer records or change an existing load request. Staging success does not promote the pipeline watermark.
 
@@ -102,7 +102,7 @@ Aggregate items/payments separately before joining orders. Customer dimension us
 
 Count retry inputs separately from source growth. Resolution must commit queue/attempts/staging/audit atomically; expired rows never load. Duplicate pending occurrences must dedupe by full business key/version before merge.
 
-Full runner audits 19 tasks; incremental runner audits 24 with separate `incremental_core_v1` controls. Freeze four deltas plus two full FK snapshots atomically before publication; bounds use pipeline cursors, never Bronze delivery cursors. Customer delta Silver v2 is not an FK parent. Source bootstrap/after-cursor/lookback, auxiliary FK scans and deferred retry counts are separate; after-cursor rows are not business growth. Final gate holds staging SHARE locks through fresh dbt and atomic CAS. Resume with unchanged code/config/mode; never bypass receipts. Backfill uses `backfill_core_v1`, the same 24-task freeze/gates, explicit UTC [start,end) bounds and origin-scoped deferred retries. Never promote any pipeline cursors on backfill. Staging/marts remain shared; mutable source cannot restore overwritten historical versions.
+Full runner freezes six full streams and audits 26 tasks; incremental runner audits 30 with separate `incremental_core_v1` controls. Freeze four deltas plus four full FK snapshots atomically before publication; bounds use pipeline cursors, never Bronze delivery cursors. Customer delta Silver v2 is not an FK parent. Source bootstrap/after-cursor/lookback, auxiliary FK scans and deferred retry counts are separate; after-cursor rows are not business growth. Final gate holds staging SHARE locks through fresh dbt and atomic CAS. Resume with unchanged code/config/mode; never bypass receipts. Backfill uses `backfill_core_v1`, the same 30-task freeze/gates, explicit UTC [start,end) bounds and origin-scoped deferred retries. Never promote any pipeline cursors on backfill. Staging/marts remain shared; mutable source cannot restore overwritten historical versions.
 
 Airflow retries must retain original DAG/run context; clear the same task instance, never replace an unfinished run. Missing CSV/Java fails orchestration. Standalone SQLite metadata is local-only; don't install Airflow into the root environment.
 
@@ -113,8 +113,8 @@ credentials/metadata, expose admin/source credentials as datasource, average dai
 AOV, or treat live views as atomic snapshots. H2 metadata is local-only. A latest
 non-successful run or newer audited load hides metrics; untracked writers are not detected.
 
-Products: standalone full snapshots, nullable attributes warn, negative/overflow measurements reject. Preserve source `lenght` spelling until dbt aliases. Type 1 by `product_id`; full/empty snapshots never imply deletes. Core dbt gate locks six staging sources but audits/promotes only four core tables. A standalone products load hides BI metrics until a new successful core gate.
+Products: standalone full snapshots, nullable attributes warn, negative/overflow measurements reject. Preserve source `lenght` spelling until dbt aliases. Type 1 by `product_id`; full/empty snapshots never imply deletes. Core dbt gate locks/audits six datasets; only the four delta tables have completion cursors. Products/sellers use dimension_snapshot_rows, never source growth. A standalone products load hides BI metrics until a new successful core gate.
 
-Sellers use Type 1 by `seller_id`; location rules match customers. Blank locations become NULL with warnings; preserve invalid ZIP/state values with flags. Sellers/products remain standalone and full-only; no deletes or core scheduling; item v2 supports membership checks. New standalone loads require a fresh successful core gate to restore BI publication.
+Sellers use Type 1 by `seller_id`; location rules match customers. Blank locations become NULL with warnings; preserve invalid ZIP/state values with flags. Sellers/products stay full-only in every core mode; no deletes or new delta cursors; item v2 checks membership. New standalone loads require a fresh successful core gate to restore BI publication.
 
-Item v2 requires full order/product/seller snapshots from the same contract; pin all manifest hashes. Missing FKs are evaluated together; rejects/duplicates never defer. Register one `missing_item_dependencies` queue row per physical item, keep all missing rule IDs in immutable payload. Retry all three memberships atomically; v1/v2 resolvers must select their own rule scopes, including backlog counts. Never use missing product/seller flags to downgrade a v2 retry. Run `make test-item-dependencies-integration` after changes. Core receipts/tasks/cursors remain four-table v1 until orchestration integration.
+Item v2 requires full order/product/seller snapshots from the same contract; pin all manifest hashes. Missing FKs are evaluated together; rejects/duplicates never defer. Register one `missing_item_dependencies` queue row per physical item, keep all missing rule IDs in immutable payload. Retry all three memberships atomically; v1/v2 resolvers must select their own rule scopes, including backlog counts. Never use missing product/seller flags to downgrade a v2 retry. Run `make test-item-dependencies-integration` after changes. All core modes require six dataset receipts and item v2 scope/pins. Legacy missing_order item queue entries are not auto-migrated or consumed by v2 retries; inspect backlog separately.

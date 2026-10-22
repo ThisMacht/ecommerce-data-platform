@@ -9,6 +9,8 @@ from postgres_case import REPOSITORY_ROOT
 from olist_platform.bronze.extraction import ingest_source
 from olist_platform.deferred.lifecycle import register_silver, resolve_snapshot
 from olist_platform.pipeline.control import (
+    DIMENSIONS,
+    PARENTS,
     TABLES,
     parent_run_id,
     task,
@@ -47,6 +49,10 @@ class CorePipelineCase(BronzeFixtureCase):
              source_sequence,source_updated_at,source_operation,source_batch_id)
             VALUES ('order_old','customer_old','created','2018-01-01','2018-01-10',50,
                     '2020-01-01T00:00:00Z','INSERT','old_parent');""")
+        self.psql("""INSERT INTO olist.products (product_id, source_updated_at, source_operation, source_batch_id)
+            VALUES ('product','2019-01-01','INSERT','parent_fixture');
+            INSERT INTO olist.sellers (seller_id,seller_city,seller_state,seller_zip_code_prefix,source_updated_at,source_operation,source_batch_id)
+            VALUES ('seller','Sao Paulo','SP','00123','2019-01-01','INSERT','parent_fixture');""")
 
     def environment(self, mode="incremental"):
         return patch.dict(
@@ -74,6 +80,8 @@ class CorePipelineCase(BronzeFixtureCase):
     def process(self, c, identity, attempt, mode="incremental"):
         parents = {}
         published = {}
+        if mode == "full":
+            self.frozen(c, identity, attempt)
 
         def event(name, function):
             task(c, identity, attempt, name, "RUNNING")
@@ -82,7 +90,22 @@ class CorePipelineCase(BronzeFixtureCase):
             return result
 
         for parent in (False,) if mode == "full" else (True, False):
-            for table in TABLES[:2] if parent else TABLES:
+            for table in (
+                PARENTS
+                if parent
+                else (
+                    (
+                        "customers",
+                        "products",
+                        "sellers",
+                        "orders",
+                        "order_items",
+                        "order_payments",
+                    )
+                    if mode == "full"
+                    else TABLES
+                )
+            ):
                 run_id = parent_run_id(identity) if parent else identity
                 prefix = f"{table}.{'parent.' if parent else ''}"
                 bronze = event(
@@ -95,9 +118,7 @@ class CorePipelineCase(BronzeFixtureCase):
                         run_id=run_id,
                         endpoint=self.endpoint,
                         **(
-                            {"full_snapshot": table != "customers"}
-                            if mode == "full"
-                            else {
+                            {
                                 "pipeline_run_id": identity,
                                 "pipeline_parent": parent,
                                 "pipeline_mode": mode,
@@ -112,6 +133,11 @@ class CorePipelineCase(BronzeFixtureCase):
                     if table in TABLES[2:]
                     else {}
                 )
+                if table == "order_items":
+                    dependency.update(
+                        product_snapshot=parents["products"],
+                        seller_snapshot=parents["sellers"],
+                    )
                 silver = event(
                     prefix + "silver.process",
                     lambda: process_batch(
@@ -126,12 +152,13 @@ class CorePipelineCase(BronzeFixtureCase):
                 )["manifest"]
                 if parent:
                     parents[table] = silver["prefix"]
-                    continue
+                    if table not in DIMENSIONS:
+                        continue
                 if mode == "full":
                     parents[table] = silver["prefix"]
                 published[table] = (bronze, silver)
                 event(
-                    prefix + "warehouse.load",
+                    f"{table}.warehouse.load",
                     lambda: load_silver(
                         self.spark,
                         c,
@@ -142,7 +169,7 @@ class CorePipelineCase(BronzeFixtureCase):
                         silver_prefix=silver["prefix"],
                     ),
                 )
-                if table != "customers":
+                if table in TABLES[1:]:
                     event(
                         prefix + "deferred.register",
                         lambda: register_silver(
@@ -168,6 +195,14 @@ class CorePipelineCase(BronzeFixtureCase):
                             parent_snapshot=parents[
                                 "customers" if table == "orders" else "orders"
                             ],
+                            **(
+                                {
+                                    "product_snapshot": parents["products"],
+                                    "seller_snapshot": parents["sellers"],
+                                }
+                                if table == "order_items"
+                                else {}
+                            ),
                         ),
                     )
         return published

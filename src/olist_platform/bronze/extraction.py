@@ -103,23 +103,45 @@ def configuration(
     }
     if full_snapshot:
         config["snapshot_kind"] = "FULL"
-    if pipeline_mode not in ("incremental", "backfill") or (
-        pipeline_mode == "backfill" and pipeline_run_id is None
+    if pipeline_mode not in ("full", "incremental", "backfill") or (
+        pipeline_mode in ("full", "backfill") and pipeline_run_id is None
     ):
         raise BronzeError("Invalid pipeline stream mode")
     if pipeline_parent and pipeline_run_id is None:
         raise BronzeError("Parent stream requires a pipeline run")
     if pipeline_run_id is not None:
-        if table in ("products", "sellers"):
-            raise BronzeError(f"{table.title()} are not part of the core pipeline")
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", pipeline_run_id):
             raise BronzeError("Invalid owning pipeline run ID")
-        if full_snapshot or (pipeline_parent and table not in ("customers", "orders")):
+        if (
+            full_snapshot
+            or (
+                pipeline_parent
+                and (
+                    table not in ("customers", "orders", "products", "sellers")
+                    or pipeline_mode == "full"
+                )
+            )
+            or (
+                table in ("products", "sellers")
+                and not pipeline_parent
+                and pipeline_mode != "full"
+            )
+        ):
             raise BronzeError("Invalid incremental stream configuration")
+        role = (
+            "snapshot"
+            if pipeline_mode == "full"
+            else "parent"
+            if pipeline_parent
+            else "delta"
+        )
         config.update(
-            pipeline=f"{pipeline_mode}_{table}_{'parent' if pipeline_parent else 'delta'}_v1",
+            pipeline=f"{pipeline_mode}_{table}_{role}_v1",
+            stream_role=role,
             pipeline_run_id=pipeline_run_id,
-            snapshot_kind="FULL" if pipeline_parent else "INCREMENTAL",
+            snapshot_kind="FULL"
+            if pipeline_parent or pipeline_mode == "full"
+            else "INCREMENTAL",
         )
     return config
 
@@ -188,8 +210,6 @@ def prepare(
         pipeline_version = None
         if config.get("pipeline_run_id"):
             from olist_platform.pipeline.control import (
-                BACKFILL,
-                INCREMENTAL,
                 current,
                 parent_run_id,
             )
@@ -197,17 +217,18 @@ def prepare(
             owner = current(connection, config["pipeline_run_id"])
             expected = (
                 parent_run_id(owner["run_id"])
-                if config["snapshot_kind"] == "FULL"
+                if config["stream_role"] == "parent"
                 else owner["run_id"]
             )
             if (
-                owner["pipeline_name"] not in (INCREMENTAL, BACKFILL)
-                or run_id != expected
+                run_id != expected
                 or config["pipeline"]
-                != f"{owner['request']['mode']}_{table}_{'parent' if config['snapshot_kind'] == 'FULL' else 'delta'}_v1"
+                != f"{owner['request'].get('mode', 'full')}_{table}_{config['stream_role']}_v1"
             ):
                 raise BronzeError("Incremental extraction requires its owning pipeline")
-            baseline = owner["control_before"][table]
+            baseline = owner["control_before"].get(
+                table, {"committed_cursor": None, "cursor_version": None}
+            )
             before = baseline["committed_cursor"]
             pipeline_version = baseline["cursor_version"]
         target = sql.Identifier(contract["database"]["source_schema"], table)
@@ -225,7 +246,7 @@ def prepare(
         window = (
             owner["request"]["backfill_window"]
             if config.get("pipeline_run_id")
-            and owner["pipeline_name"] == BACKFILL
+            and owner["request"].get("mode") == "backfill"
             and config["snapshot_kind"] != "FULL"
             else None
         )
@@ -357,7 +378,10 @@ def prepare(
             key = f"{prefix}/attempt=0001/part-{number:06d}.jsonl"
             lines = []
             for ordinal, row in enumerate(rows, 1):
-                if config.get("pipeline_run_id"):
+                if (
+                    config.get("pipeline_run_id")
+                    and config["snapshot_kind"] == "INCREMENTAL"
+                ):
                     category = (
                         "source_backfill_rows"
                         if window

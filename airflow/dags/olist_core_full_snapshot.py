@@ -8,13 +8,13 @@ from airflow.sdk import DAG
 
 with DAG(
     dag_id="olist_core_full_snapshot",
-    description="Local full snapshots through the existing receipt/dbt completion gate",
+    description="Atomic six-source full snapshots with three-parent item FK gates",
     schedule="@daily",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     catchup=False,
     max_active_runs=1,
     is_paused_upon_creation=True,
-    tags=["olist", "local", "full-snapshot"],
+    tags=["olist", "local", "item-fk-v2", "full-snapshot"],
 ) as dag:
     BashOperator(
         task_id="run_core_pipeline",

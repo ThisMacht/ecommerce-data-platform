@@ -6,7 +6,14 @@ import psycopg
 from postgres_case import PostgresIntegrationCase
 
 from olist_platform.bronze.storage import BronzeError
-from olist_platform.pipeline.control import TASKS, begin, fail, promote, task
+from olist_platform.pipeline.control import (
+    ANALYTICS_SOURCES,
+    TASKS,
+    begin,
+    fail,
+    promote,
+    task,
+)
 from olist_platform.pipeline.health import load_thresholds, report
 from tests.unit.test_pipeline_contract import dataset_evidence
 
@@ -35,10 +42,7 @@ class PipelineControlTest(PostgresIntegrationCase):
             task(c, run_id, attempt, name, "SUCCESS")
 
     def items(self):
-        result = {
-            table: dataset_evidence()
-            for table in ("customers", "orders", "order_items", "order_payments")
-        }
+        result = {table: dataset_evidence() for table in ANALYTICS_SOURCES}
         for table, item in result.items():
             ordinal = {
                 "order_items": "order_item_id",
@@ -69,7 +73,7 @@ class PipelineControlTest(PostgresIntegrationCase):
         self.assertEqual(self.start()["status"], "NOOP")
         self.assertEqual(self.control(), before)
         self.assertEqual(
-            self.psql("SELECT COUNT(*) FROM audit.pipeline_dataset_runs"), "4"
+            self.psql("SELECT COUNT(*) FROM audit.pipeline_dataset_runs"), "6"
         )
 
     def test_failed_tasks_and_reconciliation_keep_watermarks_then_resume(self):

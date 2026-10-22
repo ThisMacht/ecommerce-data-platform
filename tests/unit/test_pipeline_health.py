@@ -10,7 +10,7 @@ from unittest.mock import patch
 
 import psycopg
 
-from olist_platform.pipeline.control import TABLES
+from olist_platform.pipeline.control import ANALYTICS_SOURCES as TABLES
 from olist_platform.pipeline.dashboard import render
 from olist_platform.pipeline.health import evaluate, load_thresholds, main
 
@@ -124,7 +124,9 @@ class PipelineHealthTest(unittest.TestCase):
 
     def test_dashboard_escapes_audit_values_and_distinguishes_missing_from_zero(self):
         self.counts["customers"]["rejected_rows"] = 0
+        self.counts["products"]["dimension_snapshot_rows"] = 321
         result = self.check()
+        self.assertEqual(result["datasets"]["products"]["dimension_snapshot_rows"], 321)
         result["latest_run"]["run_id"] = '<script>alert("audit")</script>'
         result["issues"] = ['<img src=x onerror="alert(1)">']
         html = render(result)
@@ -137,6 +139,8 @@ class PipelineHealthTest(unittest.TestCase):
         self.assertIn("5.000%", html)
         self.assertIn("100", html)
         self.assertIn("Static report", html)
+        self.assertIn("Dimension snapshot", html)
+        self.assertIn("321", html)
         missing = evaluate(self.now, None, None, {}, {}, self.limits)
         self.assertIn("orders.missing_success", render(missing))
         self.assertIn("UNHEALTHY", render(missing))

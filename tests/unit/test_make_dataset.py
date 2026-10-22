@@ -142,15 +142,15 @@ class MakeDatasetTest(unittest.TestCase):
         freezes = [a for a in self.commands if "freeze" in a]
         self.assertEqual(len(freezes), 1)
         extracts = [a for a in self.commands if "extract" in a]
-        self.assertEqual(len(extracts), 6)
+        self.assertEqual(len(extracts), 8)
         self.assertLess(
             self.commands.index(freezes[0]), self.commands.index(extracts[0])
         )
-        self.assertTrue(all("--pipeline-parent" in a for a in extracts[:2]))
+        self.assertTrue(all("--pipeline-parent" in a for a in extracts[:4]))
         self.assertTrue(all("--pipeline-run-id" in a for a in extracts))
         self.assertFalse(any("--full-snapshot" in a for a in extracts))
         loads = [a for a in self.commands if "olist_platform.warehouse.cli" in a]
-        self.assertEqual(len(loads), 4)
+        self.assertEqual(len(loads), 6)
         self.assertFalse(any("fk_fixture" in a for a in loads))
         dependent = [
             a
@@ -192,7 +192,7 @@ class MakeDatasetTest(unittest.TestCase):
         ):
             self.invoke()
         extracts = [a for a in self.commands if "extract" in a]
-        self.assertEqual(len(extracts), 6)
+        self.assertEqual(len(extracts), 8)
         self.assertTrue(
             all(a[a.index("--pipeline-mode") + 1] == "backfill" for a in extracts)
         )
@@ -418,19 +418,33 @@ class MakeDatasetTest(unittest.TestCase):
         processing = [args for args in self.commands if "process" in args]
         self.assertEqual(
             [args[args.index("--table") + 1] for args in processing],
-            ["customers", "orders", "order_items", "order_payments"],
+            [
+                "customers",
+                "products",
+                "sellers",
+                "orders",
+                "order_items",
+                "order_payments",
+            ],
         )
         self.assertEqual(
-            processing[1][-2:], ("--customer-snapshot", "silver/customers/run_id=test")
+            processing[3][-2:], ("--customer-snapshot", "silver/customers/run_id=test")
         )
-        for args in processing[2:]:
+        for args in processing[4:]:
             self.assertEqual(
-                args[-2:], ("--order-snapshot", "silver/orders/run_id=test")
+                args[args.index("--order-snapshot") + 1], "silver/orders/run_id=test"
             )
         orders = next(
             args for args in self.commands if "extract" in args and "orders" in args
         )
-        self.assertIn("--full-snapshot", orders)
+        self.assertIn("--pipeline-run-id", orders)
+        self.assertEqual(orders[orders.index("--pipeline-mode") + 1], "full")
+        items = processing[4]
+        for parent in ("product", "seller"):
+            self.assertEqual(
+                items[items.index(f"--{parent}-snapshot") + 1],
+                f"silver/{parent}s/run_id=test",
+            )
         self.assertEqual(os.environ["PGPORT"], "5544")
         self.assertEqual(os.environ["PGPASSWORD"], "space $quote'")
         self.assertNotIn("BRONZE_SOURCE_DSN", os.environ)
@@ -440,14 +454,21 @@ class MakeDatasetTest(unittest.TestCase):
         ]
         self.assertEqual(
             [args[args.index("--table") + 1] for args in loads],
-            ["customers", "orders", "order_items", "order_payments"],
+            [
+                "customers",
+                "products",
+                "sellers",
+                "orders",
+                "order_items",
+                "order_payments",
+            ],
         )
         for args in loads:
             table = args[args.index("--table") + 1]
             self.assertEqual(
                 args[args.index("--silver-prefix") + 1], f"silver/{table}/run_id=test"
             )
-        self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 19)
+        self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 25)
         retries = [
             args for args in self.commands if "olist_platform.deferred.cli" in args
         ]
@@ -471,22 +492,35 @@ class MakeDatasetTest(unittest.TestCase):
             )
         )
 
-    def test_absent_java_skips_silver_but_extracts_all_four_tables(self):
+    def test_absent_java_skips_silver_but_extracts_all_six_tables(self):
         with (
             patch("scripts.make_dataset.run", side_effect=self.command),
             patch("scripts.make_dataset.shutil.which", return_value=None),
         ):
             output = self.invoke()
-        self.assertEqual(len([args for args in self.commands if "extract" in args]), 4)
+        self.assertEqual(len([args for args in self.commands if "extract" in args]), 6)
         self.assertFalse(any("process" in args for args in self.commands))
         self.assertFalse(
             any("olist_platform.warehouse.cli" in args for args in self.commands)
         )
         self.assertIn("[SKIP] Silver", output)
         self.assertTrue(Path("build/reports/dataset/pending-run.txt").exists())
-        self.assertFalse(
-            any("olist_platform.pipeline.cli" in args for args in self.commands)
+        self.assertTrue(any("freeze" in args for args in self.commands))
+        self.assertFalse(any("finish" in args for args in self.commands))
+        extracts = [args for args in self.commands if "extract" in args]
+        self.assertTrue(all("--pipeline-run-id" in args for args in extracts))
+        identity = Path("build/reports/dataset/pending-run.txt").read_text().strip()
+        with (
+            patch("scripts.make_dataset.run", side_effect=self.command),
+            patch("scripts.make_dataset.shutil.which", return_value="java"),
+        ):
+            self.invoke()
+        begins = [args for args in self.commands if "begin" in args]
+        self.assertEqual(len(begins), 2)
+        self.assertTrue(
+            all(args[args.index("--run-id") + 1] == identity for args in begins)
         )
+        self.assertFalse(Path("build/reports/dataset/pending-run.txt").exists())
 
     def test_local_file_lock_prevents_a_second_runner(self):
         root = Path("build/reports/dataset")

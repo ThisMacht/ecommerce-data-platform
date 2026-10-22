@@ -513,7 +513,7 @@ Phase này chỉ sử dụng `orders`, `customers`, `order_items` và `order_pay
 - [x] Implement orders CLI slice: bounded PostgreSQL snapshot → immutable JSONL Bronze trên MinIO, manifest/checksum/lineage và retry-safe Bronze-only checkpoint.
 - [x] Implement orders PySpark/Silver slice: timezone normalization, local validation, version dedupe, Parquet routes và immutable publication/replay.
 - [x] Add full customers Bronze/Silver and orders customer FK/deferred routing with pinned snapshot hashes; explicit late-parent reprocessing preserves original lineage. Durable deferred lifecycle and staging are now implemented in contracts `08` and `10`.
-- [x] Add `order_items`/`order_payments` Bronze/Silver: composite keys, decimal money, full orders snapshots and pinned FK checks; standalone item v2 now checks product/seller membership; scheduled core remains v1. See `docs/data_contracts/07_order_children.md`.
+- [x] Add `order_items`/`order_payments` Bronze/Silver: composite keys, decimal money, full orders snapshots and pinned FK checks; scheduled item v2 now checks product/seller membership with frozen parents. See `docs/data_contracts/07_order_children.md`.
 - [x] Ghi Bronze immutable theo `ingestion_date`, `run_id` và attempt path cho bốn core datasets.
 - [x] Tạo Bronze manifest, checksum, schema fingerprint và `_SUCCESS` marker.
 - [x] Bổ sung physical `_record_uid`, `_logical_record_uid`, source version và ingestion metadata.
@@ -642,7 +642,7 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 
 - [x] Products standalone full Bronze/Silver → version-aware staging → `dim_product` Type 1; replay/dirty/reconciliation checks. See `docs/data_contracts/15_product_snapshots.md`.
 - [x] Add standalone item v2 with pinned full order/product/seller FKs and atomic deferred retry; see `docs/data_contracts/17_item_dependency_snapshots.md`.
-- [ ] Integrate products/sellers parents and item v2 into audited freeze/scheduling/receipt gates.
+- [x] Integrate products/sellers parents and item v2 into audited full/incremental/backfill freeze/scheduling/receipt gates; six dataset audits and four completion cursors.
 - [x] Sellers standalone full Bronze/Silver → version-aware staging → `dim_seller` Type 1; location warnings and replay/reconciliation checks. See `docs/data_contracts/16_seller_snapshots.md`.
 - [ ] Ingest reviews và geolocation.
 - [ ] Tạo `int_geolocation_by_zip` bằng median latitude/longitude và mode city/state.
@@ -672,7 +672,7 @@ Unit tests tập trung vào source simulator, dirty-data injector, cursor orderi
 - [x] Xác minh newer-same-hash được đếm unchanged nhưng source version vẫn advance.
 - [x] Xác minh older version bị stale-ignore và equal-version/different-hash làm run fail.
 - [x] Kiểm tra same-timestamp pagination không thiếu hoặc lặp record.
-- [x] Kiểm tra customer/order FK được deferred đúng policy; product/seller membership có trong standalone item v2; core vẫn dùng v1.
+- [x] Kiểm tra customer/order FK được deferred đúng policy; product/seller membership có trong scheduled item v2 và atomic full parent freeze.
 - [x] Kiểm tra deferred record được resolve khi dependency xuất hiện, giữ original lineage và source-version safety.
 - [x] Kiểm tra deferred record expire đúng max age/attempts, terminal states và replay không double count.
 - [x] So sánh backfill với full reload.

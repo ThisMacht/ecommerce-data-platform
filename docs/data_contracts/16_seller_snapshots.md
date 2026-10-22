@@ -7,9 +7,9 @@
 `seller_id`; Type 1 dùng `MD5(seller_id)` làm stable surrogate key. Hai seller
 cùng location vẫn là hai records. Không tạo lịch sử địa chỉ từ snapshot.
 
-Sellers chạy độc lập như products: chưa có task/cursor sellers trong core runner,
-incremental, backfill hoặc Airflow. Core items v1 chỉ kiểm tra required IDs; [item v2 standalone](17_item_dependency_snapshots.md)
-kiểm tra membership bằng pinned full product/seller snapshots.
+Sellers chạy standalone hoặc full refresh trong core full/incremental/backfill
+và Airflow. [Item v2](17_item_dependency_snapshots.md) kiểm tra membership bằng
+pinned full product/seller snapshots. Không có seller delta/completion cursor.
 
 ## Extraction and Replay
 
@@ -51,8 +51,8 @@ columns, không gồm metadata hoặc lineage. Địa chỉ hiện tại không 
 chỉ tại thời điểm giao dịch trong quá khứ.
 
 Full dbt build hiện kiểm tra sáu staging sources; final core gate giữ SHARE locks
-trên cả sáu đến khi fresh dbt và cursor CAS commit. Core vẫn chỉ audits/promotes
-bốn bảng; gate chưa chứng nhận freshness hay extraction receipts của sellers.
+trên cả sáu đến khi fresh dbt và cursor CAS commit. Core audits sáu datasets, promote chỉ bốn core cursors và xác minh frozen seller
+extraction/Silver/load receipts cùng item pins.
 Standalone seller load làm BI publication unavailable cho đến core run thành công.
 BI role vẫn chỉ đọc ba business models và status view, không được thêm dimension.
 
@@ -86,6 +86,6 @@ cùng request trả NOOP và mọi pipeline cursor giữ nguyên trong standalon
 Chi tiết runtime: ignored `build/reports/sellers-smoke.json`; không phải benchmark
 hoặc xác minh tính đúng đắn địa lý của từng địa chỉ.
 
-Full core run tiếp theo đã SUCCESS: 19 tasks, 61 dbt model/test nodes;
+Full core run trước tích hợp orchestration item v2 đã SUCCESS: 19 tasks, 61 dbt model/test nodes;
 `dim_seller` có 3,095 rows và BI publication available. Core gate vẫn không thêm
 sellers vào extraction receipts hoặc scheduled cursor set.

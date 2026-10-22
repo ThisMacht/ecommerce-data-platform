@@ -12,7 +12,13 @@ from psycopg.types.json import Jsonb
 from olist_platform.bronze.extraction import ingest_source, prepare
 from olist_platform.bronze.storage import BronzeError
 from olist_platform.pipeline.cli import configuration, finish
-from olist_platform.pipeline.control import TABLES, begin, fail, parent_run_id
+from olist_platform.pipeline.control import (
+    ANALYTICS_SOURCES,
+    TABLES,
+    begin,
+    fail,
+    parent_run_id,
+)
 from olist_platform.pipeline.incremental import freeze
 from olist_platform.warehouse.loading import load_silver
 
@@ -191,7 +197,7 @@ class IncrementalPipelineTest(CorePipelineCase):
                 )
 
             def injected(*args, **kwargs):
-                if args[4] == "orders" and args[1] == parent_run_id("atomic"):
+                if args[4] == "sellers" and args[1] == parent_run_id("atomic"):
                     raise RuntimeError("failed last stream")
                 return prepare(*args, **kwargs)
 
@@ -200,7 +206,7 @@ class IncrementalPipelineTest(CorePipelineCase):
             ):
                 with self.assertRaisesRegex(RuntimeError, "last stream"):
                     freeze(c, self.store, self.contract, "atomic", 1, self.endpoint)
-            for table in TABLES:
+            for table in ANALYTICS_SOURCES:
                 self.assertEqual(
                     self.psql(f"SELECT COUNT(*) FROM audit.bronze_{table}_runs"), "0"
                 )
@@ -208,6 +214,44 @@ class IncrementalPipelineTest(CorePipelineCase):
             self.assertEqual(
                 self.psql("SELECT COUNT(*) FROM audit.bronze_customers_runs"), "2"
             )
+
+    def test_full_freeze_rolls_back_six_streams_and_reuses_dimension_bytes(self):
+        with self.environment(mode="full"), self.connection() as c:
+            begin(c, "full_freeze", configuration(REPOSITORY_ROOT, self.contract))
+
+            def injected(*args, **kwargs):
+                if args[4] == "sellers":
+                    raise RuntimeError("last full stream")
+                return prepare(*args, **kwargs)
+
+            with patch(
+                "olist_platform.pipeline.incremental.prepare", side_effect=injected
+            ):
+                with self.assertRaisesRegex(RuntimeError, "last full stream"):
+                    freeze(
+                        c, self.store, self.contract, "full_freeze", 1, self.endpoint
+                    )
+            for table in ANALYTICS_SOURCES:
+                self.assertEqual(
+                    self.psql(f"SELECT COUNT(*) FROM audit.bronze_{table}_runs"), "0"
+                )
+            self.frozen(c, "full_freeze", 1)
+            self.psql("DELETE FROM olist.products; DELETE FROM olist.sellers;")
+            freeze(c, self.store, self.contract, "full_freeze", 1, self.endpoint)
+            for table in ("products", "sellers"):
+                bronze = ingest_source(
+                    c,
+                    self.store,
+                    self.contract,
+                    table=table,
+                    run_id="full_freeze",
+                    endpoint=self.endpoint,
+                    pipeline_run_id="full_freeze",
+                    pipeline_mode="full",
+                )["manifest"]
+                self.assertEqual(bronze["row_count"], 1)
+                self.assertEqual(bronze["snapshot_kind"], "FULL")
+                self.assertEqual(bronze["source_bootstrap_rows"], 0)
 
     def test_source_writes_between_tables_do_not_split_the_snapshot(self):
         with self.environment(), self.connection() as c:
@@ -279,7 +323,7 @@ class IncrementalPipelineTest(CorePipelineCase):
             )
 
     def test_empty_bootstrap_can_complete_all_gates(self):
-        for table in TABLES:
+        for table in ANALYTICS_SOURCES:
             self.psql(f"DELETE FROM olist.{table}")
         with (
             self.environment(),

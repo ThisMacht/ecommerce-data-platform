@@ -16,6 +16,9 @@ RUN_CONTEXT = None
 CURRENT_TASK = None
 
 CORE_TABLES = ("customers", "orders", "order_items", "order_payments")
+DIMENSIONS = ("products", "sellers")
+PARENT_TABLES = CORE_TABLES[:2] + DIMENSIONS
+DATASETS = CORE_TABLES + DIMENSIONS
 
 
 def airflow_run_id() -> str | None:
@@ -152,7 +155,7 @@ def execute() -> None:
         for f in manifest["files"]
         if not (Path("data/raw") / f["name"]).is_file()
     ]
-    for table in CORE_TABLES:
+    for table in DATASETS:
         name = f"olist_{table}_dataset.csv"
         print(
             f"[{'SKIP' if name in missing else 'FOUND'}] {table}: data/raw/{name}",
@@ -232,13 +235,12 @@ def execute() -> None:
     run_id = saved or requested or f"{mode if incremental else 'dataset'}_{uuid4().hex}"
     pending.write_text(run_id + "\n")
     print(f"[RUN] {run_id}; rerun make dataset after failure to resume", flush=True)
-    if silver:
-        started = audit("begin", run_id=run_id)
-        if started["status"] == "NOOP":
-            pending.unlink()
-            print(f"[DONE] Pipeline already committed: {run_id}", flush=True)
-            return
-        RUN_CONTEXT = {"run_id": run_id, "attempt": started["attempt"], "mode": mode}
+    started = audit("begin", run_id=run_id)
+    if started["status"] == "NOOP":
+        pending.unlink()
+        print(f"[DONE] Pipeline already committed: {run_id}", flush=True)
+        return
+    RUN_CONTEXT = {"run_id": run_id, "attempt": started["attempt"], "mode": mode}
     snapshots = {}
 
     def publish(table, identity, parent=False):
@@ -255,14 +257,11 @@ def execute() -> None:
                 "extract",
                 "--run-id",
                 identity,
-                *(
-                    ["--pipeline-run-id", run_id, "--pipeline-mode", mode]
-                    + (["--pipeline-parent"] if parent else [])
-                    if incremental
-                    else ["--full-snapshot"]
-                    if table != "customers"
-                    else []
-                ),
+                "--pipeline-run-id",
+                run_id,
+                "--pipeline-mode",
+                mode,
+                *(["--pipeline-parent"] if parent else []),
                 capture=True,
             )
         )
@@ -293,6 +292,15 @@ def execute() -> None:
             arguments.extend(["--customer-snapshot", snapshots["customers"]])
         elif table in ("order_items", "order_payments"):
             arguments.extend(["--order-snapshot", snapshots["orders"]])
+            if table == "order_items":
+                arguments.extend(
+                    [
+                        "--product-snapshot",
+                        snapshots["products"],
+                        "--seller-snapshot",
+                        snapshots["sellers"],
+                    ]
+                )
         output = json.loads(run(*arguments, capture=True))
         (reports / f"{identity}_{table}_silver.json").write_text(
             json.dumps(output, indent=2) + "\n"
@@ -300,15 +308,34 @@ def execute() -> None:
         print(f"[OK] {table} Silver: {output['manifest']['prefix']}", flush=True)
         return output["manifest"]
 
+    CURRENT_TASK = "source.freeze"
+    frozen = audit("freeze", "--attempt", str(RUN_CONTEXT["attempt"]))
+    CURRENT_TASK = None
+    dimension_outputs = {}
     if incremental:
-        CURRENT_TASK = "source.freeze"
-        frozen = audit("freeze", "--attempt", str(RUN_CONTEXT["attempt"]))
-        CURRENT_TASK = None
-        for table in CORE_TABLES[:2]:
+        for table in PARENT_TABLES:
             parent = publish(table, frozen["parent_run_id"], parent=True)
             snapshots[table] = parent["prefix"]
-    for table in CORE_TABLES:
-        output = publish(table, run_id)
+            if table in DIMENSIONS:
+                dimension_outputs[table] = parent
+    order = (
+        (DIMENSIONS + CORE_TABLES)
+        if incremental
+        else (
+            "customers",
+            "products",
+            "sellers",
+            "orders",
+            "order_items",
+            "order_payments",
+        )
+    )
+    for table in order:
+        output = (
+            dimension_outputs[table]
+            if incremental and table in DIMENSIONS
+            else publish(table, run_id)
+        )
         if not silver:
             continue
         if not incremental:
@@ -336,7 +363,7 @@ def execute() -> None:
             json.dumps(loaded, indent=2) + "\n"
         )
         print(f"[OK] {table} staging: {loaded['counts']}", flush=True)
-        if table != "customers":
+        if table in CORE_TABLES[1:]:
             deferred_cli = [
                 "uv",
                 "run",
@@ -370,6 +397,16 @@ def execute() -> None:
                     "--run-id",
                     run_id,
                     *(["--origin-run-id", run_id] if mode == "backfill" else []),
+                    *(
+                        [
+                            "--product-snapshot",
+                            snapshots["products"],
+                            "--seller-snapshot",
+                            snapshots["sellers"],
+                        ]
+                        if table == "order_items"
+                        else []
+                    ),
                     capture=True,
                 )
             )

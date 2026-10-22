@@ -38,7 +38,7 @@ from .control import (
 
 def configuration(root: Path, contract: dict) -> dict:
     return {
-        "processor_version": "local-core-v1",
+        "processor_version": "core-item-dependencies-v2",
         "mode": os.environ.get("DATASET_MODE", "full"),
         **(
             {
