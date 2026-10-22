@@ -42,6 +42,8 @@ khi chạy runner. Analytics dependency sync có thể bỏ Spark extra; dùng
 | `mart_product_daily`, `mart_seller_daily` | Một local purchase date × product/seller; item/order counts, GMV và freight |
 | `fct_payments` | Một `(order_id, payment_sequential)`; observed payment amount, type, installments và order/customer context |
 | `mart_payment_type_daily` | Một local purchase date × payment type; entry counts, group distinct orders và gross paid |
+| `fct_delivery` | Một order với UTC milestones, local delivery dates, chronology/completeness flags và durations |
+| `mart_delivery_daily` | Purchase-date cohort: observed delivery counts, late rate và mean elapsed hours |
 | `mart_revenue_daily` | Một local purchase date: GMV, freight, gross paid và completeness counts |
 | `mart_average_order_value` | Một local purchase date: paid amount, paid order count và AOV |
 
@@ -166,6 +168,53 @@ order-grain positive payment total ở `mart_average_order_value`.
 installments, exact money và grouped counts bằng raw staging độc lập. BI reader có SELECT trên aggregate type mart, cùng năm business models khác và
 publication-status view; không được đọc payment fact.
 
+## Delivery Facts and Cohort Metrics
+
+`fct_delivery` giữ **một row cho mọi order**, đọc milestones từ orders và LEFT JOIN
+order/customer context. Không dùng items như shipment table, không join payments.
+Giữ approved/carrier/actual/estimated timestamps nguyên bản; missing customer làm
+integrity gate fail. Không sửa hoặc loại source rows chỉ để làm đẹp delivery metrics.
+
+Policy derived fields (không thay Silver routing hoặc warning rules):
+
+- `has_delivery_timestamp`: actual customer timestamp tồn tại, bất kể status.
+- `has_invalid_delivery_chronology`: carrier trước purchase, actual trước purchase
+  hoặc actual trước carrier. Missing optional milestone không tự bị coi là invalid.
+  Approval chronology giữ nguyên ở Silver warning, không nằm trong delivery flag.
+- `is_delivery_observed`: status delivered, actual tồn tại và không có chronology
+  lỗi ở trên. Actual timestamp của shipped/canceled/unavailable vẫn giữ để trace,
+  không vào completed-delivery metrics. Delivered thiếu actual không được suy diễn.
+- `delivery_delay_days`: signed difference giữa actual và estimated **local calendar
+  dates** tại America/Sao_Paulo. Early âm, cùng ngày hẹn bằng 0, ngày sau hẹn dương.
+  Không so actual instant với estimated midnight để kết luận trễ trong cùng ngày.
+- `delivery_elapsed_hours`: elapsed UTC purchase → actual; `carrier_to_delivery_hours`:
+  UTC carrier → actual. Dùng EXTRACT(EPOCH)/3600 dạng NUMERIC, không làm tròn trước
+  AVG; qua DST, một ngày local có thể chỉ 23 giờ. Transit cần carrier timestamp.
+- Delay/late flag/durations là NULL nếu không có valid delivered observation;
+  không clamp negative input durations thành 0 hoặc dùng CURRENT_TIMESTAMP để đo
+  overdue. Local dates dùng explicit AT TIME ZONE, không phụ thuộc DB session TZ.
+
+`mart_delivery_daily` group theo **purchase date**, không phải delivery-day throughput:
+
+- Counts: total orders, delivered statuses, delivered thiếu actual, invalid chronology,
+  valid observed deliveries, transit observations, late và on-time deliveries.
+- `late_delivery_rate = late_delivery_count / observed_delivery_count` (ratio 0..1).
+  Empty denominator cho NULL; không biến undelivered/incomplete thành on-time.
+- `avg_delivery_hours` chỉ dùng observed deliveries; transit mean chỉ dùng observations
+  có carrier, denominator công khai ở `transit_observation_count`. Không cộng/average
+  daily rates/means để lấy toàn kỳ: cần dùng counts hoặc fact-level durations.
+
+Counts lỗi/completeness vẫn nhìn thấy dù bị loại khỏi duration/rate denominator.
+Marts là current mutable cohort, không reconstructed historical snapshots; không
+suy đoán refund, carrier SLA hay shipping events ngoài timestamps có trong orders.
+Hai models dành cho analytics reader; không mở rộng sáu-model BI grant scope.
+
+`delivery_fact_reconciliation` và `delivery_metric_reconciliation` đối chiếu exact
+milestones, mappings, NULLs, chronology, local days, numeric durations và daily
+counts/rates với raw staging. Independent fixtures kiểm tra same-day midnight,
+early/late, Sao Paulo DST, session timezone, missing carrier/actual, canceled actual,
+invalid ordering, empty inputs và cố tình corrupt duration để xác minh gates fail.
+
 ## Local Verification
 
 Full run `dataset_57c523f030ca4fe3b9bb88710412096f` ngày 2026-10-22 SUCCESS:
@@ -194,6 +243,29 @@ Evidence ignored: run-specific pipeline/dbt reports ở `build/reports/dataset/`
 11 full/incremental/backfill/recovery cases; package build thành công. Mixed-type
 fixture giữ gross paid 43.25 BRL; cố tình nhân installment làm cả hai payment
 reconciliation tests fail. Không mở thêm quyền hoặc cards Metabase.
+
+### Delivery Expansion
+
+Local locked dbt build ngày 2026-10-22: PASS=149 (21 views, 128 data tests), không
+error/skip. Build dùng staging SHARE locks; verification read-only đối chiếu fact
+và daily counts, giữ nguyên mọi pipeline control. Không chạy source extraction
+hoặc tạo một pipeline SUCCESS mới chỉ cho thay đổi modeling này.
+
+99,424 order rows/unique IDs được giữ. Có 189 chronology flags, 8 delivered rows
+thiếu actual và 6 non-delivered rows có actual. Policy cho 96,266 observed
+valid deliveries: 6,529 late, 89,737 on-time; late ratio
+0.06782249184551139551. Transit duration có 96,265 observations. Counts của fact
+và mart khớp source; các rows có lỗi/thiếu timestamp không bị xóa khỏi fact.
+
+117 unit và 24 distinct integration cases đã kiểm chứng (13 dbt, full gate,
+6 incremental, 2 backfill, 2 recovery); timeline case được rerun sau khi thêm
+session `Asia/Tokyo` và actual-before-purchase assertions. Corrupt duration làm
+cả hai delivery reconciliation tests fail. Package build thành công.
+
+Evidence ignored: `build/reports/delivery_dbt/run_results.json`,
+`build/reports/delivery-models-local.json`, `build/reports/delivery-models-health.json`.
+Health HEALTHY, BI available; dedicated BI reader vẫn bị từ chối đọc hai delivery
+models. Modeling build không chứng nhận historical source versions hoặc carrier SLA.
 
 ## References
 

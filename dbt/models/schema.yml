@@ -365,3 +365,99 @@ models:
   - name: gross_paid_amount
     data_tests:
     - not_null
+
+- name: fct_delivery
+  description: "One order, including incomplete/ineligible timelines. UTC elapsed durations; lateness uses Sao Paulo calendar dates. Invalid chronology is flagged, never silently repaired."
+  columns:
+  - name: order_id
+    data_tests:
+    - not_null
+    - unique
+    - relationships:
+        arguments:
+          to: ref('fct_orders')
+          field: order_id
+  - name: customer_key
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_customer')
+          field: customer_key
+  - name: order_status
+    data_tests:
+    - not_null
+  - name: order_purchase_date
+    data_tests:
+    - not_null
+  - name: order_purchase_timestamp
+    data_tests:
+    - not_null
+  - name: order_approved_at
+    description: "Source approval milestone retained unchanged; not used to validate delivery chronology."
+  - name: order_delivered_carrier_date
+    description: "Nullable UTC carrier handoff."
+  - name: order_delivered_customer_date
+    description: "Nullable UTC actual customer delivery."
+  - name: order_estimated_delivery_date
+    data_tests:
+    - not_null
+  - name: estimated_delivery_date
+    data_tests:
+    - not_null
+  - name: delivered_date
+    description: "Nullable Sao Paulo actual delivery date, retained regardless of order status."
+  - name: has_delivery_timestamp
+    data_tests:
+    - not_null
+  - name: has_invalid_delivery_chronology
+    data_tests:
+    - not_null
+  - name: is_delivery_observed
+    data_tests:
+    - not_null
+  - name: delivery_delay_days
+    description: "Signed local calendar days: early negative, promised day zero, late positive; NULL without a valid delivered observation."
+  - name: is_late_delivery
+    description: "NULL without a valid delivered observation; never inferred from wall clock."
+  - name: delivery_elapsed_hours
+    description: "UTC elapsed hours purchase to actual delivery, numeric, NULL for missing/invalid/non-delivered observation."
+  - name: carrier_to_delivery_hours
+    description: "UTC elapsed hours carrier to delivery; NULL without a valid observation or carrier milestone."
+- name: mart_delivery_daily
+  description: "Purchase-date cohort, not delivery-day throughput. Observed delivered timelines form the late-rate denominator; incomplete and invalid counts remain visible."
+  columns:
+  - name: order_purchase_date
+    data_tests:
+    - not_null
+    - unique
+  - name: total_order_count
+    data_tests:
+    - not_null
+  - name: delivered_order_count
+    data_tests:
+    - not_null
+  - name: delivered_missing_timestamp_count
+    data_tests:
+    - not_null
+  - name: invalid_chronology_count
+    data_tests:
+    - not_null
+  - name: observed_delivery_count
+    data_tests:
+    - not_null
+  - name: transit_observation_count
+    data_tests:
+    - not_null
+  - name: late_delivery_count
+    data_tests:
+    - not_null
+  - name: on_time_delivery_count
+    data_tests:
+    - not_null
+  - name: late_delivery_rate
+    description: "Late valid delivered observations / observed_delivery_count; NULL for an empty denominator."
+  - name: avg_delivery_hours
+    description: "Mean UTC purchase-to-delivery hours over observed_delivery_count; NULL when no observations."
+  - name: avg_carrier_to_delivery_hours
+    description: "Mean UTC carrier-to-delivery hours over transit_observation_count; NULL when carrier observations are absent."

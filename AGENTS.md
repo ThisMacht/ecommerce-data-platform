@@ -12,7 +12,7 @@ Implemented: core layers, dbt, deferred retries, full/incremental audit, isolate
 - `src/olist_platform/deferred/`: quarantine registration, bounded retry/expiry and atomic staging resolution.
 - `src/olist_platform/pipeline/`: run/task audit, receipt reconciliation and all-table cursor CAS.
 - `airflow/`: isolated Python 3.12 runtime/lock and paused full/incremental and manual backfill DAGs.
-- `dbt/`: staging views, customer/product/seller Type 1 dimensions, order/item/payment facts, daily GMV/AOV, product/seller and payment-type marts.
+- `dbt/`: staging views, customer/product/seller Type 1 dimensions, order/item/payment/delivery facts, daily GMV/AOV, product/seller/payment-type and delivery cohort marts.
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
 - `tests/processing/`: Spark checks with independent expected fixtures.
@@ -136,3 +136,11 @@ Dashboard payment-type series must match the five Silver-validated types. Daily
 trend pivots to one row/date to avoid Metabase's observed 2,000-row truncation;
 recheck limits when extending history or allowed types. Preserve managed IDs,
 inclusive date mappings and publication gates when changing cards.
+
+Delivery analytics: one order per `fct_delivery`, no item/payment joins. Preserve
+all milestones; flag carrier-before-purchase, actual-before-purchase/carrier.
+Observe delivery only for delivered status + actual timestamp + valid chronology.
+Lateness uses Sao Paulo calendar dates; durations use UTC elapsed hours, not local
+wall-clock subtraction. Incomplete/invalid/non-delivered metrics stay NULL.
+Daily mart uses purchase-date cohorts; expose observation counts, keep undefined
+rates/means NULL and never average daily rates. No new BI grants for these models.

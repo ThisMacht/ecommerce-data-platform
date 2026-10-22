@@ -127,6 +127,8 @@ class DbtModelsTest(PostgresIntegrationCase):
                 "raw_staging.orders",
                 "audit.pipeline_runs",
                 "analytics.stg_orders",
+                "analytics.fct_delivery",
+                "analytics.mart_delivery_daily",
                 "analytics.fct_payments",
                 "analytics.dim_product",
                 "analytics.dim_seller",
@@ -631,6 +633,8 @@ class DbtModelsTest(PostgresIntegrationCase):
             "mart_seller_daily",
             "fct_payments",
             "mart_payment_type_daily",
+            "fct_delivery",
+            "mart_delivery_daily",
         ):
             self.assertEqual(self.psql(f"SELECT COUNT(*) FROM analytics.{model}"), "0")
 
@@ -820,3 +824,137 @@ class DbtModelsTest(PostgresIntegrationCase):
             )
         )
         self.dbt(success=False)
+
+    def test_delivery_calendar_lateness_utc_dst_and_incomplete_timelines(self):
+        self.psql("""UPDATE raw_staging.orders SET
+            order_purchase_timestamp=CASE WHEN order_id='b' THEN '2018-11-03T15:00:00Z'::timestamptz ELSE '2018-01-01T02:00:00Z'::timestamptz END,
+            order_purchase_date=CASE WHEN order_id='b' THEN '2018-11-03'::date ELSE '2018-01-01'::date END,
+            order_estimated_delivery_date=CASE WHEN order_id='b' THEN '2018-11-04T02:00:00Z'::timestamptz ELSE '2018-01-03T02:00:00Z'::timestamptz END,
+            order_status=CASE WHEN order_id='cancel' THEN 'canceled' ELSE 'delivered' END,
+            order_delivered_customer_date=CASE order_id
+                WHEN 'a' THEN '2018-01-04T01:30:00Z'::timestamptz
+                WHEN 'b' THEN '2018-11-04T14:00:00Z'::timestamptz
+                WHEN 'pending' THEN NULL ELSE '2018-01-04T02:00:00Z'::timestamptz END,
+            order_delivered_carrier_date=CASE order_id
+                WHEN 'a' THEN '2018-01-02T02:00:00Z'::timestamptz
+                WHEN 'zero' THEN '2018-01-05T02:00:00Z'::timestamptz ELSE NULL END;""")
+        self.dbt()
+        with psycopg.connect(
+            host="127.0.0.1",
+            port=self.port,
+            dbname=self.database,
+            user="olist_test_reader",
+            password="isolated_test_reader",
+            options="-c timezone=Asia/Tokyo",
+            autocommit=True,
+        ) as reader:
+            self.assertEqual(
+                reader.execute(
+                    "SELECT delivered_date,delivery_delay_days,delivery_elapsed_hours FROM analytics.fct_delivery WHERE order_id='a'"
+                ).fetchone(),
+                (date(2018, 1, 3), 0, Decimal("71.5")),
+            )
+        self.assertEqual(self.psql("SELECT COUNT(*) FROM analytics.fct_delivery"), "5")
+        self.assertEqual(
+            self.psql(
+                "SELECT order_id,has_delivery_timestamp,has_invalid_delivery_chronology,is_delivery_observed,delivery_delay_days,is_late_delivery FROM analytics.fct_delivery ORDER BY order_id"
+            ),
+            "a|t|f|t|0|f\nb|t|f|t|1|t\ncancel|t|f|f||\npending|f|f|f||\nzero|t|t|f||",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT delivery_elapsed_hours=71.5,carrier_to_delivery_hours=47.5 FROM analytics.fct_delivery WHERE order_id='a'"
+            ),
+            "t|t",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT delivery_elapsed_hours=23,carrier_to_delivery_hours IS NULL FROM analytics.fct_delivery WHERE order_id='b'"
+            ),
+            "t|t",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT order_purchase_date,total_order_count,delivered_order_count,delivered_missing_timestamp_count,invalid_chronology_count,observed_delivery_count,transit_observation_count,late_delivery_count,on_time_delivery_count FROM analytics.mart_delivery_daily ORDER BY order_purchase_date"
+            ),
+            "2018-01-01|4|3|1|1|1|1|0|1\n2018-11-03|1|1|0|0|1|0|1|0",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT late_delivery_rate=0,avg_delivery_hours=71.5,avg_carrier_to_delivery_hours=47.5 FROM analytics.mart_delivery_daily WHERE order_purchase_date='2018-01-01'"
+            ),
+            "t|t|t",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT late_delivery_rate=1,avg_delivery_hours=23,avg_carrier_to_delivery_hours IS NULL FROM analytics.mart_delivery_daily WHERE order_purchase_date='2018-11-03'"
+            ),
+            "t|t|t",
+        )
+        self.psql(
+            "UPDATE raw_staging.orders SET order_delivered_customer_date='2018-01-02T02:00:00Z',order_delivered_carrier_date=NULL WHERE order_id='a'"
+        )
+        self.dbt()
+        self.assertEqual(
+            self.psql(
+                "SELECT delivery_delay_days,is_late_delivery FROM analytics.fct_delivery WHERE order_id='a'"
+            ),
+            "-1|f",
+        )
+        self.psql(
+            "UPDATE raw_staging.orders SET order_delivered_carrier_date='2017-12-31T02:00:00Z' WHERE order_id='a'"
+        )
+        self.dbt()
+        self.assertEqual(
+            self.psql(
+                "SELECT has_invalid_delivery_chronology,delivery_elapsed_hours IS NULL,delivery_delay_days IS NULL FROM analytics.fct_delivery WHERE order_id='a'"
+            ),
+            "t|t|t",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT late_delivery_rate IS NULL,avg_delivery_hours IS NULL FROM analytics.mart_delivery_daily WHERE order_purchase_date='2018-01-01'"
+            ),
+            "t|t",
+        )
+
+        self.psql(
+            "UPDATE raw_staging.orders SET order_delivered_customer_date='2017-12-31T02:00:00Z',order_delivered_carrier_date=NULL WHERE order_id='a'"
+        )
+        self.dbt("test")
+        self.assertEqual(
+            self.psql(
+                "SELECT has_invalid_delivery_chronology,delivery_elapsed_hours IS NULL FROM analytics.fct_delivery WHERE order_id='a'"
+            ),
+            "t|t",
+        )
+
+    def test_delivery_reconciliation_detects_a_corrupted_duration(self):
+        self.psql("""UPDATE raw_staging.orders SET order_status='delivered',
+            order_delivered_customer_date=order_purchase_timestamp+INTERVAL '48 hours'
+            WHERE order_id='a';""")
+        self.dbt()
+        self.psql("""CREATE OR REPLACE VIEW analytics.fct_delivery AS
+            SELECT o.order_id,f.customer_key,o.order_status,o.order_purchase_date,
+                o.order_purchase_timestamp,o.order_approved_at,o.order_delivered_carrier_date,
+                o.order_delivered_customer_date,o.order_estimated_delivery_date,
+                (o.order_estimated_delivery_date AT TIME ZONE 'America/Sao_Paulo')::date AS estimated_delivery_date,
+                (o.order_delivered_customer_date AT TIME ZONE 'America/Sao_Paulo')::date AS delivered_date,
+                o.order_delivered_customer_date IS NOT NULL AS has_delivery_timestamp,
+                FALSE AS has_invalid_delivery_chronology,
+                o.order_status='delivered' AND o.order_delivered_customer_date IS NOT NULL AS is_delivery_observed,
+                CASE WHEN o.order_status='delivered' THEN
+                    (o.order_delivered_customer_date AT TIME ZONE 'America/Sao_Paulo')::date - (o.order_estimated_delivery_date AT TIME ZONE 'America/Sao_Paulo')::date END AS delivery_delay_days,
+                CASE WHEN o.order_status='delivered' THEN
+                    (o.order_delivered_customer_date AT TIME ZONE 'America/Sao_Paulo')::date > (o.order_estimated_delivery_date AT TIME ZONE 'America/Sao_Paulo')::date END AS is_late_delivery,
+                CASE WHEN o.order_status='delivered' THEN 999::numeric END AS delivery_elapsed_hours,
+                NULL::numeric AS carrier_to_delivery_hours
+            FROM analytics.stg_orders o LEFT JOIN analytics.fct_orders f USING (order_id);""")
+        results = self.dbt("test", success=False)
+        for test in ("delivery_fact_reconciliation", "delivery_metric_reconciliation"):
+            self.assertTrue(
+                any(
+                    r["unique_id"].endswith(test) and r["status"] == "fail"
+                    for r in results["results"]
+                )
+            )

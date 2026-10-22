@@ -584,7 +584,20 @@ payment-type amounts/trends dùng cùng inclusive date filters và publication g
 Chạy setup lại giữ IDs, không duplicate cards. Kiểm tra `build/metabase/dashboard.json`
 và [BI contract](../data_contracts/14_business_dashboard.md); không commit credentials.
 
-## 27. Change control
+## 27. Delivery cohorts
+
+Pipeline tự build/test `fct_delivery` và `mart_delivery_daily`; standalone dùng
+`make dbt-build` với environment ở mục 18. Missing/invalid milestones không làm
+mất order row; kiểm tra delivered-missing và chronology counts trước duration/rate.
+Derived chronology policy không sửa Silver routing hoặc persisted source payloads.
+
+Lateness so local Sao Paulo actual/estimated dates; durations lấy UTC elapsed.
+Observation cần status delivered + actual + chronology hợp lệ. Transit cần carrier.
+Không dùng wall clock để đo overdue; không điền NULL bằng zero hoặc average daily
+rates/means để lấy whole-period metrics. Query fact hoặc weight bằng observation
+counts. Hai models không được thêm vào BI reader; xem [delivery contract](../data_contracts/09_analytics_models.md#delivery-facts-and-cohort-metrics).
+
+## 28. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 
