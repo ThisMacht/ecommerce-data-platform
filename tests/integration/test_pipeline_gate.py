@@ -158,10 +158,14 @@ class PipelineGateTest(BronzeFixtureCase):
                 # The new standalone source must stay stable through the core dbt gate.
                 with self.connection() as writer:
                     writer.execute("SET lock_timeout='100ms'")
-                    with self.assertRaises(LockNotAvailable):
-                        writer.execute(
-                            "UPDATE raw_staging.products SET source_sequence=source_sequence"
-                        )
+                    for table in ("products", "sellers"):
+                        with (
+                            self.subTest(table=table),
+                            self.assertRaises(LockNotAvailable),
+                        ):
+                            writer.execute(
+                                f"UPDATE raw_staging.{table} SET source_sequence=source_sequence"
+                            )
                 raise subprocess.CalledProcessError(1, "dbt")
 
             with patch(
@@ -198,7 +202,7 @@ class PipelineGateTest(BronzeFixtureCase):
                 Path(directory),
             )
             self.assertEqual(completed["status"], "SUCCESS")
-            self.assertEqual(completed["dbt"]["node_count"], 52)
+            self.assertEqual(completed["dbt"]["node_count"], 61)
             self.assertEqual(
                 self.psql("SELECT MIN(cursor_version) FROM audit.pipeline_control"), "1"
             )

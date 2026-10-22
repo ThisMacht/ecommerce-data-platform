@@ -8,6 +8,7 @@ sources:
   - name: order_items
   - name: order_payments
   - name: products
+  - name: sellers
 models:
 - name: stg_customers
   columns:
@@ -148,5 +149,40 @@ models:
     description: "Latest accepted warehouse observation, including unchanged replays."
   - name: record_hash
     description: "Canonical business-v1 hash shared with staging; excludes version and lineage."
+    data_tests:
+    - not_null
+- name: stg_sellers
+  description: "Full seller snapshots merged by source_sequence; missing locations retain warnings in staging."
+  columns:
+  - name: seller_id
+    description: "Source business key; one current row per seller."
+    data_tests:
+    - unique
+    - not_null
+- name: dim_seller
+  description: "Type 1 current seller location; no inferred historical address or geolocation join."
+  columns:
+  - name: seller_key
+    description: "Stable MD5 hex surrogate of seller_id."
+    data_tests:
+    - unique
+    - not_null
+  - name: seller_id
+    description: "Source business key retained for traceability."
+    data_tests:
+    - unique
+    - not_null
+  - name: seller_zip_code_prefix
+    description: "Trimmed ZIP prefix; leading zeros preserved; invalid values retained with warnings."
+  - name: seller_city
+    description: "Trimmed lowercase source city; blank values become NULL."
+  - name: seller_state
+    description: "Trimmed uppercase source state; invalid values retained with warnings."
+  - name: created_at
+    description: "First warehouse observation, not business creation time."
+  - name: updated_at
+    description: "Latest accepted warehouse observation, including unchanged replay."
+  - name: record_hash
+    description: "Canonical business-v1 hash shared with staging; excludes source versions and lineage."
     data_tests:
     - not_null

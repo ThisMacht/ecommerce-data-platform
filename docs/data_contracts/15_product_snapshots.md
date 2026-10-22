@@ -50,7 +50,7 @@ chấp nhận gần nhất, gồm cả unchanged replay. Hash gồm toàn bộ b
 không gồm metadata/lineage. Type 1 không lưu lịch sử category/measurements.
 
 Full dbt build kiểm tra cả products, dù core chỉ có receipts/cursors của bốn bảng.
-Final gate giữ SHARE locks trên cả năm staging sources và kiểm tra artifact source
+Final gate giữ SHARE locks trên cả sáu staging sources (gồm sellers) và kiểm tra artifact source
 set. Gate không chứng nhận freshness hay extraction receipt của products. BI role
 vẫn chỉ đọc ba business models và status view; không tự cấp quyền dimension.
 Load products độc lập khiến BI publication gate unavailable như mọi audited load

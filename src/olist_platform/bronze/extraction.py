@@ -21,6 +21,7 @@ KEYS = {
     "order_payments": ("order_id", "payment_sequential"),
     "order_items": ("order_id", "order_item_id"),
     "products": ("product_id",),
+    "sellers": ("seller_id",),
 }
 PIPELINE = "bronze_orders_v1"
 LOCK = "olist.bronze.orders.v1"
@@ -109,8 +110,8 @@ def configuration(
     if pipeline_parent and pipeline_run_id is None:
         raise BronzeError("Parent stream requires a pipeline run")
     if pipeline_run_id is not None:
-        if table == "products":
-            raise BronzeError("Products are not part of the core pipeline")
+        if table in ("products", "sellers"):
+            raise BronzeError(f"{table.title()} are not part of the core pipeline")
         if not re.fullmatch(r"[a-zA-Z0-9][a-zA-Z0-9_-]{0,95}", pipeline_run_id):
             raise BronzeError("Invalid owning pipeline run ID")
         if full_snapshot or (pipeline_parent and table not in ("customers", "orders")):
@@ -254,7 +255,8 @@ def prepare(
             if before
             and config.get("snapshot_kind") != "FULL"
             and (
-                table not in ("customers", "products") or config.get("pipeline_run_id")
+                table not in ("customers", "products", "sellers")
+                or config.get("pipeline_run_id")
             )
             else None
         )
@@ -319,7 +321,8 @@ def prepare(
                 ).fetchone()[0],
             )
         elif (
-            table in ("customers", "products") or config.get("snapshot_kind") == "FULL"
+            table in ("customers", "products", "sellers")
+            or config.get("snapshot_kind") == "FULL"
         ):
             manifest["snapshot_kind"] = "FULL"
         connection.execute(

@@ -103,3 +103,6 @@ execution/tests theo [dbt build](https://docs.getdbt.com/reference/commands/buil
 Products có [standalone Type 1 slice](15_product_snapshots.md); full dbt build
 bao gồm `stg_products` và `dim_product`. Items chưa join product dimension hoặc
 kiểm tra product/seller membership.
+
+Sellers có [standalone Type 1 slice](16_seller_snapshots.md), giữ grain `seller_id`,
+location warnings và current attributes; chưa join seller dimension vào items.

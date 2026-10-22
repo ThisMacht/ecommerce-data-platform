@@ -18,7 +18,7 @@ PIPELINE = "local_core_v1"
 INCREMENTAL = "incremental_core_v1"
 BACKFILL = "backfill_core_v1"
 TABLES = ("customers", "orders", "order_items", "order_payments")
-ANALYTICS_SOURCES = TABLES + ("products",)
+ANALYTICS_SOURCES = TABLES + ("products", "sellers")
 TASKS = (
     tuple(
         f"{t}.{stage}"

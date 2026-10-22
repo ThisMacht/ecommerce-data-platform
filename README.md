@@ -24,7 +24,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Operational health checks | Implemented — read-only audit JSON, configurable thresholds and CLI failure status |
 | Operational dashboard | Implemented — standalone HTML health snapshot; manual refresh |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
-| Full products Bronze/Silver, staging and Type 1 dimension | Implemented — standalone slice; core scheduling and items FK remain planned |
+| Full products/sellers Bronze/Silver, staging and Type 1 dimensions | Implemented — standalone slice; core scheduling and items FK remain planned |
 | dbt customer dimension, order fact and daily GMV/AOV views | Implemented — exact reconciliation and relationship tests |
 | Airflow orchestration | Implemented — paused daily full/incremental and manual backfill DAGs, isolated runtime and stable retry identity |
 | Business dashboard / Metabase | Implemented — local date-filtered GMV/paid/AOV/status, dedicated reader and publication-status gate |
@@ -183,6 +183,11 @@ Products có vertical slice riêng: `make ingest-products`, `make process-produc
 [product contract và prerequisites](docs/data_contracts/15_product_snapshots.md).
 `make dataset` vẫn chỉ xử lý bốn core tables; products chưa được schedule hoặc dùng
 làm FK parent của items.
+
+Sellers có luồng tương tự: `make ingest-sellers`, `make process-sellers`, rồi
+`make load-warehouse SOURCE_TABLE=sellers` và `make dbt-build`. Xem
+[seller contract](docs/data_contracts/16_seller_snapshots.md). Hai slice này chưa
+được schedule bởi core runner; product/seller membership của items vẫn planned.
 
 ## Silver to PostgreSQL staging
 

@@ -641,8 +641,9 @@ không khẳng định CI đã chạy trên GitHub hoặc các phases trước �
 Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang products, sellers, reviews và geolocation. Geolocation phải được aggregate về một dòng trên ZIP prefix trước khi join để tránh fan-out.
 
 - [x] Products standalone full Bronze/Silver → version-aware staging → `dim_product` Type 1; replay/dirty/reconciliation checks. See `docs/data_contracts/15_product_snapshots.md`.
-- [ ] Integrate products into audited core scheduling and order-items FK routing.
-- [ ] Ingest sellers, reviews và geolocation.
+- [ ] Integrate products/sellers into audited core scheduling and order-items FK routing.
+- [x] Sellers standalone full Bronze/Silver → version-aware staging → `dim_seller` Type 1; location warnings and replay/reconciliation checks. See `docs/data_contracts/16_seller_snapshots.md`.
+- [ ] Ingest reviews và geolocation.
 - [ ] Tạo `int_geolocation_by_zip` bằng median latitude/longitude và mode city/state.
 - [ ] Hoàn thiện dimensions với surrogate keys, unique business keys và explicit unknown-member policy.
 - [ ] Hoàn thiện `dim_customer`, `dim_product`, `dim_seller`, `dim_location` và `dim_date`.

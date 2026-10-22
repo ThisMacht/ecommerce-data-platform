@@ -133,6 +133,8 @@ jobs:
         run: uv sync --locked --extra processing --extra analytics
       - name: Test products snapshots and version-aware staging
         run: make test-product-integration
+      - name: Test sellers snapshots and version-aware staging
+        run: make test-seller-integration
       - name: Test all core receipts and dbt-gated watermark commit
         run: make test-pipeline-integration
       - name: Test frozen incremental windows, lookback and recovery gates

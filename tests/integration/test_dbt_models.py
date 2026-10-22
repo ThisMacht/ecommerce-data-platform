@@ -225,6 +225,114 @@ class DbtModelsTest(PostgresIntegrationCase):
             current,
         )
 
+    def test_seller_type1_keys_nulls_hash_and_reconciliation(self):
+        def load(row, run_id):
+            with psycopg.connect(
+                host="127.0.0.1",
+                port=self.port,
+                dbname=self.database,
+                user="olist_test_loader",
+                password="isolated_test_loader",
+                autocommit=True,
+            ) as c:
+                return merge_rows(
+                    c,
+                    self.contract,
+                    table="sellers",
+                    run_id=run_id,
+                    rows=[row],
+                    request={"fixture": run_id},
+                    silver_counts={
+                        "input_rows": 1,
+                        "valid_rows": 1,
+                        "rejected_rows": 0,
+                        "deferred_rows": 0,
+                        "duplicates_rows": 0,
+                        "warning_rows": int(bool(row["warning_rule_ids"])),
+                    },
+                )
+
+        load(valid_row("sellers", "seller_a"), "first")
+        load(
+            valid_row("sellers", "seller_b", 2)
+            | {
+                "seller_city": None,
+                "seller_state": None,
+                "seller_zip_code_prefix": None,
+                "warning_rule_ids": [
+                    "missing_seller_city",
+                    "invalid_seller_state",
+                    "invalid_seller_zip_code_prefix",
+                ],
+            },
+            "nulls",
+        )
+        self.dbt()
+        self.assertEqual(self.psql("SELECT COUNT(*) FROM analytics.dim_seller"), "2")
+        self.assertEqual(
+            self.psql(
+                "SELECT COUNT(*) FROM analytics.dim_seller d FULL JOIN raw_staging.sellers s USING (seller_id) WHERE d.seller_id IS NULL OR s.seller_id IS NULL OR d.record_hash IS DISTINCT FROM s.record_hash"
+            ),
+            "0",
+        )
+        original = json.loads(
+            self.psql(
+                "SELECT row_to_json(d) FROM analytics.dim_seller d WHERE seller_id='seller_a'"
+            )
+        )
+        self.assertEqual(original["seller_key"], "3b500bdcaa411c00bc35eacb0127e372")
+        self.assertEqual(
+            (
+                original["seller_city"],
+                original["seller_state"],
+                original["seller_zip_code_prefix"],
+            ),
+            ("são paulo", "SP", "00123"),
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT COUNT(*) FROM analytics.dim_seller WHERE seller_id='seller_b' AND seller_city IS NULL AND seller_state IS NULL AND seller_zip_code_prefix IS NULL"
+            ),
+            "1",
+        )
+        self.assertEqual(
+            load(
+                valid_row("sellers", "seller_a", 3)
+                | {
+                    "seller_city": "rio",
+                    "source_operation": "UPDATE",
+                },
+                "updated",
+            )["counts"]["warehouse_updated_rows"],
+            1,
+        )
+        self.dbt()
+        current = json.loads(
+            self.psql(
+                "SELECT row_to_json(d) FROM analytics.dim_seller d WHERE seller_id='seller_a'"
+            )
+        )
+        self.assertEqual(current["seller_key"], original["seller_key"])
+        self.assertEqual(current["created_at"], original["created_at"])
+        self.assertGreater(current["updated_at"], original["updated_at"])
+        self.assertNotEqual(current["record_hash"], original["record_hash"])
+        self.assertEqual(current["seller_city"], "rio")
+        self.assertEqual(
+            load(valid_row("sellers", "seller_a"), "stale")["counts"][
+                "warehouse_stale_ignored_rows"
+            ],
+            1,
+        )
+        self.dbt()
+        self.assertEqual(
+            json.loads(
+                self.psql(
+                    "SELECT row_to_json(d) FROM analytics.dim_seller d WHERE seller_id='seller_a'"
+                )
+            ),
+            current,
+        )
+
     def setUp(self):
         super().setUp()
         self.directory = tempfile.TemporaryDirectory()

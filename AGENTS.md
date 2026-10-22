@@ -12,7 +12,7 @@ Implemented: core layers, dbt, deferred retries, full/incremental audit, isolate
 - `src/olist_platform/deferred/`: quarantine registration, bounded retry/expiry and atomic staging resolution.
 - `src/olist_platform/pipeline/`: run/task audit, receipt reconciliation and all-table cursor CAS.
 - `airflow/`: isolated Python 3.12 runtime/lock and paused full/incremental and manual backfill DAGs.
-- `dbt/`: staging views, customer/product Type 1 dimensions, order fact and daily GMV/AOV marts.
+- `dbt/`: staging views, customer/product/seller Type 1 dimensions, order fact and daily GMV/AOV marts.
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
 - `tests/processing/`: Spark checks with independent expected fixtures.
@@ -44,6 +44,8 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make infrastructure-down`: stop services; retain volumes.
 - `make bronze-up` / `make init-bronze`: start MinIO or initialize its bucket.
 - `make ingest-orders BRONZE_RUN_ID=<id>`: extract/resume orders.
+- `make ingest-sellers` / `make process-sellers`: standalone full seller snapshots, then staging/dbt; location warnings preserve NULLs and ZIP leading zeros.
+- `make test-seller-integration`: frozen retries, dirty location/ID rules, version-aware merges, corruption, empty snapshots and cursor isolation.
 - `make ingest-products` / `make process-products`: standalone full product snapshots; load with `SOURCE_TABLE=products`, then dbt. Not scheduled by core runner; items FK unchanged.
 - `make test-product-integration`: frozen retry, replay, dirty/null handling, version-aware staging and cursor isolation.
 - `make ingest-customers` / `make process-customers`: publish full customer snapshots.
@@ -111,4 +113,6 @@ credentials/metadata, expose admin/source credentials as datasource, average dai
 AOV, or treat live views as atomic snapshots. H2 metadata is local-only. A latest
 non-successful run or newer audited load hides metrics; untracked writers are not detected.
 
-Products: standalone full snapshots, nullable attributes warn, negative/overflow measurements reject. Preserve source `lenght` spelling until dbt aliases. Type 1 by `product_id`; full/empty snapshots never imply deletes. Core dbt gate locks five staging sources but audits/promotes only four core tables. A standalone products load hides BI metrics until a new successful core gate.
+Products: standalone full snapshots, nullable attributes warn, negative/overflow measurements reject. Preserve source `lenght` spelling until dbt aliases. Type 1 by `product_id`; full/empty snapshots never imply deletes. Core dbt gate locks six staging sources but audits/promotes only four core tables. A standalone products load hides BI metrics until a new successful core gate.
+
+Sellers use Type 1 by `seller_id`; location rules match customers. Blank locations become NULL with warnings; preserve invalid ZIP/state values with flags. Sellers/products remain standalone and full-only; no deletes, core scheduling or items membership checks yet. New standalone loads require a fresh successful core gate to restore BI publication.

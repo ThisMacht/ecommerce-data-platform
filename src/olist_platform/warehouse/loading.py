@@ -61,6 +61,9 @@ def canonical_record(row: dict, contract: dict, table: str, run_id: str) -> dict
                 "customer_city",
                 "customer_state",
                 "customer_zip_code_prefix",
+                "seller_city",
+                "seller_state",
+                "seller_zip_code_prefix",
             )
             if not nullable:
                 raise BronzeError(f"Null required staging value: {name}")
