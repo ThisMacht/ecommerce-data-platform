@@ -8,11 +8,20 @@ Source grain là một CSV observation; `geolocation_row_id` là vị trí data 
 one-based của immutable snapshot, không phải ZIP hoặc global address ID.
 Không đổi thứ tự/re-index CSV rồi coi đó là updates của cùng source snapshot.
 
-Đây là standalone ingestion. Core runners vẫn freeze/audit sáu datasets và CAS
-bốn cursors; geolocation chưa có scheduled receipt hoặc location FK pins. Final
-dbt gate khóa thêm staging geolocation để build/tests đọc nhất quán. SUCCESS của
-core không chứng minh geolocation đã được extract từ cùng source snapshot.
-Chưa join location keys vào customer/seller/facts; không mở rộng BI grants.
+Geolocation chạy standalone hoặc full snapshot trong core full/incremental/backfill.
+Migration `019` bổ sung owned full/parent streams. Full runner freeze bảy streams,
+29 tasks; bounded modes freeze bốn deltas cùng năm full dimension/FK snapshots,
+33 tasks. Final gate bắt buộc bảy dataset load receipts từ cùng source snapshot,
+pin manifest hashes, exact counters và khóa cả bảy staging tables qua fresh dbt/CAS.
+Chỉ bốn core tables có completion cursors; geolocation dùng dimension_snapshot_rows.
+Airflow wrappers dùng cùng runner và giữ original DAG/run identity khi retry.
+
+`dim_customer` và `dim_seller` thêm nullable `location_key` bằng LEFT JOIN theo
+source ZIP vào một-row/ZIP dimension. NULL/invalid/unmatched ZIP giữ key NULL;
+không mất customer/seller, không tạo unknown member hoặc ghi đè source city/state.
+Customer chọn current representative theo source_sequence trước location lookup.
+Hai dimensions giữ hash contract cũ; optional location key được reconcile riêng.
+Không đưa location keys trực tiếp vào facts hay mở rộng BI grants.
 
 ## Extraction and Replay
 
@@ -20,7 +29,8 @@ Migration `018_geolocation_snapshots.sql` tạo delivery state riêng và stagin
 Bronze luôn full scan REPEATABLE READ, kể cả rows cũ hơn lookback. Prepared pages
 lưu bền trước MinIO publication; resume cùng run ID/config giữ nguyên bytes.
 Silver xác minh source technical key, schema, contract/manifest hashes và lineage.
-Các CLI từ chối gắn geolocation vào core pipeline streams ở phiên bản này.
+Owned geolocation streams chỉ được FULL: full snapshot hoặc bounded parent role;
+không chấp nhận geolocation delta. Pending run cần resume nguyên mode/code/config.
 
 ## Silver and Warehouse Rules
 
@@ -67,6 +77,17 @@ Type 1: attributes/counts thay đổi theo current staging; không dựng lịch
 metadata timestamps. Source-based reconciliation dùng ordered numeric arrays để
 kiểm tra median, labels, counts, hash và exact ZIP coverage độc lập với model ranks.
 
+## Current Staging and Backfill Limits
+
+Full snapshots không xóa observations đã load; version-aware staging có thể giữ
+prior rows hoặc newer standalone versions. Receipts chứng minh input frozen và
+load outcomes, không chứng nhận exact replacement của current staging. Dimension
+và customer/seller keys là current Type 1 lookup. Backfill vẫn dùng full current
+geography, không khôi phục geography tại window end. Source ZIP vắng geolocation
+là nullable enrichment, không phải Silver rejection hoặc deferred dependency.
+`location_key_reconciliation` đối chiếu key với current source staging; relationship
+checks không đủ phát hiện valid key nhưng trỏ sai ZIP. Không bypass old receipts.
+
 ## Operations and Validation
 
 ```bash
@@ -80,6 +101,20 @@ make test-geolocation-integration
 make test-dbt-integration
 ```
 
+Dataset runner mặc định cấp Spark driver heap 2 GiB cho full geolocation, giữ
+nguyên `PYSPARK_SUBMIT_ARGS` nếu caller đã đặt. Standalone CLI dùng Spark defaults;
+khi gặp `Java heap space`, kiểm tra RAM rồi đặt biến sau trước khi chạy lại
+đúng command với cùng IDs:
+
+```bash
+export PYSPARK_SUBMIT_ARGS='--driver-memory 2g pyspark-shell'
+```
+
+Giữ nguyên code/config/mode và frozen inputs; không tạo ID mới chỉ để retry OOM.
+Heap này là runtime allocation, không phải giới hạn memory tổng của pipeline.
+Warehouse statement timeout là 600 giây; vẫn giữ lock timeout 15 giây và atomic
+rollback, kể cả accepted unchanged rows cần refresh physical lineage.
+
 Standalone warehouse load mới làm BI unavailable theo existing publication gate.
 Sau khi checks pass, chạy core pipeline thành công mới để mở lại BI; không bypass
 status hoặc thay receipts. Resume cùng IDs nếu mất response sau commit.
@@ -88,7 +123,7 @@ Fixtures kiểm tra exact precision, out-of-range/NaN/malformed inputs, ZIP/meta
 dirty labels, frozen retry, stale/conflicting versions, corruption, empty input,
 odd/even medians, duplicate observations, deterministic mode ties và Type 1 keys.
 
-## Local Verification
+## Previous Standalone Verification (2026-10-22)
 
 Standalone `geolocation_f411e5cd6a0640378ee034074046d692` ngày 2026-10-22:
 1,000,163 source/Bronze rows, 101 pages; Silver valid=1,000,163 và rejected,
@@ -125,3 +160,45 @@ Final evidence ignored: `build/reports/geolocation-final.json`,
 `build/reports/geolocation-health.json`, run-specific pipeline/dbt reports trong
 `build/reports/dataset/`. Snapshot HTML health tại `build/reports/pipeline_dashboard.html`;
 luôn kiểm tra timestamp trước khi dùng.
+
+## Core Integration Verification (2026-10-23)
+
+Run `dataset_8af5a27253f34d51b47c62a239d0e7f7` attempt 4 SUCCESS: 29 tasks,
+bảy reconciled dataset audits, cùng source snapshot với 1,451,627 rows. Code hash
+khớp request; bốn completion cursors cùng advance đúng một version bởi run này,
+không thêm geolocation cursor. dbt PASS=192: 25 views, 167 tests, zero error/skip.
+
+Geolocation load có 1,000,163 unchanged rows, không insert/update/stale;
+`dim_location` có 19,015 ZIPs, SUM(sample_count)=1,000,163. Customer dimension giữ
+96,096 shoppers: 95,827 matched keys, 269 NULL; sellers giữ 3,095 rows: 3,088
+matched, 7 NULL. Source-based location reconciliation pass. Fact counts không đổi:
+orders/delivery 99,424, items 112,621, payments 103,869.
+
+BI publication available; dedicated reader không được SELECT dim_location,
+dim_customer hoặc dim_seller. Không thêm grants. Health UNHEALTHY chỉ vì
+`pipeline.runtime_exceeded`: original run elapsed 3,174.68 giây gồm guard failure,
+host restart, chủ động ngắt và chờ resume; threshold 1,800 giây giữ nguyên.
+Attempt 4 audited tasks chạy 755.85 giây, dùng lại frozen inputs, không phải timing
+của một fresh full extraction. Metabase service vẫn tắt để giữ tài nguyên.
+
+122 unit tests, 46 distinct integration cases (17 dbt, 10 pipeline control,
+1 full gate, 6 incremental, 2 backfill, 2 recovery, 8 warehouse merge), 3 Airflow
+import/serialization checks, Ruff, contract/config/shell checks và build đã pass.
+Fixtures kiểm tra atomic seven/nine-stream freeze, frozen retry sau source writes/
+deletes, corrupt/missing receipts, staging locks, nullable/unmatched ZIPs, no fan-out
+và phát hiện valid key nhưng sai ZIP. Chưa chạy GitHub CI.
+
+Run cũ `dataset_f34b6e14a0da4785ad61aae5daafc51e` giữ FAILED sau default-heap OOM
+và SQL timeout 120 giây; không promote cursors. Owned PREPARED streams được publish
+từ original pages/config trước fresh freeze, không sửa requests hoặc bypass gates.
+Final runner mặc định heap 2 GiB, giữ caller overrides; warehouse statement timeout
+600 giây giữ atomic rollback/lineage semantics. Fresh attempt 2 bị host restart;
+attempt 3 ngắt bằng SIGINT để nhường user task; attempt 4 resume cùng code/ID thành
+công với affinity tối đa tám cores, nice=10, Spark vẫn local[2]. Năm resource samples
+ở attempt 4 còn 8.20–9.73 GiB MemAvailable; swap tăng 1.03→1.95 GiB. Đây là samples,
+không phải continuous peak measurement hoặc benchmark khi chạy task nặng đồng thời.
+
+Evidence ignored: `build/reports/location-core-local.json`,
+`build/reports/location-core-health.json`, `build/reports/location-core-resources.jsonl`,
+`build/reports/location-core-superseded-run.json`, run-specific dbt/pipeline reports.
+Health HTML: `build/reports/pipeline_dashboard.html`; luôn kiểm tra timestamp.

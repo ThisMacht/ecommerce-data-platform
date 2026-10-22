@@ -2,7 +2,7 @@
 
 ## Scope
 
-Status: **Active — transactional Silver valid loading for four core datasets plus full products/sellers**.
+Status: **Active — transactional Silver valid loading for four core datasets plus full products/sellers/geolocation**.
 Migration `006` thêm `raw_staging.customers`, `orders`, `order_items`,
 `order_payments` và `audit.warehouse_load_runs`. Source schema `olist` không đổi.
 Loader version là `warehouse-v1`; business hash version là `business-v1`.
@@ -61,7 +61,8 @@ Transaction dùng `READ COMMITTED`, lock riêng target table ở
 `SHARE ROW EXCLUSIVE` để classification không race với writers khác. Temporary
 COPY, classification, upsert và audit insert cùng transaction. Bất kỳ lỗi nào đều
 rollback cả data và audit; retry cùng request an toàn. Lock timeout 15 giây,
-statement timeout 120 giây; writer bận lâu có thể khiến caller phải retry.
+statement timeout 600 giây để full geolocation có thể cập nhật lineage cho hơn
+một triệu rows. Timeout vẫn rollback cả data/audit; writer bận lâu có thể cần retry.
 
 `first_seen_run_id`/`first_seen_at` giữ lần insert đầu; `last_seen_run_id`/
 `last_seen_at` cùng physical lineage cập nhật khi accepted occurrence được xử lý.
@@ -87,7 +88,7 @@ planned DAG-level audit hoặc generic failure-attempt lifecycle. Deferred resol
 Staging load tự nó không promote watermark. Local full-snapshot pipeline gate đã có theo [contract](11_pipeline_control.md), giữ staging locks qua fresh dbt và atomic cursor commit. Scheduled full/incremental và manual backfill đã có; atomic analytics publication vẫn planned.
 Staging không thêm FK tới current target tables: dependency membership vẫn được
 đánh giá theo pinned Silver snapshots, có thể khác current staging state.
-Loader nhận [item Silver v2](17_item_dependency_snapshots.md) đã kiểm tra cả ba direct FKs; legacy v1 và core runner vẫn chỉ kiểm tra order. Không tự revalidate hoặc xóa staging rows cũ.
+Loader nhận [item Silver v2](17_item_dependency_snapshots.md) đã kiểm tra cả ba direct FKs; legacy v1 chỉ kiểm tra order; core runner bắt buộc v2. Không tự revalidate hoặc xóa staging rows cũ.
 
 ## Commands and validation
 
@@ -101,8 +102,8 @@ make test-warehouse-merge-integration
 make test-warehouse-integration
 ```
 
-`make dataset` tự load từng bảng sau Silver theo customers → orders → items →
-payments và ghi thêm `*_warehouse.json` trong `build/reports/dataset/`. Dùng cùng
+`make dataset` tự load từng bảng sau Silver theo customers → products/sellers/
+geolocation → orders → items/payments và ghi thêm `*_warehouse.json` trong `build/reports/dataset/`. Dùng cùng
 local database/loader role; DSN từ shell không được dùng để redirect local runner.
 Thiếu Java thì Silver/staging đều skip. Loader CLI riêng dùng `WAREHOUSE_DSN` hoặc
 `PG*`, không tự export Compose `.env`. Loader role được SELECT/INSERT/UPDATE staging

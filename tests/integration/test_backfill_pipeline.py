@@ -175,10 +175,10 @@ class BackfillPipelineTest(CorePipelineCase):
                 all(
                     b["row_count"] == 0 and b["run_upper_cursor"] is None
                     for t, (b, _) in published.items()
-                    if t not in ("products", "sellers")
+                    if t not in ("products", "sellers", "geolocation")
                 )
             )
-            for dimension in ("products", "sellers"):
+            for dimension in ("products", "sellers", "geolocation"):
                 self.assertEqual(published[dimension][0]["row_count"], 1)
                 self.assertEqual(published[dimension][0]["snapshot_kind"], "FULL")
             result = finish(
@@ -296,7 +296,7 @@ class BackfillPipelineTest(CorePipelineCase):
                 self.assertEqual(published["customers"][0]["row_count"], 2)
                 self.assertEqual(published["orders"][0]["row_count"], 3)
                 for table, (bronze, _) in published.items():
-                    if table in ("products", "sellers"):
+                    if table in ("products", "sellers", "geolocation"):
                         self.assertEqual(bronze["row_count"], 1)
                         self.assertEqual(bronze["snapshot_kind"], "FULL")
                         continue

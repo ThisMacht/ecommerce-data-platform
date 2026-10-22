@@ -55,6 +55,14 @@ models:
   - name: record_hash
     data_tests:
     - not_null
+  - name: location_key
+    description: "Nullable ZIP representative key; unmatched/invalid source ZIP stays NULL, without inferring or overwriting source location."
+    data_tests:
+    - relationships:
+        arguments:
+          to: ref('dim_location')
+          field: location_key
+
 - name: fct_orders
   columns:
   - name: order_id
@@ -170,7 +178,7 @@ models:
     - unique
     - not_null
 - name: dim_seller
-  description: "Type 1 current seller location; no inferred historical address or geolocation join."
+  description: "Type 1 current seller location; no inferred historical address; optional current ZIP representative key."
   columns:
   - name: seller_key
     description: "Stable MD5 hex surrogate of seller_id."
@@ -196,6 +204,13 @@ models:
     description: "Canonical business-v1 hash shared with staging; excludes source versions and lineage."
     data_tests:
     - not_null
+  - name: location_key
+    description: "Nullable ZIP representative key; unmatched/invalid source ZIP stays NULL, without inferring or overwriting source location."
+    data_tests:
+    - relationships:
+        arguments:
+          to: ref('dim_location')
+          field: location_key
 
 - name: fct_order_items
   description: "One current row per (order_id, order_item_id); unallocated BRL item price/freight, all order statuses retained."

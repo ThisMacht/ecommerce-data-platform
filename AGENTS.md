@@ -12,7 +12,7 @@ Implemented: core layers, dbt, deferred retries, full/incremental audit, isolate
 - `src/olist_platform/deferred/`: quarantine registration, bounded retry/expiry and atomic staging resolution.
 - `src/olist_platform/pipeline/`: run/task audit, receipt reconciliation and all-table cursor CAS.
 - `airflow/`: isolated Python 3.12 runtime/lock and paused full/incremental and manual backfill DAGs.
-- `dbt/`: staging views, customer/product/seller Type 1 dimensions, continuous local-calendar dim_date, standalone ZIP dim_location, order/item/payment/delivery facts, daily GMV/AOV, product/seller/payment-type and delivery cohort marts.
+- `dbt/`: staging views, customer/product/seller Type 1 dimensions, continuous local-calendar dim_date, ZIP dim_location with optional customer/seller keys, order/item/payment/delivery facts, daily GMV/AOV, product/seller/payment-type and delivery cohort marts.
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
 - `tests/processing/`: Spark checks with independent expected fixtures.
@@ -29,7 +29,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 
 - `make sync`: install locked dependencies.
 - `make metabase-up` / `make metabase-setup` / `make metabase-down`: start/reconcile/stop local BI after pipeline SUCCESS; retain metadata and private credentials in `build/metabase/`.
-- `make dataset`: run available core dataset stages with automatic local configuration; skip missing inputs/unimplemented stages, fail on validation errors.
+- `make dataset`: run available core dataset stages with automatic local configuration; skip missing inputs/unimplemented stages, fail on validation errors. Spark driver heap defaults to 2 GiB; preserve explicit `PYSPARK_SUBMIT_ARGS`.
 - `make dataset-incremental`: freeze four deltas/full FK inputs with 48h lookback; strict prerequisites. Resume in the same mode.
 - `make dataset-backfill BACKFILL_START=<offset-aware ISO> BACKFILL_END=<offset-aware ISO>`: repair source-updated-at [start,end); resume unchanged bounds, preserve scheduled cursors.
 - `make test-backfill-integration`: range/empty-window, frozen retries, queue/cursor isolation and independent full reload equivalence.
@@ -44,7 +44,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make infrastructure-down`: stop services; retain volumes.
 - `make bronze-up` / `make init-bronze`: start MinIO or initialize its bucket.
 - `make ingest-orders BRONZE_RUN_ID=<id>`: extract/resume orders.
-- `make ingest-geolocation` / `make process-geolocation`: standalone full observations; load with `SOURCE_TABLE=geolocation`, then dbt; use `make test-geolocation-integration`.
+- `make ingest-geolocation` / `make process-geolocation`: full observations standalone or frozen in every core mode; load with `SOURCE_TABLE=geolocation`, then dbt; use `make test-geolocation-integration`.
 - `make ingest-sellers` / `make process-sellers`: standalone full seller snapshots, then staging/dbt; location warnings preserve NULLs and ZIP leading zeros.
 - `make test-seller-integration`: frozen retries, dirty location/ID rules, version-aware merges, corruption, empty snapshots and cursor isolation.
 - `make ingest-products` / `make process-products`: standalone full product snapshots; load with `SOURCE_TABLE=products`, then dbt. Core modes also publish/load these full snapshots and pin them to items v2.
@@ -103,7 +103,7 @@ Aggregate items/payments separately before joining orders. Customer dimension us
 
 Count retry inputs separately from source growth. Resolution must commit queue/attempts/staging/audit atomically; expired rows never load. Duplicate pending occurrences must dedupe by full business key/version before merge.
 
-Full runner freezes six full streams and audits 26 tasks; incremental runner audits 30 with separate `incremental_core_v1` controls. Freeze four deltas plus four full FK snapshots atomically before publication; bounds use pipeline cursors, never Bronze delivery cursors. Customer delta Silver v2 is not an FK parent. Source bootstrap/after-cursor/lookback, auxiliary FK scans and deferred retry counts are separate; after-cursor rows are not business growth. Final gate holds staging SHARE locks through fresh dbt and atomic CAS. Resume with unchanged code/config/mode; never bypass receipts. Backfill uses `backfill_core_v1`, the same 30-task freeze/gates, explicit UTC [start,end) bounds and origin-scoped deferred retries. Never promote any pipeline cursors on backfill. Staging/marts remain shared; mutable source cannot restore overwritten historical versions.
+Full runner freezes seven full streams and audits 29 tasks; incremental runner audits 33 with separate `incremental_core_v1` controls. Freeze four deltas plus five full dimension/FK snapshots atomically before publication; bounds use pipeline cursors, never Bronze delivery cursors. Customer delta Silver v2 is not an FK parent. Source bootstrap/after-cursor/lookback, auxiliary FK scans and deferred retry counts are separate; after-cursor rows are not business growth. Final gate holds staging SHARE locks through fresh dbt and atomic CAS. Resume with unchanged code/config/mode; never bypass receipts. Backfill uses `backfill_core_v1`, the same 33-task freeze/gates, explicit UTC [start,end) bounds and origin-scoped deferred retries. Never promote any pipeline cursors on backfill. Staging/marts remain shared; mutable source cannot restore overwritten historical versions.
 
 Airflow retries must retain original DAG/run context; clear the same task instance, never replace an unfinished run. Missing CSV/Java fails orchestration. Standalone SQLite metadata is local-only; don't install Airflow into the root environment.
 
@@ -114,11 +114,11 @@ credentials/metadata, expose admin/source credentials as datasource, average dai
 AOV, or treat live views as atomic snapshots. H2 metadata is local-only. A latest
 non-successful run or newer audited load hides metrics; untracked writers are not detected.
 
-Products: standalone full snapshots, nullable attributes warn, negative/overflow measurements reject. Preserve source `lenght` spelling until dbt aliases. Type 1 by `product_id`; full/empty snapshots never imply deletes. Core dbt gate locks/audits six datasets; only the four delta tables have completion cursors. Products/sellers use dimension_snapshot_rows, never source growth. A standalone products load hides BI metrics until a new successful core gate.
+Products: standalone full snapshots, nullable attributes warn, negative/overflow measurements reject. Preserve source `lenght` spelling until dbt aliases. Type 1 by `product_id`; full/empty snapshots never imply deletes. Core dbt gate locks/audits seven datasets; only the four delta tables have completion cursors. Products/sellers use dimension_snapshot_rows, never source growth. A standalone products load hides BI metrics until a new successful core gate.
 
 Sellers use Type 1 by `seller_id`; location rules match customers. Blank locations become NULL with warnings; preserve invalid ZIP/state values with flags. Sellers/products stay full-only in every core mode; no deletes or new delta cursors; item v2 checks membership. New standalone loads require a fresh successful core gate to restore BI publication.
 
-Item v2 requires full order/product/seller snapshots from the same contract; pin all manifest hashes. Missing FKs are evaluated together; rejects/duplicates never defer. Register one `missing_item_dependencies` queue row per physical item, keep all missing rule IDs in immutable payload. Retry all three memberships atomically; v1/v2 resolvers must select their own rule scopes, including backlog counts. Never use missing product/seller flags to downgrade a v2 retry. Run `make test-item-dependencies-integration` after changes. All core modes require six dataset receipts and item v2 scope/pins. Legacy missing_order item queue entries are not auto-migrated or consumed by v2 retries; inspect backlog separately.
+Item v2 requires full order/product/seller snapshots from the same contract; pin all manifest hashes. Missing FKs are evaluated together; rejects/duplicates never defer. Register one `missing_item_dependencies` queue row per physical item, keep all missing rule IDs in immutable payload. Retry all three memberships atomically; v1/v2 resolvers must select their own rule scopes, including backlog counts. Never use missing product/seller flags to downgrade a v2 retry. Run `make test-item-dependencies-integration` after changes. All core modes require seven dataset receipts and item v2 scope/pins. Legacy missing_order item queue entries are not auto-migrated or consumed by v2 retries; inspect backlog separately.
 
 Item analytics: `fct_order_items` grain is `(order_id, order_item_id)`; LEFT JOIN
 order context and current Type 1 product/seller keys, fail missing parents via dbt.
@@ -153,12 +153,17 @@ all four facts; actual delivery keys stay NULL only without a timestamp,
 independent of delivery observation eligibility. Preserve explicit Sao Paulo
 conversion, empty behavior and existing BI grants when extending date roles.
 
-Geolocation is standalone full-only, keyed by positive CSV geolocation_row_id;
-ZIP is not a source key. Preserve exact coordinate text/Decimal, five-character
-ZIPs and physical observation frequency. Reject invalid ZIP/coordinates, warn
-missing labels. Aggregate to one ZIP before any join: exact numeric medians and
-joint city/state mode, ties by C-collated state/city. NULL labels stay NULL;
-representative coordinates are not addresses. No implicit deletes or new cursors,
-core streams, FK pins or BI grants. Final gate also SHARE-locks geolocation;
-its optional current staging is not a frozen/audited seventh core dataset.
-New standalone loads hide BI until a fresh successful core gate.
+Geolocation is full-only standalone and in all core modes, keyed by positive CSV
+geolocation_row_id; ZIP is not a source key. Preserve exact coordinates, ZIP
+leading zeros and physical observation frequency. Reject invalid ZIP/coordinates,
+warn missing labels. Aggregate before joining: exact numeric medians and joint
+city/state mode, ties by C-collated state/city. Coordinate representatives are not
+addresses. Freeze/verify geolocation with the other streams; audit its load and
+dimension_snapshot_rows, never add a completion cursor or treat it as source growth.
+Customer/seller location_key is a nullable LEFT JOIN by source ZIP to dim_location;
+missing/invalid/unmatched ZIP stays NULL, never drop rows or infer source city/state.
+Dimension business hashes keep their existing source-attribute contract; location
+membership is checked separately by source reconciliation. Preserve item v2's
+three-parent scope and existing BI grants. Full/empty snapshots imply no deletes;
+current staging may include prior observations and newer versions. Backfill
+refreshes current geography, not geography as of its historical end bound.

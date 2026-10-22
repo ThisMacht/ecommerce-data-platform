@@ -937,6 +937,129 @@ class DbtModelsTest(PostgresIntegrationCase):
             "t|t",
         )
 
+    def test_customer_seller_location_keys_preserve_source_rows_and_allow_unmatched_zips(
+        self,
+    ):
+        groups = {
+            "geolocation": [
+                valid_row("geolocation", "1", 1),
+                valid_row("geolocation", "2", 2),
+                valid_row("geolocation", "3", 3)
+                | {"geolocation_zip_code_prefix": "00456"},
+            ],
+            "customers": [
+                valid_row("customers", "unmatched", 3)
+                | {
+                    "customer_unique_id": "unmatched",
+                    "customer_zip_code_prefix": "99999",
+                },
+                valid_row("customers", "invalid", 4)
+                | {"customer_unique_id": "invalid", "customer_zip_code_prefix": "123"},
+                valid_row("customers", "blank", 5)
+                | {"customer_unique_id": "blank", "customer_zip_code_prefix": None},
+            ],
+            "sellers": [
+                valid_row("sellers", "unmatched", 2)
+                | {"seller_zip_code_prefix": "99999"},
+                valid_row("sellers", "invalid", 3) | {"seller_zip_code_prefix": "123"},
+                valid_row("sellers", "blank", 4) | {"seller_zip_code_prefix": None},
+            ],
+        }
+        with psycopg.connect(
+            host="127.0.0.1",
+            port=self.port,
+            dbname=self.database,
+            user="olist_test_loader",
+            password="isolated_test_loader",
+            autocommit=True,
+        ) as c:
+            for table, rows in groups.items():
+                merge_rows(
+                    c,
+                    self.contract,
+                    table=table,
+                    run_id="locations",
+                    rows=rows,
+                    request={"fixture": "locations"},
+                    silver_counts=dict(
+                        input_rows=3,
+                        valid_rows=3,
+                        rejected_rows=0,
+                        deferred_rows=0,
+                        duplicates_rows=0,
+                        warning_rows=0,
+                    ),
+                )
+        self.psql(
+            "UPDATE raw_staging.customers SET customer_zip_code_prefix='00456' WHERE customer_id='cb'"
+        )
+        self.dbt()
+        self.assertEqual(
+            self.psql(
+                "SELECT customer_key=MD5('shopper'),location_key=MD5('00456'),latest_customer_id FROM analytics.dim_customer WHERE customer_unique_id='shopper'"
+            ),
+            "t|t|cb",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT seller_key=MD5('seller'),location_key=MD5('00123') FROM analytics.dim_seller WHERE seller_id='seller'"
+            ),
+            "t|t",
+        )
+        for model in ("dim_customer", "dim_seller"):
+            self.assertEqual(
+                self.psql(
+                    f"SELECT COUNT(*),COUNT(location_key) FROM analytics.{model}"
+                ),
+                "4|1",
+            )
+        self.assertEqual(
+            self.psql("SELECT COUNT(*) FROM analytics.fct_order_items"), "4"
+        )
+        self.psql(
+            "UPDATE raw_staging.geolocation SET geolocation_city='other city',geolocation_state='RJ'; UPDATE raw_staging.customers SET customer_zip_code_prefix='00123' WHERE customer_id='cb'"
+        )
+        self.dbt()
+        self.assertEqual(
+            self.psql(
+                "SELECT customer_key=MD5('shopper'),location_key=MD5('00123'),customer_city,customer_state FROM analytics.dim_customer WHERE customer_unique_id='shopper'"
+            ),
+            "t|t|rio|SP",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT seller_city,seller_state FROM analytics.dim_seller WHERE seller_id='seller'"
+            ),
+            "são paulo|SP",
+        )
+        self.psql("""CREATE OR REPLACE VIEW analytics.dim_seller AS
+            SELECT MD5(seller_id) AS seller_key,seller_id,seller_zip_code_prefix,seller_city,seller_state,
+                first_seen_at AS created_at,last_seen_at AS updated_at,record_hash,MD5('00456') AS location_key
+            FROM analytics.stg_sellers;""")
+        results = self.dbt("test", success=False)
+        self.assertTrue(
+            any(
+                r["unique_id"].endswith("location_key_reconciliation")
+                and r["status"] == "fail"
+                for r in results["results"]
+            )
+        )
+        relationships = [
+            r
+            for r in results["results"]
+            if "relationships_dim_seller_location_key" in r["unique_id"]
+        ]
+        self.assertEqual([r["status"] for r in relationships], ["pass"])
+        self.psql("TRUNCATE raw_staging.geolocation")
+        self.dbt()
+        for model in ("dim_customer", "dim_seller"):
+            self.assertEqual(
+                self.psql(
+                    f"SELECT COUNT(*),COUNT(location_key) FROM analytics.{model}"
+                ),
+                "4|0",
+            )
+
     def test_geolocation_exact_medians_joint_modes_type1_and_corruption_gate(self):
         observations = [
             ("00123", "-3", "10", "rio", "RJ"),

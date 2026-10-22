@@ -646,7 +646,7 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 - [x] Sellers standalone full Bronze/Silver → version-aware staging → `dim_seller` Type 1; location warnings and replay/reconciliation checks. See `docs/data_contracts/16_seller_snapshots.md`.
 - [x] Standalone full geolocation Bronze/Silver/staging with technical row IDs, exact coordinates and retry/version gates.
 - [ ] Ingest reviews.
-- [ ] Integrate geolocation into scheduled freeze/receipts and customer/seller location FK joins.
+- [x] Integrate full-only geolocation into full/incremental/backfill freeze/receipts and nullable customer/seller location keys; seven dataset audits, four completion cursors.
 - [x] `int_geolocation_by_zip`: exact numeric coordinate medians and deterministic joint city/state mode.
 - [ ] Hoàn thiện dimensions với surrogate keys, unique business keys và explicit unknown-member policy.
 - [x] Current Type 1 `dim_customer`, `dim_product`, `dim_seller`; continuous `dim_date` with local date role keys in all facts, ISO/leap/empty/corruption checks.

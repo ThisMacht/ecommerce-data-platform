@@ -142,7 +142,7 @@ class IncrementalPipelineTest(CorePipelineCase):
                 Path(directory) / "final",
             )
             self.assertEqual(final["status"], "SUCCESS")
-            self.assertEqual(final["dbt"]["node_count"], 189)
+            self.assertEqual(final["dbt"]["node_count"], 192)
             self.assertEqual(
                 self.psql("SELECT COUNT(*) FROM analytics.fct_orders"), "4"
             )
@@ -197,7 +197,7 @@ class IncrementalPipelineTest(CorePipelineCase):
                 )
 
             def injected(*args, **kwargs):
-                if args[4] == "sellers" and args[1] == parent_run_id("atomic"):
+                if args[4] == "geolocation" and args[1] == parent_run_id("atomic"):
                     raise RuntimeError("failed last stream")
                 return prepare(*args, **kwargs)
 
@@ -215,12 +215,12 @@ class IncrementalPipelineTest(CorePipelineCase):
                 self.psql("SELECT COUNT(*) FROM audit.bronze_customers_runs"), "2"
             )
 
-    def test_full_freeze_rolls_back_six_streams_and_reuses_dimension_bytes(self):
+    def test_full_freeze_rolls_back_seven_streams_and_reuses_dimension_bytes(self):
         with self.environment(mode="full"), self.connection() as c:
             begin(c, "full_freeze", configuration(REPOSITORY_ROOT, self.contract))
 
             def injected(*args, **kwargs):
-                if args[4] == "sellers":
+                if args[4] == "geolocation":
                     raise RuntimeError("last full stream")
                 return prepare(*args, **kwargs)
 
@@ -236,9 +236,11 @@ class IncrementalPipelineTest(CorePipelineCase):
                     self.psql(f"SELECT COUNT(*) FROM audit.bronze_{table}_runs"), "0"
                 )
             self.frozen(c, "full_freeze", 1)
-            self.psql("DELETE FROM olist.products; DELETE FROM olist.sellers;")
+            self.psql(
+                "DELETE FROM olist.products; DELETE FROM olist.sellers; DELETE FROM olist.geolocation;"
+            )
             freeze(c, self.store, self.contract, "full_freeze", 1, self.endpoint)
-            for table in ("products", "sellers"):
+            for table in ("products", "sellers", "geolocation"):
                 bronze = ingest_source(
                     c,
                     self.store,
@@ -262,6 +264,9 @@ class IncrementalPipelineTest(CorePipelineCase):
                 if args[4] == "customers" and args[1] == "concurrent_source":
                     self.psql(
                         "UPDATE olist.orders SET order_status='shipped', source_sequence=101, source_updated_at='2020-01-12T00:00:00Z' WHERE order_id='order_a'"
+                    )
+                    self.psql(
+                        "UPDATE olist.geolocation SET geolocation_city='post-freeze',source_sequence=DEFAULT,source_updated_at='2020-02-01'"
                     )
                 return result
 
@@ -290,6 +295,18 @@ class IncrementalPipelineTest(CorePipelineCase):
                 ),
                 "shipped",
             )
+            geo = ingest_source(
+                c,
+                self.store,
+                self.contract,
+                table="geolocation",
+                run_id=parent_run_id("concurrent_source"),
+                endpoint=self.endpoint,
+                pipeline_run_id="concurrent_source",
+                pipeline_parent=True,
+            )["manifest"]
+            self.assertEqual(self.rows(geo)[0]["geolocation_city"], "São Paulo")
+            self.assertEqual(geo["source_snapshot"], bronze["source_snapshot"])
 
     def test_ahead_delivery_cursor_never_selects_or_regresses_the_pipeline_window(self):
         with self.environment(), self.connection() as c:

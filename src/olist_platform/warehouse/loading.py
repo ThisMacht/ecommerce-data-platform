@@ -249,7 +249,8 @@ def _merge_rows(
             connection.execute("SET TRANSACTION ISOLATION LEVEL READ COMMITTED")
         connection.execute("SET LOCAL TIME ZONE 'UTC'")
         connection.execute("SET LOCAL lock_timeout = '15s'")
-        connection.execute("SET LOCAL statement_timeout = '120s'")
+        # Full geolocation refreshes update lineage for over one million rows.
+        connection.execute("SET LOCAL statement_timeout = '600s'")
         # Lock the target, including against writers outside this loader.
         connection.execute(
             sql.SQL("LOCK TABLE {} IN SHARE ROW EXCLUSIVE MODE").format(target)

@@ -5,7 +5,7 @@
 | System | Olist E-commerce Data Platform |
 | Owner | Data Engineering |
 | Status | Active — core full/incremental/backfill and local Airflow wrappers |
-| Last reviewed | 2026-10-22 |
+| Last reviewed | 2026-10-23 |
 | Processing mode | Batch |
 
 Runbook này định nghĩa quy trình vận hành dự kiến để xử lý snapshot nguồn Olist qua Bronze, Silver, các model warehouse PostgreSQL và analytics marts. Tài liệu mô tả các execution gates, cách xử lý lỗi, rerun và backfill. Runbook phải được cập nhật khi implementation details hoặc operational commands thay đổi.
@@ -391,7 +391,7 @@ Nếu parent tới muộn, tạo full customer snapshot mới và reprocess **or
 
 Sau migration `005`, dùng `make ingest-order-items` / `make ingest-order-payments` với stable `BRONZE_RUN_ID`. Tạo full orders parent bằng `make ingest-orders BRONZE_RUN_ID=<id> BRONZE_FULL_SNAPSHOT=1`, rồi process orders. Default incremental orders không đủ làm toàn bộ parent set.
 
-Truyền `ORDER_SNAPSHOT=<full orders Silver prefix>` vào `make process-order-items` / `make process-order-payments`, cùng `BRONZE_PREFIX` và `SILVER_RUN_ID`. Runner `make dataset` tự thực hiện sáu datasets theo dependency order. Thiếu order vào deferred; locally invalid records vẫn reject. Scheduled core yêu cầu item v2 với ba full parents. Standalone item v2 bật bằng `PRODUCT_SNAPSHOT` và `SELLER_SNAPSHOT`; retry cần đủ ba parents, theo [contract 17](../data_contracts/17_item_dependency_snapshots.md).
+Truyền `ORDER_SNAPSHOT=<full orders Silver prefix>` vào `make process-order-items` / `make process-order-payments`, cùng `BRONZE_PREFIX` và `SILVER_RUN_ID`. Runner `make dataset` tự thực hiện bảy datasets theo dependency order. Thiếu order vào deferred; locally invalid records vẫn reject. Scheduled core yêu cầu item v2 với ba full parents. Standalone item v2 bật bằng `PRODUCT_SNAPSHOT` và `SELLER_SNAPSHOT`; retry cần đủ ba parents, theo [contract 17](../data_contracts/17_item_dependency_snapshots.md).
 
 Retry giữ nguyên run/input/config. Parent mới cần Silver ID mới và original child Bronze; không sửa old outputs. Nếu có pending orders run của runner cũ dùng incremental mode, resume bằng config cũ trước khi chuyển full mode. Xem [contract](../data_contracts/07_order_children.md); chạy `make test-order-children-integration` sau thay đổi.
 
@@ -405,7 +405,7 @@ Data/audit commit cùng transaction, theo từng dataset; toàn bộ bốn datas
 
 ## 18. Implemented dbt analytics
 
-Sau migration `007`, dùng `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_PASSWORD` và `DBT_READER_USER`, rồi `make dbt-build`. Runner `make dataset` tự chạy sau sáu staging loads; build/test failure giữ pending run để retry cùng IDs. Build artifacts nằm tại `build/reports/dataset/<run_id>_dbt`.
+Sau migration `007`, dùng `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_PASSWORD` và `DBT_READER_USER`, rồi `make dbt-build`. Runner `make dataset` tự chạy sau bảy staging loads; build/test failure giữ pending run để retry cùng IDs. Build artifacts nằm tại `build/reports/dataset/<run_id>_dbt`.
 
 Chỉ coi analytics build đạt khi `run_results.json` không có failed/error/skipped nodes và command exit code bằng zero. Kiểm tra `orders_without_items`/`orders_without_payments` khi đọc GMV/AOV. Không so sánh GMV trực tiếp với gross paid amount như hai giá trị phải bằng nhau. AOV NULL khi không có eligible positive-payment orders.
 
@@ -421,7 +421,7 @@ Resolution data/queue/audit atomic. Terminal rejects ghi vào resolution audit, 
 
 ## 20. Implemented local pipeline completion
 
-Sau migration `009`, `make dataset` ghi `pipeline_runs`, task attempts và per-dataset reconciliation. Local runner dùng freeze sáu full snapshots và audit 26 tasks và giữ file lock. Khi thiếu Java, chỉ hoàn tất Bronze, báo PARTIAL và giữ pending ID; không đánh dấu pipeline success.
+Sau migration `009`, `make dataset` ghi `pipeline_runs`, task attempts và per-dataset reconciliation. Local runner dùng freeze bảy full snapshots và audit 29 tasks và giữ file lock. Khi thiếu Java, chỉ hoàn tất Bronze, báo PARTIAL và giữ pending ID; không đánh dấu pipeline success.
 
 Final coordinator verify remote markers/hashes cùng server-side receipts, giữ staging SHARE locks, chạy fresh dbt build và đối soát exact counters. Chỉ sau mọi gates đạt mới CAS cả bốn controls cùng dataset audit và run SUCCESS trong một transaction. Một lỗi, missing receipt hoặc CAS conflict giữ controls cũ. Source scan counts của full snapshot không được gọi là new-source growth.
 
@@ -491,8 +491,8 @@ Chạy `make dataset-incremental` với Java 17 và raw/Compose config hiện c�
 hoặc Bronze checkpoints. Sau đó mỗi window bắt đầu từ committed pipeline source
 timestamp trừ 48 giờ inclusive, có fixed upper và durable bytes.
 
-`source.freeze` chốt bốn deltas cùng bốn full FK inputs trong một transaction;
-30 audited tasks xử lý/publish/load/resolve trước fresh dbt/CAS. Customers/orders full parents chỉ phục vụ FK; products/sellers còn được full load Type 1; không coi chi phí đọc parent là source growth hay delta processing.
+`source.freeze` chốt bốn deltas cùng năm full dimension/FK inputs trong một transaction;
+33 audited tasks xử lý/publish/load/resolve trước fresh dbt/CAS. Customers/orders full parents chỉ phục vụ FK; products/sellers/geolocation còn được full load Type 1; không coi chi phí đọc parent là source growth hay delta processing.
 Xem [contract](../data_contracts/12_incremental_pipeline.md) để đọc counters.
 
 Sau lỗi, gọi lại **cùng command/mode**; giữ pending ID và code/config/contract.
@@ -513,7 +513,7 @@ Full FK snapshot không chứng minh row ngoài window đã được load vào w
 Chạy `make dataset-backfill BACKFILL_START=<ISO-with-offset> BACKFILL_END=<ISO-with-offset>`.
 Window dùng `source_updated_at`, start inclusive/end exclusive; không dùng purchase date.
 Migration `011` và namespace `backfill_core_v1` tách controls/delivery khỏi scheduled modes.
-Bốn deltas và bốn full FK inputs được freeze cùng transaction, 30 tasks và dbt gates.
+Bốn deltas và năm full dimension/FK inputs được freeze cùng transaction, 33 tasks và dbt gates.
 
 Sau lỗi giữ pending ID/bounds/code/config, gọi lại cùng command; không đổi khoảng thời gian.
 Kiểm tra `source_backfill_rows`, `full_parent_source_rows`, retry/remaining-pending counters,
@@ -621,15 +621,23 @@ tra medians/modes, grain và corruption. Resume các IDs cũ sau mất response.
 
 Kiểm tra rejected/warning counts trước khi dùng location dimension. Một ZIP có
 nhiều observations; chỉ join dimension đã aggregate, không join source geolocation
-vào facts. Chưa có customer/seller location FK joins. Core freeze/receipts vẫn sáu
-datasets; final gate khóa thêm current geolocation staging. Standalone load làm
+vào facts. Customer/seller dimensions có nullable location_key theo ZIP; unmatched ZIP giữ
+NULL và source location giữ nguyên. Core freeze/receipts gồm bảy datasets;
+full có 29 tasks, incremental/backfill có 33 tasks, vẫn chỉ bốn completion cursors. Standalone load làm
 BI unavailable cho tới core SUCCESS mới; không cập nhật status thủ công.
+Dataset runner mặc định Spark heap 2 GiB, giữ explicit runtime settings.
+Nếu standalone geolocation gặp Java heap OOM, kiểm tra RAM rồi export
+`PYSPARK_SUBMIT_ARGS='--driver-memory 2g pyspark-shell'` và chạy lại command cùng IDs.
 Xem [geolocation contract](../data_contracts/18_geolocation_snapshots.md).
 
 Khi một manual local run đã FAILED và bug fix làm đổi code hash, giữ audit/
 receipts cũ; request của ID đó vẫn immutable. Xác nhận không còn RUNNING và
-cursors bằng control_before, archive `build/reports/dataset/pending-run.txt` cùng
-failed ID/evidence, rồi bắt đầu manual ID mới để tạo đủ receipts/gate mới. Không
+cursors bằng control_before. Nếu còn owned Bronze PREPARED, publish đúng frozen
+bytes với original owner ID/mode/page size qua Bronze CLI trước khi đổi pending ID;
+không xóa prepared pages hoặc dùng source live để thay bytes. Đây chỉ commit
+Bronze delivery, không đổi pipeline FAILED hoặc completion cursors. Archive
+`build/reports/dataset/pending-run.txt` cùng failed ID/evidence, rồi bắt đầu manual
+ID mới để tạo đủ receipts/gate mới. Không
 đổi request, copy proofs hoặc gán SUCCESS thủ công. Retry không đổi code vẫn dùng
 pending ID như cũ; Airflow retries tiếp tục tuân theo original DAG/run context.
 

@@ -119,7 +119,7 @@ class PipelineRecoveryTest(CorePipelineCase):
             before = self.controls(c)
             self.frozen(c, identity, 1)
             frozen = self.frozen_inputs(c, identity)
-            self.assertEqual(len(frozen), 8)
+            self.assertEqual(len(frozen), 9)
             self.assertEqual(len({m["source_snapshot"] for m, _ in frozen.values()}), 1)
 
             earlier_objects = {}
@@ -166,7 +166,7 @@ class PipelineRecoveryTest(CorePipelineCase):
                         )
                         self.psql("""UPDATE olist.orders SET order_status='shipped',source_sequence=500,
                             source_updated_at='2020-01-12T00:00:00Z' WHERE order_id='order_a';
-                            DELETE FROM olist.products; DELETE FROM olist.sellers;""")
+                            DELETE FROM olist.products; DELETE FROM olist.sellers; DELETE FROM olist.geolocation;""")
                     elif function == "process_batch":
                         self.assertIn(
                             f"silver/orders/run_id={identity}/_SUCCESS", preserved
@@ -195,7 +195,7 @@ class PipelineRecoveryTest(CorePipelineCase):
 
             def rollback_after_dbt(*args):
                 result = promote(*args)
-                self.assertEqual(result["dbt"]["node_count"], 189)
+                self.assertEqual(result["dbt"]["node_count"], 192)
                 failed_builds.append(result["dbt"]["invocation_id"])
                 raise InjectedFailure("after dbt and CAS, before transaction commit")
 
@@ -246,7 +246,7 @@ class PipelineRecoveryTest(CorePipelineCase):
                 Path(directory) / "success",
             )
             self.assertEqual(completed["status"], "SUCCESS")
-            self.assertEqual(completed["dbt"]["node_count"], 189)
+            self.assertEqual(completed["dbt"]["node_count"], 192)
             self.assertNotEqual(completed["dbt"]["invocation_id"], failed_builds[0])
             self.assertEqual(self.frozen_inputs(c, identity), frozen)
             self.assertEqual(self.objects(), preserved)
@@ -283,13 +283,13 @@ class PipelineRecoveryTest(CorePipelineCase):
             )
             self.assertEqual(
                 sum(x["source_rows_extracted"] for x in completed["datasets"].values()),
-                11,
+                12,
             )
             self.assertEqual(
                 sum(
                     x["warehouse_inserted_rows"] for x in completed["datasets"].values()
                 ),
-                10,
+                11,
             )
             self.assertEqual(
                 sum(
@@ -319,7 +319,7 @@ class PipelineRecoveryTest(CorePipelineCase):
                 )
             self.assertEqual(
                 c.execute(
-                    "SELECT COUNT(*) FROM audit.pipeline_control WHERE source_table IN ('products','sellers')"
+                    "SELECT COUNT(*) FROM audit.pipeline_control WHERE source_table IN ('products','sellers','geolocation')"
                 ).fetchone()[0],
                 0,
             )
@@ -344,7 +344,7 @@ class PipelineRecoveryTest(CorePipelineCase):
                     "SELECT COUNT(*),BOOL_AND(status='SUCCESS') FROM audit.pipeline_task_runs WHERE run_id=%s AND run_attempt=5",
                     (identity,),
                 ).fetchone(),
-                (30, True),
+                (33, True),
             )
 
     def test_incremental_recovers_each_committed_stage_and_final_transaction(self):

@@ -16,7 +16,7 @@ RUN_CONTEXT = None
 CURRENT_TASK = None
 
 CORE_TABLES = ("customers", "orders", "order_items", "order_payments")
-DIMENSIONS = ("products", "sellers")
+DIMENSIONS = ("products", "sellers", "geolocation")
 PARENT_TABLES = CORE_TABLES[:2] + DIMENSIONS
 DATASETS = CORE_TABLES + DIMENSIONS
 
@@ -230,6 +230,7 @@ def execute() -> None:
             flush=True,
         )
     os.environ.setdefault("SPARK_LOCAL_IP", "127.0.0.1")
+    os.environ.setdefault("PYSPARK_SUBMIT_ARGS", "--driver-memory 2g pyspark-shell")
 
     reports.mkdir(parents=True, exist_ok=True)
     run_id = saved or requested or f"{mode if incremental else 'dataset'}_{uuid4().hex}"
@@ -325,6 +326,7 @@ def execute() -> None:
             "customers",
             "products",
             "sellers",
+            "geolocation",
             "orders",
             "order_items",
             "order_payments",

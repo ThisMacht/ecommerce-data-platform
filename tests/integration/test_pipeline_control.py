@@ -73,7 +73,7 @@ class PipelineControlTest(PostgresIntegrationCase):
         self.assertEqual(self.start()["status"], "NOOP")
         self.assertEqual(self.control(), before)
         self.assertEqual(
-            self.psql("SELECT COUNT(*) FROM audit.pipeline_dataset_runs"), "6"
+            self.psql("SELECT COUNT(*) FROM audit.pipeline_dataset_runs"), "7"
         )
 
     def test_failed_tasks_and_reconciliation_keep_watermarks_then_resume(self):

@@ -31,7 +31,9 @@ def load_thresholds(path: Path) -> dict:
         or not isinstance(limits["datasets"], dict)
         or set(limits["datasets"]) != set(ANALYTICS_SOURCES)
     ):
-        raise ValueError("Expected runtime limit and thresholds for all six datasets")
+        raise ValueError(
+            "Expected runtime limit and thresholds for all pipeline datasets"
+        )
     for dataset in limits["datasets"].values():
         if not isinstance(dataset, dict) or set(dataset) != keys:
             raise ValueError("Dataset threshold keys are invalid")

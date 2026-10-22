@@ -21,7 +21,7 @@ class GeolocationContractTest(unittest.TestCase):
             ).read_text()
         )
 
-    def test_technical_key_and_standalone_full_scope(self):
+    def test_technical_key_and_owned_full_scope(self):
         columns = source_columns(self.contract, "geolocation")
         self.assertEqual(
             columns[0],
@@ -37,19 +37,29 @@ class GeolocationContractTest(unittest.TestCase):
         )
         self.assertEqual(config["pipeline"], "bronze_geolocation_v1")
         for mode in ("full", "incremental", "backfill"):
-            with (
-                self.subTest(mode=mode),
-                self.assertRaisesRegex(BronzeError, "standalone"),
-            ):
-                configuration(
-                    self.contract,
-                    ObjectStore(None, "bucket"),
-                    "http://localhost:9000",
-                    2,
-                    "geolocation",
-                    pipeline_run_id="owner",
-                    pipeline_mode=mode,
-                )
+            config = configuration(
+                self.contract,
+                ObjectStore(None, "bucket"),
+                "http://localhost:9000",
+                2,
+                "geolocation",
+                pipeline_run_id="owner",
+                pipeline_mode=mode,
+                pipeline_parent=mode != "full",
+            )
+            self.assertEqual(config["snapshot_kind"], "FULL")
+            self.assertEqual(
+                config["stream_role"], "snapshot" if mode == "full" else "parent"
+            )
+        with self.assertRaisesRegex(BronzeError, "Invalid incremental stream"):
+            configuration(
+                self.contract,
+                ObjectStore(None, "bucket"),
+                "http://localhost:9000",
+                2,
+                "geolocation",
+                pipeline_run_id="owner",
+            )
 
     def test_manifest_requires_full_snapshot_without_lower_bound(self):
         manifest = dict(

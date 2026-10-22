@@ -1,6 +1,6 @@
 # Olist E-commerce Data Platform
 
-Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source simulator, immutable Bronze/Silver layers, warehouse models và dashboards. Hiện đã có source validation, PostgreSQL source layer/simulator và sáu datasets Bronze/PySpark Silver trên MinIO; các phase sau được theo dõi trong [Pipeline Implementation Plan](ecommerce_data_warehouse_pipeline_plan_v4.md).
+Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source simulator, immutable Bronze/Silver layers, warehouse models và dashboards. Hiện đã có source validation, PostgreSQL source layer/simulator và bảy datasets Bronze/PySpark Silver trên MinIO; các phase sau được theo dõi trong [Pipeline Implementation Plan](ecommerce_data_warehouse_pipeline_plan_v4.md).
 
 ## Current status
 
@@ -274,12 +274,14 @@ Xem [payment metric contract](docs/data_contracts/09_analytics_models.md#payment
 
 ## Geolocation analytics
 
-Standalone `ingest-geolocation` / `process-geolocation` chạy full observations;
-load với `SOURCE_TABLE=geolocation`, sau đó `make dbt-build`. `dim_location` có một
+`ingest-geolocation` / `process-geolocation` chạy full observations standalone;
+cả ba core modes tự freeze, publish và load geolocation cùng các datasets khác.
+Standalone load với `SOURCE_TABLE=geolocation`, sau đó `make dbt-build`. `dim_location` có một
 row/ZIP với exact coordinate medians và deterministic joint city/state mode.
 Không dùng ZIP làm source key, không drop observations có tọa độ trùng hoặc suy
-đoán địa chỉ customer/seller. Chưa tích hợp scheduled receipts/location FK joins
-và không thêm BI grants. Xem [geolocation contract](docs/data_contracts/18_geolocation_snapshots.md).
+đoán địa chỉ customer/seller. Hai dimensions có nullable `location_key` theo ZIP;
+unmatched ZIP giữ NULL. Full runner có 29 tasks, bounded modes có 33; bốn cursors
+và BI grants giữ nguyên. Xem [geolocation contract](docs/data_contracts/18_geolocation_snapshots.md).
 
 ## Calendar dimension
 
@@ -303,13 +305,13 @@ Models tự build/test trong pipeline, chưa cấp quyền/cards Metabase cho de
 
 `make dataset-incremental` bootstrap namespace riêng lần đầu, sau đó lấy window từ
 **pipeline watermark** với lookback 48 giờ inclusive. Freeze chốt đồng thời bốn
-source deltas và bốn full parent snapshots (customers/orders/products/sellers) trong một PostgreSQL snapshot, lưu
+source deltas và năm full snapshots (customers/orders/products/sellers/geolocation) trong một PostgreSQL snapshot, lưu
 bytes/bounds trước publication. Retry không lấy lại upper mới; delivery checkpoint
-không điều khiển window. Full mode `make dataset` freeze sáu full streams.
+không điều khiển window. Full mode `make dataset` freeze bảy full streams.
 
 Orders/items/payments FK và deferred retries luôn dùng full parents, không dùng
 delta làm key set. Customer delta là Silver v2, full customer parent vẫn v1.
-Pipeline audits 30 tasks, dùng cùng final receipt/reconciliation/dbt/CAS gates.
+Pipeline audits 33 tasks, dùng cùng final receipt/reconciliation/dbt/CAS gates.
 Bootstrap/after-cursor/lookback, FK scans và retry inputs có counters riêng;
 after-cursor không phải net business growth. Full parent scans vẫn có chi phí.
 
@@ -332,7 +334,7 @@ watermark full/incremental. Chạy lại cùng command/bounds để resume sau l
 make dataset-backfill BACKFILL_START=2020-01-01T00:00:00Z BACKFILL_END=2020-02-01T00:00:00Z
 ```
 
-Bốn deltas và bốn full FK snapshots được freeze cùng transaction. Backfill chỉ
+Bốn deltas và năm full dimension/FK snapshots được freeze cùng transaction. Backfill chỉ
 retry queue thuộc run đó; merge không ghi đè newer source versions. Final gate
 vẫn chạy fresh dbt và reconciliation. Dữ liệu sửa đi vào staging/marts dùng chung;
 đây không phải historical restore của source versions đã bị overwrite.

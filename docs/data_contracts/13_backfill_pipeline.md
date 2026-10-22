@@ -21,7 +21,7 @@ Raw CSV/seed, Docker Compose và Java 17 là prerequisites như incremental runn
 ## Frozen inputs and dependencies
 
 Tái sử dụng transaction `source.freeze` của contract 12: bốn bounded deltas cùng
-bốn full customers/orders/products/sellers FK snapshots được chốt atomically, sau đó mới publish.
+năm full customers/orders/products/sellers/geolocation dimension/FK snapshots được chốt atomically, sau đó mới publish.
 Window và code/config nằm trong immutable pipeline request. Retry sau freeze giữ
 nguyên bytes, upper bounds và parent hashes dù live source đã thay đổi.
 
@@ -29,12 +29,12 @@ Delta streams là `backfill_<table>_delta_v1`; full FK streams là
 `backfill_<table>_parent_v1`. Object paths giữ layout Bronze/Silver hiện có, với
 run ID duy nhất và hashed parent ID; không ghi đè artifacts của mode khác.
 Customer delta không được dùng làm full parent. Customers/orders full parents chỉ kiểm tra FK, không tự load records ngoài window.
-Products/sellers luôn full refresh và load Type 1, kể cả window rỗng; đây là current
+Products/sellers/geolocation luôn full refresh và load Type 1, kể cả window rỗng; đây là current
 dimension snapshots, không phải ảnh chụp lịch sử tại end bound.
 
 ## Reconciliation and completion
 
-30 audited tasks và fresh dbt/receipt gates như incremental. Bốn core deltas ghi
+33 audited tasks và fresh dbt/receipt gates như incremental. Bốn core deltas ghi
 `source_backfill_rows`; bootstrap/after-cursor/lookback bằng 0. Auxiliary parent
 scans được đếm riêng; retry input không phải source growth.
 

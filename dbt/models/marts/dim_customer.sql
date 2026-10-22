@@ -14,8 +14,10 @@ SELECT
     customer_city,
     customer_state,
     customer_zip_code_prefix,
-    created_at,
+    r.created_at,
     last_seen_at AS updated_at,
-    MD5(JSONB_BUILD_ARRAY(customer_city, customer_state, customer_zip_code_prefix)::text) AS record_hash
-FROM ranked
+    MD5(JSONB_BUILD_ARRAY(customer_city, customer_state, customer_zip_code_prefix)::text) AS record_hash,
+    l.location_key
+FROM ranked r
+LEFT JOIN {{ ref('dim_location') }} l ON r.customer_zip_code_prefix = l.zip_code_prefix
 WHERE position = 1

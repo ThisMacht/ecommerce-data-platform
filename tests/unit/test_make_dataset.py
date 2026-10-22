@@ -142,7 +142,7 @@ class MakeDatasetTest(unittest.TestCase):
         freezes = [a for a in self.commands if "freeze" in a]
         self.assertEqual(len(freezes), 1)
         extracts = [a for a in self.commands if "extract" in a]
-        self.assertEqual(len(extracts), 8)
+        self.assertEqual(len(extracts), 9)
         self.assertLess(
             self.commands.index(freezes[0]), self.commands.index(extracts[0])
         )
@@ -150,7 +150,7 @@ class MakeDatasetTest(unittest.TestCase):
         self.assertTrue(all("--pipeline-run-id" in a for a in extracts))
         self.assertFalse(any("--full-snapshot" in a for a in extracts))
         loads = [a for a in self.commands if "olist_platform.warehouse.cli" in a]
-        self.assertEqual(len(loads), 6)
+        self.assertEqual(len(loads), 7)
         self.assertFalse(any("fk_fixture" in a for a in loads))
         dependent = [
             a
@@ -192,7 +192,7 @@ class MakeDatasetTest(unittest.TestCase):
         ):
             self.invoke()
         extracts = [a for a in self.commands if "extract" in a]
-        self.assertEqual(len(extracts), 8)
+        self.assertEqual(len(extracts), 9)
         self.assertTrue(
             all(a[a.index("--pipeline-mode") + 1] == "backfill" for a in extracts)
         )
@@ -422,15 +422,16 @@ class MakeDatasetTest(unittest.TestCase):
                 "customers",
                 "products",
                 "sellers",
+                "geolocation",
                 "orders",
                 "order_items",
                 "order_payments",
             ],
         )
         self.assertEqual(
-            processing[3][-2:], ("--customer-snapshot", "silver/customers/run_id=test")
+            processing[4][-2:], ("--customer-snapshot", "silver/customers/run_id=test")
         )
-        for args in processing[4:]:
+        for args in processing[5:]:
             self.assertEqual(
                 args[args.index("--order-snapshot") + 1], "silver/orders/run_id=test"
             )
@@ -439,7 +440,7 @@ class MakeDatasetTest(unittest.TestCase):
         )
         self.assertIn("--pipeline-run-id", orders)
         self.assertEqual(orders[orders.index("--pipeline-mode") + 1], "full")
-        items = processing[4]
+        items = processing[5]
         for parent in ("product", "seller"):
             self.assertEqual(
                 items[items.index(f"--{parent}-snapshot") + 1],
@@ -458,6 +459,7 @@ class MakeDatasetTest(unittest.TestCase):
                 "customers",
                 "products",
                 "sellers",
+                "geolocation",
                 "orders",
                 "order_items",
                 "order_payments",
@@ -468,7 +470,7 @@ class MakeDatasetTest(unittest.TestCase):
             self.assertEqual(
                 args[args.index("--silver-prefix") + 1], f"silver/{table}/run_id=test"
             )
-        self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 25)
+        self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 28)
         retries = [
             args for args in self.commands if "olist_platform.deferred.cli" in args
         ]
@@ -492,13 +494,30 @@ class MakeDatasetTest(unittest.TestCase):
             )
         )
 
-    def test_absent_java_skips_silver_but_extracts_all_six_tables(self):
+    def test_spark_heap_default_preserves_explicit_runtime_settings(self):
+        for configured in (None, "--driver-memory 3g pyspark-shell"):
+            with (
+                self.subTest(configured=configured),
+                patch.dict(os.environ),
+                patch("scripts.make_dataset.run", side_effect=self.command),
+                patch("scripts.make_dataset.shutil.which", return_value="java"),
+            ):
+                os.environ.pop("PYSPARK_SUBMIT_ARGS", None)
+                if configured is not None:
+                    os.environ["PYSPARK_SUBMIT_ARGS"] = configured
+                self.invoke()
+                self.assertEqual(
+                    os.environ["PYSPARK_SUBMIT_ARGS"],
+                    configured or "--driver-memory 2g pyspark-shell",
+                )
+
+    def test_absent_java_skips_silver_but_extracts_all_seven_tables(self):
         with (
             patch("scripts.make_dataset.run", side_effect=self.command),
             patch("scripts.make_dataset.shutil.which", return_value=None),
         ):
             output = self.invoke()
-        self.assertEqual(len([args for args in self.commands if "extract" in args]), 6)
+        self.assertEqual(len([args for args in self.commands if "extract" in args]), 7)
         self.assertFalse(any("process" in args for args in self.commands))
         self.assertFalse(
             any("olist_platform.warehouse.cli" in args for args in self.commands)

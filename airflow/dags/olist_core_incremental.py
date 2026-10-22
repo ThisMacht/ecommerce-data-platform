@@ -8,7 +8,7 @@ from airflow.sdk import DAG
 
 with DAG(
     dag_id="olist_core_incremental",
-    description="Four frozen deltas, four full FK parents and three-parent item gates",
+    description="Four frozen deltas, five full dimension/FK snapshots and three-parent item gates",
     schedule="@daily",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     catchup=False,

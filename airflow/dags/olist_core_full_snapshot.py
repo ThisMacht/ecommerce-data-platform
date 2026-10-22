@@ -8,7 +8,7 @@ from airflow.sdk import DAG
 
 with DAG(
     dag_id="olist_core_full_snapshot",
-    description="Atomic six-source full snapshots with three-parent item FK gates",
+    description="Atomic seven-source full snapshots with three-parent item FK gates",
     schedule="@daily",
     start_date=datetime(2026, 1, 1, tzinfo=timezone.utc),
     catchup=False,

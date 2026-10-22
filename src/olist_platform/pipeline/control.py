@@ -18,10 +18,10 @@ PIPELINE = "local_core_v1"
 INCREMENTAL = "incremental_core_v1"
 BACKFILL = "backfill_core_v1"
 TABLES = ("customers", "orders", "order_items", "order_payments")
-DIMENSIONS = ("products", "sellers")
+DIMENSIONS = ("products", "sellers", "geolocation")
 PARENTS = TABLES[:2] + DIMENSIONS
 ANALYTICS_SOURCES = TABLES + DIMENSIONS
-DBT_SOURCES = ANALYTICS_SOURCES + ("geolocation",)
+DBT_SOURCES = ANALYTICS_SOURCES
 BASE_TASKS = (
     tuple(
         f"{t}.{stage}"
@@ -521,7 +521,11 @@ def reconcile(item: dict) -> dict:
         ):
             raise BronzeError("Incremental source accounting mismatch")
         counts["full_parent_source_rows"] = item["full_parent_source_rows"]
-    if bronze.get("source") in ("postgresql.products", "postgresql.sellers"):
+    if bronze.get("source") in (
+        "postgresql.products",
+        "postgresql.sellers",
+        "postgresql.geolocation",
+    ):
         counts["dimension_snapshot_rows"] = counts["source_rows_extracted"]
     for name in (
         "load_candidate_rows",

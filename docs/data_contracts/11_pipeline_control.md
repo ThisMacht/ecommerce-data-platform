@@ -8,7 +8,7 @@ Migration `009` thêm `audit.pipeline_runs`, `pipeline_task_runs`,
 Airflow có daily full wrapper dùng cùng namespace. Incremental dùng namespace riêng
 theo [contract 12](12_incremental_pipeline.md); isolated backfill theo [contract 13](13_backfill_pipeline.md).
 
-Runner local freeze sáu full snapshots trong cùng source transaction: bốn core tables và products/sellers. Migration `016` thêm owned full/FK delivery streams; chỉ bốn core tables có completion cursors. Full mode được bổ sung
+Runner local freeze bảy full snapshots trong cùng source transaction: bốn core tables và products/sellers/geolocation. Migrations `016`/`019` thêm owned full/FK delivery streams; chỉ bốn core tables có completion cursors. Full mode được bổ sung
 cho items/payments; default standalone extraction của orders/items/payments vẫn
 bounded incremental. Bootstrap không được lấy một delta sau Bronze checkpoints cũ
 làm bằng chứng rằng toàn source snapshot đã được xử lý.
@@ -27,7 +27,7 @@ DSN. Cùng ID nhưng code/config khác bị reject. Resume tăng run attempt, gi
 control và original start time; old running tasks được đánh dấu failed. Task của
 attempt cũ không được ghi vào attempt mới.
 
-Mỗi full attempt có 26 tasks: source freeze, Bronze/Silver/staging cho sáu tables,
+Mỗi full attempt có 29 tasks: source freeze, Bronze/Silver/staging cho bảy tables,
 registration/resolution cho ba dependent tables và `dbt.build`. Stage failures ghi `FAILED`,
 giữ pending ID và không promote watermark. Process crash có thể để `RUNNING`;
 resume cùng ID tạo attempt mới, replay immutable data-plane receipts.
@@ -43,7 +43,7 @@ Final gate kiểm tra server-side receipts, không tin counters trong local JSON
 - Mọi Bronze run đã `COMMITTED`, all remote bytes/marker/hash/counts hợp lệ, full
   snapshot, đúng contract/table/run ID và không có lower bound.
 - Silver full snapshots đúng version, pin đúng Bronze manifest hash và đúng parent
-  snapshots của **cùng run**. Customers/products/sellers → orders → items/payments là dependency order. Items v2 pin đủ ba parents; legacy item v1 không được core gate chấp nhận.
+  snapshots của **cùng run**. Orders pin customers; items pin orders/products/sellers; payments pin orders. Geolocation là dimension input độc lập, không là Silver FK parent. Legacy item v1 không được core gate chấp nhận.
 - Normal warehouse audit phải pin đúng Silver manifest và routing counts.
 - Deferred registration/resolution phải pin đúng Silver/parent hashes; retry
   staging receipt phải khớp resolution counters và resolution run ID.
@@ -56,7 +56,7 @@ không đổi request; run chưa SUCCESS và không promote watermark.
 
 ## dbt consistency gate
 
-Coordinator giữ `SHARE` locks trên sáu staging tables, chạy **fresh dbt build** và
+Coordinator giữ `SHARE` locks trên bảy staging tables, chạy **fresh dbt build** và
 giữ locks tới khi audit/control transaction commit. Normal staging writers sẽ bị
 chặn trong đoạn này; lock timeout là 15 giây, dbt process timeout là 600 giây.
 
@@ -90,7 +90,7 @@ hoặc incremental lookback accounting trong slice này. Source rule hits ghi ri
 
 Candidate mỗi core cursor table là max của pipeline cursor trước run và full snapshot upper
 cursor, theo `(source_updated_at, source_sequence, primary key components)`.
-Empty/backdated upper không làm cursor lùi. Products/sellers có dataset receipts và `dimension_snapshot_rows`; watermark before/candidate/after đều null, không tạo cursor mới. Sau mọi gates, compare-and-swap cả bốn
+Empty/backdated upper không làm cursor lùi. Products/sellers/geolocation có dataset receipts và `dimension_snapshot_rows`; watermark before/candidate/after đều null, không tạo cursor mới. Sau mọi gates, compare-and-swap cả bốn
 cursor versions, insert dataset reconciliation rows và mark pipeline `SUCCESS`
 trong **một PostgreSQL transaction**. Một CAS conflict làm rollback toàn bộ.
 
@@ -139,7 +139,7 @@ qua stdout; dùng `PG*` và chỉ cần reader role. Một transaction `REPEATAB
 READ ONLY` đọc run/dataset audit và quarantine, statement timeout 15 giây. Không
 đọc payload, không tải source/S3, không sửa retry status, attempts hoặc cursors.
 
-`config/pipeline_health.json` có `max_run_seconds` cho toàn pipeline và sáu
+`config/pipeline_health.json` có `max_run_seconds` cho toàn pipeline và bảy
 dataset policies: `max_freshness_hours`, `max_reject_rate`, `max_warning_rate`,
 `max_pending_age_hours`. Mọi key/dataset bắt buộc phải có; rates thuộc `[0,1]`,
 time limits phải dương và hữu hạn. Defaults 30 phút/run, 24 giờ freshness,
@@ -194,7 +194,7 @@ resume cùng run ID ở attempt 5:
 | After warehouse commit, before task success | Staging rows and load receipt | Replay cùng load ID; không thêm rows hoặc load audit |
 | After dbt and CAS writes, before outer transaction commit | Dataset loads and deferred receipts | Rollback mọi control/dataset-audit writes; run FAILED; fresh dbt bắt buộc khi resume |
 
-Tests thay đổi live source sau lần lỗi đầu, đối chiếu tám frozen manifests/pages,
+Tests thay đổi live source sau lần lỗi đầu, đối chiếu chín frozen manifests/pages,
 remote object hashes, staging grains/metrics và deferred queue/attempt count.
 Final incremental success advance controls đúng một lần; backfill giữ nguyên
 controls. Replay committed run trả NOOP. Warehouse tests riêng dùng batch ID mới

@@ -52,7 +52,7 @@ class PipelineGateTest(CorePipelineCase):
                 password="isolated_test_admin",
                 autocommit=True,
             ) as auditor:
-                for parent in ("products", "sellers"):
+                for parent in ("products", "sellers", "geolocation"):
                     with auditor.transaction(force_rollback=True):
                         auditor.execute(
                             "DELETE FROM audit.warehouse_load_runs WHERE source_table=%s AND run_id='gate'",
@@ -69,6 +69,14 @@ class PipelineGateTest(CorePipelineCase):
                     )
                     with self.assertRaisesRegex(BronzeError, "product/seller parents"):
                         evidence(auditor, self.store, self.contract, "gate")
+            geo_marker = f"{snapshots['geolocation']}/_SUCCESS"
+            geo_body = self.store.read(geo_marker)
+            self.client.delete_object(Bucket=self.store.bucket, Key=geo_marker)
+            with self.assertRaises(ClientError):
+                evidence(c, self.store, self.contract, "gate")
+            self.client.put_object(
+                Bucket=self.store.bucket, Key=geo_marker, Body=geo_body
+            )
             marker = f"{snapshots['orders']}/_SUCCESS"
             body = self.store.read(marker)
             self.client.delete_object(Bucket=self.store.bucket, Key=marker)
@@ -105,7 +113,7 @@ class PipelineGateTest(CorePipelineCase):
                 # The new standalone source must stay stable through the core dbt gate.
                 with self.connection() as writer:
                     writer.execute("SET lock_timeout='100ms'")
-                    for table in ("products", "sellers"):
+                    for table in ("products", "sellers", "geolocation"):
                         with (
                             self.subTest(table=table),
                             self.assertRaises(LockNotAvailable),
@@ -149,12 +157,25 @@ class PipelineGateTest(CorePipelineCase):
                 Path(directory),
             )
             self.assertEqual(completed["status"], "SUCCESS")
-            self.assertEqual(completed["dbt"]["node_count"], 189)
+            self.assertEqual(completed["dbt"]["node_count"], 192)
             self.assertEqual(
                 self.psql("SELECT MIN(cursor_version) FROM audit.pipeline_control"), "1"
             )
             self.assertEqual(
-                self.psql("SELECT COUNT(*) FROM audit.pipeline_dataset_runs"), "6"
+                self.psql("SELECT COUNT(*) FROM audit.pipeline_dataset_runs"), "7"
+            )
+            self.assertEqual(
+                completed["datasets"]["geolocation"]["dimension_snapshot_rows"], 1
+            )
+            self.assertEqual(
+                self.psql(
+                    "SELECT COUNT(*) FROM audit.pipeline_control WHERE source_table='geolocation'"
+                ),
+                "0",
+            )
+            self.assertEqual(
+                self.psql("SELECT location_key=MD5('00123') FROM analytics.dim_seller"),
+                "t",
             )
             for values in completed["datasets"].values():
                 self.assertEqual(

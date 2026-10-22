@@ -36,6 +36,12 @@
       "max_reject_rate": 0.01,
       "max_warning_rate": 0.05,
       "max_pending_age_hours": 168
+    },
+    "geolocation": {
+      "max_freshness_hours": 24,
+      "max_reject_rate": 0.01,
+      "max_warning_rate": 0.05,
+      "max_pending_age_hours": 168
     }
   }
 }

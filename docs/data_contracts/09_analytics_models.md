@@ -2,7 +2,7 @@
 
 ## Scope and execution
 
-Status: **Active — six core staging datasets plus standalone geolocation**.
+Status: **Active — seven core staging datasets**.
 `dbt/` dùng locked `analytics` extra, PostgreSQL adapter và schema `analytics`
 được tạo bởi migration `007`. Existing loader role sở hữu schema; reader chỉ SELECT. Migration `012` thêm
 `olist_bi_reader` NOLOGIN group chỉ đọc fct_orders, hai order daily marts, ba
@@ -23,7 +23,7 @@ make test-dbt-integration
 
 Profile đọc process environment, không tự load Compose `.env` hoặc `WAREHOUSE_DSN`.
 Password dùng `DBT_ENV_SECRET_*` để dbt scrub trong logs. Không ghi credentials vào
-profile. `make dataset` tự cấu hình local credentials, chạy dbt sau sáu staging loads,
+profile. `make dataset` tự cấu hình local credentials, chạy dbt sau bảy staging loads,
 và giữ run pending khi build/tests fail. Retry cùng run IDs để staging trả `NOOP`.
 Artifacts nằm trong ignored `dbt/target`, hoặc `build/reports/dataset/<run_id>_dbt`
 khi chạy runner. Analytics dependency sync có thể bỏ Spark extra; dùng
@@ -36,7 +36,7 @@ khi chạy runner. Analytics dependency sync có thể bỏ Spark extra; dùng
 | `stg_customers`, `stg_orders`, `stg_order_items`, `stg_payments` | Giữ source business grain, đã được Silver/staging normalize |
 | `int_order_item_summary` | Một order: item count, SUM(price), SUM(freight) |
 | `int_payment_summary` | Một order: payment count, SUM(payment_value) |
-| `int_geolocation_by_zip`, `dim_location` | Một ZIP với exact medians, joint city/state mode và stable Type 1 location key; standalone observations |
+| `int_geolocation_by_zip`, `dim_location` | Một ZIP với exact medians, joint city/state mode và stable Type 1 location key; full-only observations |
 | `dim_date` | Một ngày liên tục giữa min/max observed local purchase/estimated/actual dates; integer YYYYMMDD key |
 | `dim_customer` | Một `customer_unique_id`; current attributes, stable surrogate key |
 | `fct_orders` | Một order; join hai summaries để tránh items × payments fan-out |
@@ -219,9 +219,10 @@ invalid ordering, empty inputs và cố tình corrupt duration để xác minh g
 
 ## Location dimension
 
-Geolocation chạy standalone; `dim_location` aggregate observations trước mọi join.
-ZIP không phải source key; không gắn current location vào customer/seller/facts
-trong bước này. Xem [geolocation contract](18_geolocation_snapshots.md) về exact
+Geolocation chạy full-only standalone hoặc core; `dim_location` aggregate trước mọi join.
+Customer/seller dimensions LEFT JOIN theo source ZIP để thêm nullable location_key;
+unmatched ZIP giữ NULL, source city/state và business hash contract giữ nguyên.
+Không drop rows hoặc thêm location key vào facts. Xem [geolocation contract](18_geolocation_snapshots.md) về exact
 medians, deterministic joint modes, completeness và giới hạn core receipts/BI.
 
 ## Calendar dimension and fact date roles

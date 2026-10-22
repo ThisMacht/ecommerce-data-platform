@@ -52,7 +52,9 @@ class CorePipelineCase(BronzeFixtureCase):
         self.psql("""INSERT INTO olist.products (product_id, source_updated_at, source_operation, source_batch_id)
             VALUES ('product','2019-01-01','INSERT','parent_fixture');
             INSERT INTO olist.sellers (seller_id,seller_city,seller_state,seller_zip_code_prefix,source_updated_at,source_operation,source_batch_id)
-            VALUES ('seller','Sao Paulo','SP','00123','2019-01-01','INSERT','parent_fixture');""")
+            VALUES ('seller','Sao Paulo','SP','00123','2019-01-01','INSERT','parent_fixture');
+            INSERT INTO olist.geolocation (geolocation_row_id,geolocation_zip_code_prefix,geolocation_lat,geolocation_lng,geolocation_city,geolocation_state,source_updated_at,source_operation,source_batch_id)
+            VALUES (1,'00123',-23.5,-46.5,'São Paulo','SP','2019-01-01','INSERT','parent_fixture');""")
 
     def environment(self, mode="incremental"):
         return patch.dict(
@@ -98,6 +100,7 @@ class CorePipelineCase(BronzeFixtureCase):
                         "customers",
                         "products",
                         "sellers",
+                        "geolocation",
                         "orders",
                         "order_items",
                         "order_payments",
