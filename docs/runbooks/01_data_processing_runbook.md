@@ -498,6 +498,33 @@ Local file lock và PostgreSQL guard vẫn áp dụng; không chạy cùng run t
 checkout. UI/API bind loopback, SQLite metadata và standalone chỉ dành cho local.
 Không coi logical date là extraction window; incremental/backfill dùng explicit mode/bounds theo mục 21–22. Chi tiết [local Airflow](../../infrastructure/README.md#local-airflow).
 
+### Recovery after a local OOM
+
+OOM có thể kill cả VS Code application scope cùng Airflow/runner trong integrated
+terminal. Audit còn `RUNNING` không chứng minh process vẫn sống: kiểm tra PID,
+heartbeat và API health trước khi Retry/Clear **cùng task trong original DAG run**.
+Giữ pending ID, frozen inputs và pinned code/config; không trigger replacement run.
+
+Trên máy có `/tmp` là tmpfs, Silver download spool có thể chiếm thêm nhiều GiB RAM.
+Kiểm tra filesystem và đặt Python/Spark temporary files trên ổ đĩa đủ dung lượng:
+
+```bash
+df -h /tmp build
+mkdir -p build/tmp/spark
+env TMPDIR="$PWD/build/tmp/spark" SPARK_LOCAL_DIRS="$PWD/build/tmp/spark" make airflow-local
+```
+
+Chạy trong terminal ngoài VS Code hoặc service riêng để tách process lifetime.
+Xác nhận `build/tmp/spark` nằm trên disk, không phải tmpfs. Các biến này đổi vị trí
+file tạm, không thay input/routing rules; vẫn phải giữ đúng original request/hash.
+Chỉ dọn local cache của đúng run khi đã xác minh không còn process sử dụng; không
+xóa Bronze/Silver published objects, prepared pages hoặc audit để ép resume.
+
+Theo dõi RAM khả dụng và peak của toàn process group, gồm JVM; giảm workloads chạy
+đồng thời trước khi retry. Health runtime tính từ original run start, gồm cả thời
+gian downtime: một recovery SUCCESS vẫn có thể báo `pipeline.runtime_exceeded`.
+Giữ nguyên thresholds và ghi riêng completion status cùng operational alert.
+
 ## 21. Incremental execution and recovery
 
 Chạy `make dataset-incremental` với Java 17 và raw/Compose config hiện có. Namespace

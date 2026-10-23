@@ -116,26 +116,105 @@ cần xóa filters và refresh sau successful gate. Ảnh Airflow SUCCESS ngày 
 thuộc run cũ, không chứng nhận revision hiện tại.
 
 CI, full Olist baseline và benchmark nêu trên vẫn là evidence tại đúng revision
-đã ghi. Incident này là giới hạn tài nguyên khi demo local, chưa phải recovery
-verification PASS; chưa thực hiện resume hoặc đo lại workload sau OOM.
+đã ghi. Trạng thái interrupted ở trên được ghi tại thời điểm incident; kết quả
+recovery tiếp theo nằm trong mục dưới, không dùng ảnh cũ thay evidence mới.
 
-## Remaining Closeout Evidence
+## Verified Recovery (2026-10-24)
 
-- [ ] Live demo current revision: khôi phục Airflow ngoài VS Code terminal scope,
-  resume cùng DAG run/task và pinned code/config, rồi đối chiếu pipeline SUCCESS,
-  receipts/dbt results và health timestamp. Không trigger replacement run để bỏ
-  qua pending run. Import tests hoặc CLI baseline không thay thế live verification.
-- [ ] Kiểm tra Metabase sau successful core gate: managed cards, inclusive date
-  filters, counts/GMV/paid/AOV đối chiếu SQL, restricted reader và unavailable state;
-  lưu SQL/audit/API evidence. Screenshots/video đã che credentials là minh họa
-  tùy chọn, không phải prerequisite để viết báo cáo.
-- [ ] Gắn release/tag và ghi release notes sau khi demo/evidence được kiểm tra.
-  Chưa có bằng chứng release hoàn tất trong checklist này.
+Cùng original DAG run/pipeline ID đã được resume qua Airflow API, không tạo
+replacement run. `code_sha256` và original request hash giữ nguyên; source được
+kiểm chứng tương ứng implementation `f2ced4d` (HEAD lúc recovery `9b1056a`, các
+commits sau implementation chỉ sửa tài liệu).
 
-README/runbook/ERDs và báo cáo evidence đã hoàn thiện cho scope implementation.
-Ba mục trên vẫn là phần closeout chưa xác minh; không ghi toàn bộ acceptance PASS
-hoặc gọi deployment production-ready. Ngay trước demo cần chạy health mới, kiểm
-tra pending run và services; HEALTHY lịch sử không chứng minh trạng thái hiện tại.
+Attempt 2 được dừng có kiểm soát khi phát hiện Silver spool ghi vào `/tmp` tmpfs.
+Hai local download caches của đúng run, đã xác minh không còn process dùng,
+được dọn; published objects/prepared pages/audit giữ nguyên. Attempt 3 đặt
+`TMPDIR`/`SPARK_LOCAL_DIRS` trên disk dưới ignored `build/tmp/closeout/`, chạy
+systemd user service tách khỏi VS Code: CPU affinity 4 CPUs, driver heap 2 GiB,
+MemoryHigh 4 GiB, MemoryMax 5 GiB. Thuật toán và semantic request không thay đổi.
+
+| Check | Observed result |
+| --- | --- |
+| Same-run Airflow task / DAG | SUCCESS, task try 3 |
+| Pipeline / dataset gate | SUCCESS, attempt 3; 34/34 tasks, 8 dataset receipts PASS |
+| Fresh dbt | 261/261 nodes PASS: 31 views + 230 tests; WARN/ERROR/SKIP = 0 |
+| Source/staging counts | Không đổi trên cả tám tables; frozen source snapshot được giữ |
+| Original committed loads | 3 receipts trước recovery giữ nguyên hash/committed_at |
+| Completion controls | 4 local versions tăng đúng một lần; cursor values và namespaces khác không đổi |
+| Committed replay | Real `begin` branch trả NOOP; controls không đổi |
+| BI publication / reader | Available; đúng sáu business-model SELECT grants + status; denied source/staging/dimensions/other facts, không write privileges |
+| Pending run | Đã được runner dọn sau SUCCESS |
+| Runtime | Original audit elapsed 2,792.56 s, gồm downtime; tổng task times của successful attempt 992.56 s |
+| Resource measurement | Peak service cgroup 4,306,272,256 bytes (~4.01 GiB), OOM kills = 0 |
+
+Cgroup measurement gồm Airflow/children và charged file cache, không gồm Docker
+services hoặc RAM toàn host. Tổng task times không phải cold-run benchmark.
+Geolocation Silver retry trên disk hoàn tất trong khoảng 97 giây. Unstarted
+manual duplicate đã được cancel qua API, không dùng làm success evidence;
+Airflow service tạm đã stop và daily schedule paused sau kiểm chứng.
+
+Operational health là **UNHEALTHY**, chỉ có `pipeline.runtime_exceeded`: tổng
+elapsed gồm downtime vượt ngưỡng 1,800 s. Không đổi thresholds, reset start time
+hoặc chạy pipeline mới chỉ để làm health xanh. Pipeline completion SUCCESS và
+operational runtime alert là hai kết quả riêng; BI gate đã available.
+
+Evidence local ignored: `build/reports/closeout/core-recovery-verification.json`,
+`before-recovery.json`, `recovery-task-clear*.json`, `resource-adjustment.json`,
+`runtime-profile.json`, `health-after-recovery.json`, `finish-check.log`,
+run-specific Airflow/dbt logs và refreshed `build/reports/pipeline_dashboard.html`.
+
+## Headless BI Verification (2026-10-24)
+
+Saved dashboard đã được reconcile sau core SUCCESS, giữ nguyên dashboard/card
+IDs, private credential file và datasource `olist_metabase_reader`. Kiểm chứng
+được thực hiện tuần tự qua PostgreSQL và REST API, không cần browser UI.
+
+| Check | Observed result |
+| --- | --- |
+| Managed content | 13 saved cards + policy text; original IDs và start/end mappings giữ nguyên |
+| SQL reference | 52/52 comparisons PASS: 13 queries × 4 windows |
+| Saved dashboard API | 52/52 comparisons PASS với independent raw-staging SQL |
+| Date windows | All history; 2018-01-01–2018-12-31; single day 2018-01-01; empty 2050-01-01 |
+| Full-history money | GMV BRL 13,491,218.65; gross paid BRL 15,736,441.59; weighted AOV BRL 160.27 |
+| Eligible orders | 98,191; positive-paid denominator khác eligible-order count |
+| Daily outputs | Revenue/AOV 634 rows; payment-type pivot 613 rows; API không truncated |
+| Unavailable gate | Khi original run RUNNING: 12 metric cards rỗng, status card giữ đúng run/available=false; 13/13 API checks PASS |
+| Operational CLI | Exit 1 đúng với `pipeline.runtime_exceeded`; completion SUCCESS, không đổi thresholds |
+
+Expected metrics tính từ raw staging, aggregate items/payments riêng theo order
+trước khi join; không lấy chính facts/marts đang kiểm tra làm expected. Checks
+bao gồm inclusive date bounds, weighted AOV, zero/NULL empty-window behavior,
+completeness, status, product/seller rankings và payment-type totals/daily pivot.
+Các saved queries cũng được đối chiếu với managed definition; no-filter defaults
+giữ NULL để xem toàn bộ lịch sử. Không đổi card IDs hoặc mở rộng reader grants.
+
+Evidence local ignored: `build/reports/closeout/bi-sql-reference.json`,
+`bi-api-complete.json`, `bi-api-results.json`, `live-unavailable-metabase-api.json`,
+`health-cli.json`, `headless-closeout.json`, `bi-api-verification.log` và
+`metabase-reconcile.log`. Các scripts kiểm chứng tạm nằm cùng ignored directory;
+không đóng gói thêm công cụ/test framework vào project cho lần vận hành này.
+
+## Closeout Decision
+
+- [x] Same-run Airflow recovery và actual core execution qua API đã SUCCESS;
+  receipts/dbt/CAS/source counts và health status đã được đối soát riêng.
+- [x] Metabase sau successful gate: managed cards/IDs, inclusive date filters,
+  exact SQL/API metrics, restricted reader và live unavailable state đều PASS.
+- [x] README, runbook, source/warehouse ERDs và acceptance evidence đồng bộ.
+- Release/tag: không nằm trong closeout hiện tại theo yêu cầu người dùng;
+  không tạo GitHub Release hoặc dùng release làm prerequisite cho báo cáo.
+
+**Đủ để đóng scope local batch implementation và báo cáo kỹ thuật.** Không cần
+thêm screenshots, UI session hoặc workload mới để chứng minh các checks trên.
+Ruff/format và 138 unit tests cũng PASS tại lần closeout. Không chạy lại large
+engine benchmark hoặc toàn bộ disposable integration suites vì source không đổi
+so với implementation đã được hosted CI kiểm chứng; full-data recovery/live BI
+đã chạy thực tế như mô tả.
+
+Runtime alert vẫn được giữ và báo rõ; không tuyên bố mọi operational indicators
+đều HEALTHY hoặc deployment production-ready. Browser rendering chưa được kiểm
+tra lại, screenshots là minh họa tùy chọn. Airflow service tạm đã dừng, mọi DAGs
+paused, pending pipeline ID đã dọn; Metabase vẫn chạy local để có thể xem khi cần.
 
 ## Known Boundaries
 

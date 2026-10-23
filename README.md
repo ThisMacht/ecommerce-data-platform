@@ -2,7 +2,9 @@
 
 [![CI](https://github.com/ThisMacht/ecommerce-data-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/ThisMacht/ecommerce-data-platform/actions/workflows/ci.yml)
 
-A local batch data-engineering platform that takes Olist raw CSVs through a PostgreSQL source simulator, immutable Bronze and PySpark Silver layers on MinIO, version-aware warehouse staging, dbt analytics and Metabase. Eight core datasets support full, incremental and backfill runs with deferred recovery and gated completion watermarks. See the [architecture and ERDs](docs/22_architecture_and_data_model.md), [runbook](docs/runbooks/01_data_processing_runbook.md) and [acceptance checklist](docs/23_project_acceptance.md) for implementation details, verification evidence and remaining closeout work.
+A local batch data-engineering platform that takes Olist raw CSVs through a PostgreSQL source simulator, immutable Bronze and PySpark Silver layers on MinIO, version-aware warehouse staging, dbt analytics and Metabase. Eight core datasets support full, incremental and backfill runs with deferred recovery and gated completion watermarks. See the [architecture and ERDs](docs/22_architecture_and_data_model.md), [runbook](docs/runbooks/01_data_processing_runbook.md) and [acceptance checklist](docs/23_project_acceptance.md) for implementation details, verification evidence and closeout decisions.
+
+The local implementation scope is verified: same-run recovery after an OOM completed all 34 tasks and 261 dbt nodes; 52 SQL and 52 saved-dashboard API comparisons passed. The original run retains a runtime alert because elapsed time includes the outage. See the [closeout decision](docs/23_project_acceptance.md#closeout-decision) for evidence and limits; this is not a production deployment certification.
 
 ## Current status
 
@@ -392,6 +394,8 @@ make airflow-local
 The UI binds to `127.0.0.1:8080`; generated local credentials are stored in ignored `build/airflow/`. DAGs `olist_core_full_snapshot` and `olist_core_incremental` start paused, with `@daily` UTC schedules, `catchup=False` and `max_active_runs=1`. Trigger manually for verification before unpausing, and enable only the intended mode's schedule. Each DAG has one runner task; full/incremental executions audit 34/38 business tasks in PostgreSQL. The manual-only `olist_core_backfill` DAG accepts `start`/`end` configuration and passes bounds through the environment; Retry/Clear the same DAG run to resume. Ctrl-C stops standalone components while retaining PostgreSQL/MinIO and metadata.
 
 Retry/Clear the task in the **same DAG run** to retain its pipeline ID and replay receipts or return NOOP after commit. Do not replace an unfinished run with a new trigger or change pinned code/configuration while a run is pending. Airflow fails on missing CSVs/Java instead of skipping work. This is local standalone orchestration with separate SQLite metadata; production deployment is not implemented. See [operations](infrastructure/README.md#local-airflow).
+
+For memory-constrained hosts, run outside the VS Code integrated terminal and use disk-backed temporary files. See [local OOM recovery](docs/runbooks/01_data_processing_runbook.md#recovery-after-a-local-oom) for the environment settings and same-run recovery checks.
 
 ## License
 

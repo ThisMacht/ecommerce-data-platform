@@ -29,7 +29,7 @@ Thư mục này chứa mô tả implementation, contracts, vận hành và accep
 | 20 | [Synthetic Website Events](data_contracts/20_synthetic_events.md) | Deterministic standalone JSONL workload, arrival/duplicate/session semantics and atomic artifact verification | Active — standalone generator |
 | 21 | [Event Engine Benchmark](data_contracts/21_event_engine_benchmark.md) | Local engine parity, independent oracle, process-tree RSS/resource guards and timing methodology | Active — measured 2M workload |
 | 22 | [Architecture and Data Model](22_architecture_and_data_model.md) | Current architecture, source/warehouse ERDs, execution modes and mart grains | Active |
-| 23 | [Project Acceptance Checklist](23_project_acceptance.md) | Implementation/evidence checklist, full Olist baseline, CI and remaining closeout | Active — demo and release evidence pending |
+| 23 | [Project Acceptance Checklist](23_project_acceptance.md) | Full Olist/CI/benchmark evidence, OOM recovery, live SQL/API BI checks and scope closeout | Verified — local scope closed; runtime alert retained |
 
 ## Related documents
 
