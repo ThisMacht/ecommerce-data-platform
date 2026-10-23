@@ -142,7 +142,7 @@ class MakeDatasetTest(unittest.TestCase):
         freezes = [a for a in self.commands if "freeze" in a]
         self.assertEqual(len(freezes), 1)
         extracts = [a for a in self.commands if "extract" in a]
-        self.assertEqual(len(extracts), 9)
+        self.assertEqual(len(extracts), 10)
         self.assertLess(
             self.commands.index(freezes[0]), self.commands.index(extracts[0])
         )
@@ -150,7 +150,7 @@ class MakeDatasetTest(unittest.TestCase):
         self.assertTrue(all("--pipeline-run-id" in a for a in extracts))
         self.assertFalse(any("--full-snapshot" in a for a in extracts))
         loads = [a for a in self.commands if "olist_platform.warehouse.cli" in a]
-        self.assertEqual(len(loads), 7)
+        self.assertEqual(len(loads), 8)
         self.assertFalse(any("fk_fixture" in a for a in loads))
         dependent = [
             a
@@ -192,16 +192,18 @@ class MakeDatasetTest(unittest.TestCase):
         ):
             self.invoke()
         extracts = [a for a in self.commands if "extract" in a]
-        self.assertEqual(len(extracts), 9)
+        self.assertEqual(len(extracts), 10)
         self.assertTrue(
             all(a[a.index("--pipeline-mode") + 1] == "backfill" for a in extracts)
         )
         resolvers = [a for a in self.commands if "resolve" in a]
-        self.assertEqual(len(resolvers), 3)
+        self.assertEqual(len(resolvers), 4)
         for args in resolvers:
             self.assertEqual(
                 args[args.index("--origin-run-id") + 1],
-                args[args.index("--run-id") + 1],
+                "fk_fixture"
+                if "order_reviews" in args
+                else args[args.index("--run-id") + 1],
             )
 
     def test_incremental_missing_java_fails_without_airflow_context(self):
@@ -426,6 +428,7 @@ class MakeDatasetTest(unittest.TestCase):
                 "orders",
                 "order_items",
                 "order_payments",
+                "order_reviews",
             ],
         )
         self.assertEqual(
@@ -463,6 +466,7 @@ class MakeDatasetTest(unittest.TestCase):
                 "orders",
                 "order_items",
                 "order_payments",
+                "order_reviews",
             ],
         )
         for args in loads:
@@ -470,16 +474,17 @@ class MakeDatasetTest(unittest.TestCase):
             self.assertEqual(
                 args[args.index("--silver-prefix") + 1], f"silver/{table}/run_id=test"
             )
-        self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 28)
+        self.assertEqual(len(list(Path("build/reports/dataset").glob("*.json"))), 33)
         retries = [
             args for args in self.commands if "olist_platform.deferred.cli" in args
         ]
-        self.assertEqual(len(retries), 6)
+        self.assertEqual(len(retries), 8)
         resolutions = [args for args in retries if "resolve" in args]
         self.assertEqual(
             [args[args.index("--parent-snapshot") + 1] for args in resolutions],
             [
                 "silver/customers/run_id=test",
+                "silver/orders/run_id=test",
                 "silver/orders/run_id=test",
                 "silver/orders/run_id=test",
             ],
@@ -511,13 +516,13 @@ class MakeDatasetTest(unittest.TestCase):
                     configured or "--driver-memory 2g pyspark-shell",
                 )
 
-    def test_absent_java_skips_silver_but_extracts_all_seven_tables(self):
+    def test_absent_java_skips_silver_but_extracts_all_eight_tables(self):
         with (
             patch("scripts.make_dataset.run", side_effect=self.command),
             patch("scripts.make_dataset.shutil.which", return_value=None),
         ):
             output = self.invoke()
-        self.assertEqual(len([args for args in self.commands if "extract" in args]), 7)
+        self.assertEqual(len([args for args in self.commands if "extract" in args]), 8)
         self.assertFalse(any("process" in args for args in self.commands))
         self.assertFalse(
             any("olist_platform.warehouse.cli" in args for args in self.commands)

@@ -19,9 +19,11 @@ INCREMENTAL = "incremental_core_v1"
 BACKFILL = "backfill_core_v1"
 TABLES = ("customers", "orders", "order_items", "order_payments")
 DIMENSIONS = ("products", "sellers", "geolocation")
-PARENTS = TABLES[:2] + DIMENSIONS
-ANALYTICS_SOURCES = TABLES + DIMENSIONS
-DBT_SOURCES = ANALYTICS_SOURCES
+FULL_SNAPSHOTS = DIMENSIONS + ("order_reviews",)
+DEPENDENTS = TABLES[1:] + ("order_reviews",)
+PARENTS = TABLES[:2] + FULL_SNAPSHOTS
+ANALYTICS_SOURCES = TABLES + FULL_SNAPSHOTS
+DBT_SOURCES = TABLES + DIMENSIONS
 BASE_TASKS = (
     tuple(
         f"{t}.{stage}"
@@ -29,7 +31,7 @@ BASE_TASKS = (
         for stage in ("bronze.extract", "silver.process", "warehouse.load")
     )
     + tuple(
-        f"{t}.deferred.{stage}" for t in TABLES[1:] for stage in ("register", "resolve")
+        f"{t}.deferred.{stage}" for t in DEPENDENTS for stage in ("register", "resolve")
     )
     + ("dbt.build",)
 )
@@ -38,7 +40,7 @@ TASKS = (
     + ("source.freeze",)
     + tuple(
         f"{table}.{stage}"
-        for table in DIMENSIONS
+        for table in FULL_SNAPSHOTS
         for stage in ("bronze.extract", "silver.process", "warehouse.load")
     )
 )
@@ -50,7 +52,7 @@ INCREMENTAL_TASKS = (
         for table in PARENTS
         for stage in ("bronze.extract", "silver.process")
     )
-    + tuple(f"{table}.warehouse.load" for table in DIMENSIONS)
+    + tuple(f"{table}.warehouse.load" for table in FULL_SNAPSHOTS)
 )
 
 
@@ -357,7 +359,7 @@ def evidence(connection, store, contract: dict, run_id: str) -> dict:
     for table in ANALYTICS_SOURCES:
         item = (
             parents[table]
-            if incremental and table in DIMENSIONS
+            if incremental and table in FULL_SNAPSHOTS
             else stream(table, run_id, "INCREMENTAL" if incremental else "FULL")
         )
         silver, sh = item["silver"], item["silver_sha256"]
@@ -402,7 +404,7 @@ def evidence(connection, store, contract: dict, run_id: str) -> dict:
     }
     for item in result.values():
         item["parents"] = pins
-    for table in TABLES[1:]:
+    for table in DEPENDENTS:
         parent = "customers" if table == "orders" else "orders"
         dependency = "customer_snapshot" if table == "orders" else "order_snapshot"
         pin = {
@@ -433,7 +435,11 @@ def evidence(connection, store, contract: dict, run_id: str) -> dict:
             != pin["manifest_sha256"]
         ):
             raise BronzeError("Missing or mismatched deferred receipts")
-        if backfill and resolution["request"].get("origin_run_id") != run_id:
+        if (
+            backfill
+            and resolution["request"].get("origin_run_id")
+            != result[table]["silver"]["run_id"]
+        ):
             raise BronzeError(
                 "Backfill resolution must be restricted to its own queue rows"
             )
@@ -527,6 +533,8 @@ def reconcile(item: dict) -> dict:
         "postgresql.geolocation",
     ):
         counts["dimension_snapshot_rows"] = counts["source_rows_extracted"]
+    if bronze.get("source") == "postgresql.order_reviews":
+        counts["review_snapshot_rows"] = counts["source_rows_extracted"]
     for name in (
         "load_candidate_rows",
         "warehouse_inserted_rows",

@@ -197,7 +197,7 @@ class IncrementalPipelineTest(CorePipelineCase):
                 )
 
             def injected(*args, **kwargs):
-                if args[4] == "geolocation" and args[1] == parent_run_id("atomic"):
+                if args[4] == "order_reviews" and args[1] == parent_run_id("atomic"):
                     raise RuntimeError("failed last stream")
                 return prepare(*args, **kwargs)
 
@@ -215,12 +215,12 @@ class IncrementalPipelineTest(CorePipelineCase):
                 self.psql("SELECT COUNT(*) FROM audit.bronze_customers_runs"), "2"
             )
 
-    def test_full_freeze_rolls_back_seven_streams_and_reuses_dimension_bytes(self):
+    def test_full_freeze_rolls_back_eight_streams_and_reuses_dimension_bytes(self):
         with self.environment(mode="full"), self.connection() as c:
             begin(c, "full_freeze", configuration(REPOSITORY_ROOT, self.contract))
 
             def injected(*args, **kwargs):
-                if args[4] == "geolocation":
+                if args[4] == "order_reviews":
                     raise RuntimeError("last full stream")
                 return prepare(*args, **kwargs)
 
@@ -237,10 +237,10 @@ class IncrementalPipelineTest(CorePipelineCase):
                 )
             self.frozen(c, "full_freeze", 1)
             self.psql(
-                "DELETE FROM olist.products; DELETE FROM olist.sellers; DELETE FROM olist.geolocation;"
+                "DELETE FROM olist.products; DELETE FROM olist.sellers; DELETE FROM olist.geolocation; DELETE FROM olist.order_reviews;"
             )
             freeze(c, self.store, self.contract, "full_freeze", 1, self.endpoint)
-            for table in ("products", "sellers", "geolocation"):
+            for table in ("products", "sellers", "geolocation", "order_reviews"):
                 bronze = ingest_source(
                     c,
                     self.store,
@@ -251,7 +251,9 @@ class IncrementalPipelineTest(CorePipelineCase):
                     pipeline_run_id="full_freeze",
                     pipeline_mode="full",
                 )["manifest"]
-                self.assertEqual(bronze["row_count"], 1)
+                self.assertEqual(
+                    bronze["row_count"], 3 if table == "order_reviews" else 1
+                )
                 self.assertEqual(bronze["snapshot_kind"], "FULL")
                 self.assertEqual(bronze["source_bootstrap_rows"], 0)
 

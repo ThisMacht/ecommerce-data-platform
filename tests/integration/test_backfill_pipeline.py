@@ -19,7 +19,7 @@ from olist_platform.bronze.extraction import KEYS
 from olist_platform.bronze.storage import BronzeError, encode, sha256
 from olist_platform.deferred.lifecycle import register_rows
 from olist_platform.pipeline.cli import configuration, finish
-from olist_platform.pipeline.control import backfill_window, begin
+from olist_platform.pipeline.control import backfill_window, begin, parent_run_id
 from olist_platform.warehouse.loading import merge_rows
 from tests.warehouse_fixture import valid_row
 
@@ -30,11 +30,13 @@ class BackfillPipelineTest(CorePipelineCase):
             "SELECT * FROM audit.pipeline_control WHERE pipeline_name!='backfill_core_v1' ORDER BY pipeline_name,source_table"
         ).fetchall()
 
-    def sentinel(self, c):
-        row = valid_row("orders", "unrelated", 999)
+    def sentinel(self, c, table="orders"):
+        row = valid_row(table, "unrelated", 999)
         row.update(
             _run_id="unrelated_batch",
-            deferred_rule_ids=["missing_customer"],
+            deferred_rule_ids=[
+                "missing_customer" if table == "orders" else "missing_order"
+            ],
             _raw_payload='{"independent":"sentinel"}',
         )
         row = {
@@ -43,7 +45,7 @@ class BackfillPipelineTest(CorePipelineCase):
         register_rows(
             c,
             self.contract,
-            table="orders",
+            table=table,
             run_id="unrelated_registration",
             rows=[row],
             expected_count=1,
@@ -168,6 +170,7 @@ class BackfillPipelineTest(CorePipelineCase):
                 "SELECT * FROM audit.pipeline_control ORDER BY pipeline_name,source_table"
             ).fetchall()
             self.sentinel(c)
+            self.sentinel(c, "order_reviews")
             sentinel = self.queue(c)
             self.frozen(c, "empty", 1)
             published = self.process(c, "empty", 1, mode="backfill")
@@ -175,11 +178,14 @@ class BackfillPipelineTest(CorePipelineCase):
                 all(
                     b["row_count"] == 0 and b["run_upper_cursor"] is None
                     for t, (b, _) in published.items()
-                    if t not in ("products", "sellers", "geolocation")
+                    if t not in ("products", "sellers", "geolocation", "order_reviews")
                 )
             )
-            for dimension in ("products", "sellers", "geolocation"):
-                self.assertEqual(published[dimension][0]["row_count"], 1)
+            for dimension in ("products", "sellers", "geolocation", "order_reviews"):
+                self.assertEqual(
+                    published[dimension][0]["row_count"],
+                    3 if dimension == "order_reviews" else 1,
+                )
                 self.assertEqual(published[dimension][0]["snapshot_kind"], "FULL")
             result = finish(
                 c,
@@ -232,12 +238,17 @@ class BackfillPipelineTest(CorePipelineCase):
             )
             scheduled = self.controls(c)
             self.sentinel(c)
+            self.sentinel(c, "order_reviews")
             sentinel = self.queue(c)
             self.psql(
                 (
                     REPOSITORY_ROOT / "tests/fixtures/bronze/backfill_updates.sql"
                 ).read_text()
             )
+            self.psql("""INSERT INTO olist.order_reviews
+                (review_id,order_id,review_score,review_creation_date,review_answer_timestamp,
+                 source_updated_at,source_operation,source_batch_id)
+                VALUES ('new_orphan','missing',5,'2020-01-01','2020-01-02','2019-01-01','INSERT','review_fixture');""")
             with patch.dict(
                 os.environ,
                 {
@@ -296,8 +307,10 @@ class BackfillPipelineTest(CorePipelineCase):
                 self.assertEqual(published["customers"][0]["row_count"], 2)
                 self.assertEqual(published["orders"][0]["row_count"], 3)
                 for table, (bronze, _) in published.items():
-                    if table in ("products", "sellers", "geolocation"):
-                        self.assertEqual(bronze["row_count"], 1)
+                    if table in ("products", "sellers", "geolocation", "order_reviews"):
+                        self.assertEqual(
+                            bronze["row_count"], 4 if table == "order_reviews" else 1
+                        )
                         self.assertEqual(bronze["snapshot_kind"], "FULL")
                         continue
                     self.assertTrue(
@@ -370,7 +383,10 @@ class BackfillPipelineTest(CorePipelineCase):
                         x["deferred_retry_input_rows"]
                         for x in result["datasets"].values()
                     ),
-                    3,
+                    4,
+                )
+                self.assertEqual(
+                    result["datasets"]["order_reviews"]["deferred_retry_input_rows"], 1
                 )
                 self.assertEqual(self.controls(c), scheduled)
                 self.assertEqual(self.queue(c), sentinel)
@@ -382,6 +398,8 @@ class BackfillPipelineTest(CorePipelineCase):
                 )
                 self.assertEqual(begin(c, "repair", request)["status"], "NOOP")
             pending_repair = self.queue(c, "repair")
+            pending_reviews = self.queue(c, parent_run_id("repair"))
+            self.assertEqual(len(pending_reviews), 1)
             with patch.dict(
                 os.environ,
                 {
@@ -407,6 +425,7 @@ class BackfillPipelineTest(CorePipelineCase):
             self.assertEqual(self.controls(c), scheduled)
             self.assertEqual(self.queue(c), sentinel)
             self.assertEqual(self.queue(c, "repair"), pending_repair)
+            self.assertEqual(self.queue(c, parent_run_id("repair")), pending_reviews)
             self.assertEqual(
                 c.execute(
                     "SELECT MAX(cursor_version) FROM audit.pipeline_control WHERE pipeline_name='backfill_core_v1'"

@@ -9,10 +9,10 @@ one-based của immutable snapshot, không phải ZIP hoặc global address ID.
 Không đổi thứ tự/re-index CSV rồi coi đó là updates của cùng source snapshot.
 
 Geolocation chạy standalone hoặc full snapshot trong core full/incremental/backfill.
-Migration `019` bổ sung owned full/parent streams. Full runner freeze bảy streams,
-29 tasks; bounded modes freeze bốn deltas cùng năm full dimension/FK snapshots,
-33 tasks. Final gate bắt buộc bảy dataset load receipts từ cùng source snapshot,
-pin manifest hashes, exact counters và khóa cả bảy staging tables qua fresh dbt/CAS.
+Migration `019` bổ sung owned full/parent streams. Sau integration reviews (`021`), full runner freeze tám streams,
+34 tasks; bounded modes freeze bốn deltas cùng sáu full inputs,
+38 tasks. Final gate bắt buộc tám dataset load receipts từ cùng source snapshot,
+pin manifest hashes, exact counters và khóa cả tám staging tables qua fresh dbt/CAS.
 Chỉ bốn core tables có completion cursors; geolocation dùng dimension_snapshot_rows.
 Airflow wrappers dùng cùng runner và giữ original DAG/run identity khi retry.
 

@@ -74,8 +74,6 @@ def configuration(
 ) -> dict:
     if table not in KEYS:
         raise BronzeError("Unsupported extraction table")
-    if table == "order_reviews" and pipeline_run_id is not None:
-        raise BronzeError("Reviews support standalone full snapshots only")
     if contract["contract_version"] != "1.0.0":
         raise BronzeError("Unsupported source contract version")
     if type(page_size) is not int or not 1 <= page_size <= 10000:
@@ -124,12 +122,19 @@ def configuration(
                 pipeline_parent
                 and (
                     table
-                    not in ("customers", "orders", "products", "sellers", "geolocation")
+                    not in (
+                        "customers",
+                        "orders",
+                        "products",
+                        "sellers",
+                        "geolocation",
+                        "order_reviews",
+                    )
                     or pipeline_mode == "full"
                 )
             )
             or (
-                table in ("products", "sellers", "geolocation")
+                table in ("products", "sellers", "geolocation", "order_reviews")
                 and not pipeline_parent
                 and pipeline_mode != "full"
             )

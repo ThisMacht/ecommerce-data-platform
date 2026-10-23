@@ -21,8 +21,8 @@ trong incremental mode. Dùng Java 17. Có thể gọi trực tiếp
 
 ## Frozen source snapshot
 
-Sau audit begin, `source.freeze` chốt **chín** streams trong cùng PostgreSQL
-`REPEATABLE READ` transaction: bốn deltas và full customers/orders/products/sellers/geolocation để kiểm tra FK và cập nhật dimensions.
+Sau audit begin, `source.freeze` chốt **mười** streams trong cùng PostgreSQL
+`REPEATABLE READ` transaction: bốn deltas và full customers/orders/products/sellers/geolocation/order_reviews để kiểm tra FK, cập nhật dimensions và reviews.
 Mỗi stream dùng schema validation và durable pages của Bronze hiện có; transaction
 commit tất cả manifests/pages hoặc rollback tất cả. Không giữ source snapshot mở
 trong lúc upload/Spark/dbt. Manifest lưu `source_snapshot` để gate đối chiếu.
@@ -52,7 +52,7 @@ trước sau failure và được giữ monotonic riêng bằng `delivery_waterm
 
 ## Full FK dependencies
 
-Năm full streams có run ID `fk_` + SHA-256 của pipeline ID, delivery controls riêng
+Sáu full streams có run ID `fk_` + SHA-256 của pipeline ID, delivery controls riêng
 và `snapshot_kind=FULL`. Orders parent Silver pin full customer parent. Orders
 delta pin full customer parent; items/payments deltas pin full orders parent;
 items v2 còn pin full products/sellers; deferred resolution pin cùng đủ ba parents. Không dùng delta làm parent key set.
@@ -63,10 +63,13 @@ Silver tiếp tục `customers-silver-v1`; customer delta dùng
 Các delta Silver khác giữ processor version hiện có và khai báo INCREMENTAL.
 Full parent scans vẫn tốn I/O/CPU; pipeline không tuyên bố đã loại bỏ full scans.
 
+Reviews là full child snapshot, pin full orders trong cùng freeze; load/registration/
+resolution dùng owner pipeline ID. Không coi reviews là dimension hoặc delta.
+
 ## Accounting and completion
 
-Mỗi attempt có **33 tasks**: 19 core tasks, source freeze, 10 parent publication tasks và 3 dimension load tasks.
-Final gate kiểm tra chín committed Bronze/Silver stream receipts và bảy dataset load receipts, cùng source snapshot,
+Mỗi attempt có **38 tasks**: 21 core/deferred/dbt tasks, source freeze, 12 full-stream publication tasks và 4 full snapshot load tasks.
+Final gate kiểm tra mười committed Bronze/Silver stream receipts và tám dataset load receipts, cùng source snapshot,
 pipeline baseline/version, exact bounds và dependency hashes. Warehouse/deferred
 receipts, staging locks, fresh dbt build và four-table CAS giữ nguyên như contract 11.
 Failure không promote cursor; staging của các stages đã commit vẫn replay an toàn.
@@ -84,7 +87,9 @@ After-cursor có thể là UPDATE, không được gọi là số business inser
 rows được đọc lại không cộng vào source growth. `full_parent_source_rows` ghi đúng
 hai auxiliary scans, tại customers/orders; không cộng vào delta processing inputs.
 Products/sellers/geolocation ghi `dimension_snapshot_rows` riêng, không cộng vào growth hay lặp lại trong `full_parent_source_rows`. Routing/load equations của contract 11 áp dụng riêng từng dataset; core deltas cộng retry occurrences.
-Health JSON/HTML hiển thị các counters này; old full runs có field chưa có sẽ hiện
+Reviews ghi `review_snapshot_rows` riêng và có deferred retry counts, không có
+bootstrap/after-cursor/lookback hoặc completion cursor. Gate khóa tám staging
+tables, còn dbt source set vẫn là bảy nguồn đã model. Health JSON/HTML hiển thị các counters này; old full runs có field chưa có sẽ hiện
 Unavailable. Queue metrics vẫn đọc backlog chung của các modes.
 
 ## Airflow and recovery

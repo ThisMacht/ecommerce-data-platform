@@ -646,7 +646,8 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 - [x] Sellers standalone full Bronze/Silver → version-aware staging → `dim_seller` Type 1; location warnings and replay/reconciliation checks. See `docs/data_contracts/16_seller_snapshots.md`.
 - [x] Standalone full geolocation Bronze/Silver/staging with technical row IDs, exact coordinates and retry/version gates.
 - [x] Standalone full reviews Bronze/Silver/staging at (review_id, order_id), pinned full orders and atomic deferred retries; see `docs/data_contracts/19_review_snapshots.md`.
-- [ ] Integrate reviews into audited core scheduling and add review analytics with explicit multi-review grain.
+- [x] Integrate full-only reviews into audited core scheduling, pinned full orders/deferred receipts and health; eight dataset audits, four completion cursors.
+- [ ] Add review analytics with explicit multi-review grain.
 - [x] Integrate full-only geolocation into full/incremental/backfill freeze/receipts and nullable customer/seller location keys; seven dataset audits, four completion cursors.
 - [x] `int_geolocation_by_zip`: exact numeric coordinate medians and deterministic joint city/state mode.
 - [ ] Hoàn thiện dimensions với surrogate keys, unique business keys và explicit unknown-member policy.

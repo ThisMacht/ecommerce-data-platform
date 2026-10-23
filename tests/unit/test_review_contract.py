@@ -20,7 +20,7 @@ class ReviewContractTest(unittest.TestCase):
             ).read_text()
         )
 
-    def test_composite_string_keys_and_standalone_scope(self):
+    def test_composite_string_keys_and_full_only_core_scope(self):
         self.assertEqual(KEYS["order_reviews"], ("review_id", "order_id"))
         config = configuration(
             self.contract,
@@ -37,11 +37,8 @@ class ReviewContractTest(unittest.TestCase):
         }
         self.assertEqual(cursor_tuple(cursor, "order_reviews")[2:], ("r", "order"))
         for mode in ("full", "incremental", "backfill"):
-            with (
-                self.subTest(mode=mode),
-                self.assertRaisesRegex(BronzeError, "standalone"),
-            ):
-                configuration(
+            with self.subTest(mode=mode):
+                config = configuration(
                     self.contract,
                     ObjectStore(None, "bucket"),
                     "http://localhost:9000",
@@ -49,7 +46,22 @@ class ReviewContractTest(unittest.TestCase):
                     "order_reviews",
                     pipeline_run_id="owner",
                     pipeline_mode=mode,
+                    pipeline_parent=mode != "full",
                 )
+                self.assertEqual(config["snapshot_kind"], "FULL")
+                role = "snapshot" if mode == "full" else "parent"
+                self.assertEqual(config["pipeline"], f"{mode}_order_reviews_{role}_v1")
+                with self.assertRaises(BronzeError):
+                    configuration(
+                        self.contract,
+                        ObjectStore(None, "bucket"),
+                        "http://localhost:9000",
+                        2,
+                        "order_reviews",
+                        pipeline_run_id="owner",
+                        pipeline_mode=mode,
+                        pipeline_parent=mode == "full",
+                    )
 
     def test_review_manifest_requires_full_input_without_a_lower_bound(self):
         manifest = dict(

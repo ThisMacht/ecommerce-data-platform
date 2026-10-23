@@ -17,8 +17,10 @@ CURRENT_TASK = None
 
 CORE_TABLES = ("customers", "orders", "order_items", "order_payments")
 DIMENSIONS = ("products", "sellers", "geolocation")
-PARENT_TABLES = CORE_TABLES[:2] + DIMENSIONS
-DATASETS = CORE_TABLES + DIMENSIONS
+FULL_SNAPSHOTS = DIMENSIONS + ("order_reviews",)
+DEPENDENTS = CORE_TABLES[1:] + ("order_reviews",)
+PARENT_TABLES = CORE_TABLES[:2] + FULL_SNAPSHOTS
+DATASETS = CORE_TABLES + FULL_SNAPSHOTS
 
 
 def airflow_run_id() -> str | None:
@@ -291,7 +293,7 @@ def execute() -> None:
         ]
         if table == "orders":
             arguments.extend(["--customer-snapshot", snapshots["customers"]])
-        elif table in ("order_items", "order_payments"):
+        elif table in ("order_items", "order_payments", "order_reviews"):
             arguments.extend(["--order-snapshot", snapshots["orders"]])
             if table == "order_items":
                 arguments.extend(
@@ -312,15 +314,15 @@ def execute() -> None:
     CURRENT_TASK = "source.freeze"
     frozen = audit("freeze", "--attempt", str(RUN_CONTEXT["attempt"]))
     CURRENT_TASK = None
-    dimension_outputs = {}
+    snapshot_outputs = {}
     if incremental:
         for table in PARENT_TABLES:
             parent = publish(table, frozen["parent_run_id"], parent=True)
             snapshots[table] = parent["prefix"]
-            if table in DIMENSIONS:
-                dimension_outputs[table] = parent
+            if table in FULL_SNAPSHOTS:
+                snapshot_outputs[table] = parent
     order = (
-        (DIMENSIONS + CORE_TABLES)
+        (FULL_SNAPSHOTS + CORE_TABLES)
         if incremental
         else (
             "customers",
@@ -330,12 +332,13 @@ def execute() -> None:
             "orders",
             "order_items",
             "order_payments",
+            "order_reviews",
         )
     )
     for table in order:
         output = (
-            dimension_outputs[table]
-            if incremental and table in DIMENSIONS
+            snapshot_outputs[table]
+            if incremental and table in FULL_SNAPSHOTS
             else publish(table, run_id)
         )
         if not silver:
@@ -365,7 +368,7 @@ def execute() -> None:
             json.dumps(loaded, indent=2) + "\n"
         )
         print(f"[OK] {table} staging: {loaded['counts']}", flush=True)
-        if table in CORE_TABLES[1:]:
+        if table in DEPENDENTS:
             deferred_cli = [
                 "uv",
                 "run",
@@ -398,7 +401,16 @@ def execute() -> None:
                     parent,
                     "--run-id",
                     run_id,
-                    *(["--origin-run-id", run_id] if mode == "backfill" else []),
+                    *(
+                        [
+                            "--origin-run-id",
+                            frozen["parent_run_id"]
+                            if table in FULL_SNAPSHOTS
+                            else run_id,
+                        ]
+                        if mode == "backfill"
+                        else []
+                    ),
                     *(
                         [
                             "--product-snapshot",

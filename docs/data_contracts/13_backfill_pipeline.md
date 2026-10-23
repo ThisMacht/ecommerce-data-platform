@@ -21,7 +21,7 @@ Raw CSV/seed, Docker Compose và Java 17 là prerequisites như incremental runn
 ## Frozen inputs and dependencies
 
 Tái sử dụng transaction `source.freeze` của contract 12: bốn bounded deltas cùng
-năm full customers/orders/products/sellers/geolocation dimension/FK snapshots được chốt atomically, sau đó mới publish.
+sáu full customers/orders/products/sellers/geolocation/order_reviews inputs được chốt atomically, sau đó mới publish.
 Window và code/config nằm trong immutable pipeline request. Retry sau freeze giữ
 nguyên bytes, upper bounds và parent hashes dù live source đã thay đổi.
 
@@ -32,19 +32,24 @@ Customer delta không được dùng làm full parent. Customers/orders full par
 Products/sellers/geolocation luôn full refresh và load Type 1, kể cả window rỗng; đây là current
 dimension snapshots, không phải ảnh chụp lịch sử tại end bound.
 
+Reviews cũng full refresh ngoài window, pin current full orders trong cùng source
+transaction. `review_snapshot_rows` ghi riêng; không có review completion cursor,
+dbt model hoặc BI grant. Đây không phải review state lịch sử tại end bound.
+
 ## Reconciliation and completion
 
-33 audited tasks và fresh dbt/receipt gates như incremental. Bốn core deltas ghi
+38 audited tasks và fresh dbt/receipt gates như incremental. Bốn core deltas ghi
 `source_backfill_rows`; bootstrap/after-cursor/lookback bằng 0. Auxiliary parent
 scans được đếm riêng; retry input không phải source growth.
 
 ```text
 source_rows_extracted = source_backfill_rows
-# Four bounded core tables only; dimensions use dimension_snapshot_rows.
+# Four bounded core tables only; dimensions/reviews have separate snapshot counters.
 processing_input_rows = source_backfill_rows + deferred_retry_input_rows
 ```
 
-Resolver pin `origin_run_id` bằng pipeline ID: chỉ retry/expire pending records
+Resolver pin `origin_run_id` bằng original Silver ID (pipeline ID cho deltas,
+hashed parent ID cho reviews): chỉ retry/expire pending records
 có original Silver `_run_id` tương ứng. Queue của các run khác không bị consume
 hoặc tăng attempts. Giới hạn 1.000 pending rows/bảng/pass vẫn áp dụng; kiểm tra
 `remaining_pending_rows`. Scheduled/standalone resolver tiếp tục xử lý global queue.

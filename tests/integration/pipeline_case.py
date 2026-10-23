@@ -9,7 +9,8 @@ from postgres_case import REPOSITORY_ROOT
 from olist_platform.bronze.extraction import ingest_source
 from olist_platform.deferred.lifecycle import register_silver, resolve_snapshot
 from olist_platform.pipeline.control import (
-    DIMENSIONS,
+    DEPENDENTS,
+    FULL_SNAPSHOTS,
     PARENTS,
     TABLES,
     parent_run_id,
@@ -55,6 +56,13 @@ class CorePipelineCase(BronzeFixtureCase):
             VALUES ('seller','Sao Paulo','SP','00123','2019-01-01','INSERT','parent_fixture');
             INSERT INTO olist.geolocation (geolocation_row_id,geolocation_zip_code_prefix,geolocation_lat,geolocation_lng,geolocation_city,geolocation_state,source_updated_at,source_operation,source_batch_id)
             VALUES (1,'00123',-23.5,-46.5,'São Paulo','SP','2019-01-01','INSERT','parent_fixture');""")
+
+        self.psql("""INSERT INTO olist.order_reviews
+            (review_id,order_id,review_score,review_creation_date,review_answer_timestamp,
+             source_updated_at,source_operation,source_batch_id)
+            VALUES ('shared','order_a',5,'2020-01-01','2020-01-02','2019-01-01','INSERT','review_fixture'),
+                   ('shared','order_old',4,'2020-01-01','2020-01-02','2019-01-01','INSERT','review_fixture'),
+                   ('second','order_a',3,'2020-01-01','2020-01-02','2019-01-01','INSERT','review_fixture');""")
 
     def environment(self, mode="incremental"):
         return patch.dict(
@@ -104,6 +112,7 @@ class CorePipelineCase(BronzeFixtureCase):
                         "orders",
                         "order_items",
                         "order_payments",
+                        "order_reviews",
                     )
                     if mode == "full"
                     else TABLES
@@ -133,7 +142,7 @@ class CorePipelineCase(BronzeFixtureCase):
                     {"customer_snapshot": parents["customers"]}
                     if table == "orders"
                     else {"order_snapshot": parents["orders"]}
-                    if table in TABLES[2:]
+                    if table in ("order_items", "order_payments", "order_reviews")
                     else {}
                 )
                 if table == "order_items":
@@ -155,7 +164,7 @@ class CorePipelineCase(BronzeFixtureCase):
                 )["manifest"]
                 if parent:
                     parents[table] = silver["prefix"]
-                    if table not in DIMENSIONS:
+                    if table not in FULL_SNAPSHOTS:
                         continue
                 if mode == "full":
                     parents[table] = silver["prefix"]
@@ -172,9 +181,9 @@ class CorePipelineCase(BronzeFixtureCase):
                         silver_prefix=silver["prefix"],
                     ),
                 )
-                if table in TABLES[1:]:
+                if table in DEPENDENTS:
                     event(
-                        prefix + "deferred.register",
+                        f"{table}.deferred.register",
                         lambda: register_silver(
                             self.spark,
                             c,
@@ -186,7 +195,7 @@ class CorePipelineCase(BronzeFixtureCase):
                         ),
                     )
                     event(
-                        prefix + "deferred.resolve",
+                        f"{table}.deferred.resolve",
                         lambda: resolve_snapshot(
                             self.spark,
                             c,
@@ -194,7 +203,7 @@ class CorePipelineCase(BronzeFixtureCase):
                             self.contract,
                             table=table,
                             run_id=identity,
-                            origin_run_id=identity if mode == "backfill" else None,
+                            origin_run_id=run_id if mode == "backfill" else None,
                             parent_snapshot=parents[
                                 "customers" if table == "orders" else "orders"
                             ],

@@ -67,6 +67,7 @@ def render(result: dict) -> str:
             "Dataset",
             "Source input",
             "Dimension snapshot",
+            "Review snapshot",
             "Bootstrap",
             "Backfill",
             "After cursor",
@@ -81,6 +82,7 @@ def render(result: dict) -> str:
                 for key in (
                     "source_rows_extracted",
                     "dimension_snapshot_rows",
+                    "review_snapshot_rows",
                     "source_bootstrap_rows",
                     "source_backfill_rows",
                     "source_after_cursor_rows",

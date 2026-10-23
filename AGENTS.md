@@ -44,7 +44,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make infrastructure-down`: stop services; retain volumes.
 - `make bronze-up` / `make init-bronze`: start MinIO or initialize its bucket.
 - `make ingest-orders BRONZE_RUN_ID=<id>`: extract/resume orders.
-- `make ingest-order-reviews` / `make process-order-reviews`: standalone full reviews; require `ORDER_SNAPSHOT=<full orders Silver prefix>`, then staging/deferred with `SOURCE_TABLE=order_reviews`; `make test-review-integration`.
+- `make ingest-order-reviews` / `make process-order-reviews`: full reviews standalone or frozen in every core mode; require `ORDER_SNAPSHOT=<full orders Silver prefix>`, then staging/deferred with `SOURCE_TABLE=order_reviews`; `make test-review-integration`.
 - `make ingest-geolocation` / `make process-geolocation`: full observations standalone or frozen in every core mode; load with `SOURCE_TABLE=geolocation`, then dbt; use `make test-geolocation-integration`.
 - `make ingest-sellers` / `make process-sellers`: standalone full seller snapshots, then staging/dbt; location warnings preserve NULLs and ZIP leading zeros.
 - `make test-seller-integration`: frozen retries, dirty location/ID rules, version-aware merges, corruption, empty snapshots and cursor isolation.
@@ -104,7 +104,7 @@ Aggregate items/payments separately before joining orders. Customer dimension us
 
 Count retry inputs separately from source growth. Resolution must commit queue/attempts/staging/audit atomically; expired rows never load. Duplicate pending occurrences must dedupe by full business key/version before merge.
 
-Full runner freezes seven full streams and audits 29 tasks; incremental runner audits 33 with separate `incremental_core_v1` controls. Freeze four deltas plus five full dimension/FK snapshots atomically before publication; bounds use pipeline cursors, never Bronze delivery cursors. Customer delta Silver v2 is not an FK parent. Source bootstrap/after-cursor/lookback, auxiliary FK scans and deferred retry counts are separate; after-cursor rows are not business growth. Final gate holds staging SHARE locks through fresh dbt and atomic CAS. Resume with unchanged code/config/mode; never bypass receipts. Backfill uses `backfill_core_v1`, the same 33-task freeze/gates, explicit UTC [start,end) bounds and origin-scoped deferred retries. Never promote any pipeline cursors on backfill. Staging/marts remain shared; mutable source cannot restore overwritten historical versions.
+Full runner freezes eight full streams and audits 34 tasks; incremental runner audits 38 with separate `incremental_core_v1` controls. Freeze four deltas plus six full inputs (customer/order parents, three dimensions and reviews) atomically before publication; bounds use pipeline cursors, never Bronze delivery cursors. Customer delta Silver v2 is not an FK parent. Source bootstrap/after-cursor/lookback, auxiliary FK scans and deferred retry counts are separate; after-cursor rows are not business growth. Final gate holds staging SHARE locks through fresh dbt and atomic CAS. Resume with unchanged code/config/mode; never bypass receipts. Backfill uses `backfill_core_v1`, the same 38-task freeze/gates, explicit UTC [start,end) bounds and origin-scoped deferred retries. Never promote any pipeline cursors on backfill. Staging/marts remain shared; mutable source cannot restore overwritten historical versions.
 
 Airflow retries must retain original DAG/run context; clear the same task instance, never replace an unfinished run. Missing CSV/Java fails orchestration. Standalone SQLite metadata is local-only; don't install Airflow into the root environment.
 
@@ -115,11 +115,11 @@ credentials/metadata, expose admin/source credentials as datasource, average dai
 AOV, or treat live views as atomic snapshots. H2 metadata is local-only. A latest
 non-successful run or newer audited load hides metrics; untracked writers are not detected.
 
-Products: standalone full snapshots, nullable attributes warn, negative/overflow measurements reject. Preserve source `lenght` spelling until dbt aliases. Type 1 by `product_id`; full/empty snapshots never imply deletes. Core dbt gate locks/audits seven datasets; only the four delta tables have completion cursors. Products/sellers use dimension_snapshot_rows, never source growth. A standalone products load hides BI metrics until a new successful core gate.
+Products: standalone full snapshots, nullable attributes warn, negative/overflow measurements reject. Preserve source `lenght` spelling until dbt aliases. Type 1 by `product_id`; full/empty snapshots never imply deletes. Core gate locks/audits eight datasets; dbt still declares seven sources; only the four delta tables have completion cursors. Products/sellers use dimension_snapshot_rows, never source growth. A standalone products load hides BI metrics until a new successful core gate.
 
 Sellers use Type 1 by `seller_id`; location rules match customers. Blank locations become NULL with warnings; preserve invalid ZIP/state values with flags. Sellers/products stay full-only in every core mode; no deletes or new delta cursors; item v2 checks membership. New standalone loads require a fresh successful core gate to restore BI publication.
 
-Item v2 requires full order/product/seller snapshots from the same contract; pin all manifest hashes. Missing FKs are evaluated together; rejects/duplicates never defer. Register one `missing_item_dependencies` queue row per physical item, keep all missing rule IDs in immutable payload. Retry all three memberships atomically; v1/v2 resolvers must select their own rule scopes, including backlog counts. Never use missing product/seller flags to downgrade a v2 retry. Run `make test-item-dependencies-integration` after changes. All core modes require seven dataset receipts and item v2 scope/pins. Legacy missing_order item queue entries are not auto-migrated or consumed by v2 retries; inspect backlog separately.
+Item v2 requires full order/product/seller snapshots from the same contract; pin all manifest hashes. Missing FKs are evaluated together; rejects/duplicates never defer. Register one `missing_item_dependencies` queue row per physical item, keep all missing rule IDs in immutable payload. Retry all three memberships atomically; v1/v2 resolvers must select their own rule scopes, including backlog counts. Never use missing product/seller flags to downgrade a v2 retry. Run `make test-item-dependencies-integration` after changes. All core modes require eight dataset receipts and item v2 scope/pins. Legacy missing_order item queue entries are not auto-migrated or consumed by v2 retries; inspect backlog separately.
 
 Item analytics: `fct_order_items` grain is `(order_id, order_item_id)`; LEFT JOIN
 order context and current Type 1 product/seller keys, fail missing parents via dbt.
@@ -169,12 +169,17 @@ three-parent scope and existing BI grants. Full/empty snapshots imply no deletes
 current staging may include prior observations and newer versions. Backfill
 refreshes current geography, not geography as of its historical end bound.
 
-Reviews are standalone full-only, keyed by (review_id, order_id), never review_id
+Reviews are full-only standalone and in all core modes, keyed by (review_id, order_id), never review_id
 or order_id alone. Preserve nonblank comment text/case/newlines; empty/all-space
 comments become NULL without warning. Score integer 1–5; local business times use
 Sao Paulo → UTC and reject DST gaps/folds; answer-before-creation warns. Require
 pinned full orders from the same contract; missing order defers only locally valid
 selected rows. Generic retry must preserve both string keys, frozen payload,
-limits and atomic queue/attempt/staging/audit behavior. No new core streams,
-completion cursors, analytics models or BI grants; core health does not include
-reviews backlog. Standalone review loads still hide BI until a fresh core gate.
+limits and atomic queue/attempt/staging/audit behavior. Core freezes reviews with the other inputs, pins same-run full orders and requires
+normal/deferred receipts through the eight-table lock/dbt/CAS gate. Bounded reviews
+use the hashed parent stream ID; backfill origin filtering must match that Silver
+ID, while load/registration/resolution receipts use the owner pipeline ID. Keep
+review_snapshot_rows separate from dimensions/delta growth; health includes reviews
+backlog. No new completion cursors, dbt models or BI grants. Standalone review loads
+still hide BI until a fresh core gate; backfill refreshes current reviews, not
+review state as of its historical end bound.

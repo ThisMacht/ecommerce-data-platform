@@ -47,6 +47,18 @@ def dataset_evidence(rows=2):
 
 
 class PipelineContractTest(unittest.TestCase):
+    def test_review_snapshot_is_separate_from_dimensions_and_delta_growth(self):
+        item = dataset_evidence(rows=3)
+        item["bronze"].update(source="postgresql.order_reviews", snapshot_kind="FULL")
+        counts = reconcile(item)
+        self.assertEqual(counts["review_snapshot_rows"], 3)
+        for key in (
+            "dimension_snapshot_rows",
+            "source_after_cursor_rows",
+            "source_backfill_rows",
+        ):
+            self.assertNotIn(key, counts)
+
     def test_incremental_accounting_separates_window_categories_and_parent_scan(self):
         item = dataset_evidence(rows=3)
         item["bronze"].update(

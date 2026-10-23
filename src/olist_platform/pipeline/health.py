@@ -93,6 +93,7 @@ def evaluate(now, latest, success, counters, queue, limits, pipeline=PIPELINE) -
         }
         for key in (
             "dimension_snapshot_rows",
+            "review_snapshot_rows",
             "source_rows_extracted",
             "source_bootstrap_rows",
             "source_backfill_rows",

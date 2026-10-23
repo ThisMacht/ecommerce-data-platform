@@ -125,7 +125,11 @@ class PipelineHealthTest(unittest.TestCase):
     def test_dashboard_escapes_audit_values_and_distinguishes_missing_from_zero(self):
         self.counts["customers"]["rejected_rows"] = 0
         self.counts["products"]["dimension_snapshot_rows"] = 321
+        self.counts["order_reviews"]["review_snapshot_rows"] = 456
         result = self.check()
+        self.assertEqual(
+            result["datasets"]["order_reviews"]["review_snapshot_rows"], 456
+        )
         self.assertEqual(result["datasets"]["products"]["dimension_snapshot_rows"], 321)
         result["latest_run"]["run_id"] = '<script>alert("audit")</script>'
         result["issues"] = ['<img src=x onerror="alert(1)">']
@@ -139,6 +143,8 @@ class PipelineHealthTest(unittest.TestCase):
         self.assertIn("5.000%", html)
         self.assertIn("100", html)
         self.assertIn("Static report", html)
+        self.assertIn("Review snapshot", html)
+        self.assertIn("456", html)
         self.assertIn("Dimension snapshot", html)
         self.assertIn("321", html)
         missing = evaluate(self.now, None, None, {}, {}, self.limits)
