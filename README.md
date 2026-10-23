@@ -1,5 +1,7 @@
 # Olist E-commerce Data Platform
 
+[![CI](https://github.com/ThisMacht/ecommerce-data-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/ThisMacht/ecommerce-data-platform/actions/workflows/ci.yml)
+
 Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source simulator, immutable Bronze/Silver layers, warehouse models và dashboards. Hiện đã có source validation, PostgreSQL source layer/simulator và tám core datasets ở Bronze/PySpark Silver trên MinIO; các phase sau được theo dõi trong [Pipeline Implementation Plan](ecommerce_data_warehouse_pipeline_plan_v4.md).
 
 ## Current status
@@ -23,7 +25,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Isolated backfill | Implemented — explicit UTC window, frozen retry, origin-scoped queue and unchanged scheduled cursors |
 | Operational health checks | Implemented — read-only audit JSON, configurable thresholds and CLI failure status |
 | Operational dashboard | Implemented — standalone HTML health snapshot; manual refresh |
-| GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
+| GitHub Actions CI | Configured — fast/wheel, Airflow, transactional integration, dbt/catalog and four Spark groups; hosted status via badge |
 | Full products/sellers Bronze/Silver, staging and Type 1 dimensions | Implemented — scheduled in all core modes, frozen full snapshots and item FK v2 |
 | dbt calendar/Type 1 dimensions, order/item/payment/delivery/review facts and daily marts | Implemented — GMV/AOV, product/seller/payment-type and delivery cohort metrics; exact reconciliation and relationship tests |
 | Airflow orchestration | Implemented — paused daily full/incremental and manual backfill DAGs, isolated runtime and stable retry identity |
@@ -100,14 +102,16 @@ Chạy Make và CLI từ repository root để dùng default paths. CLI resolve 
 [GitHub Actions CI](.github/workflows/ci.yml) chạy trên push, pull request và manual dispatch:
 
 - `Fast checks`: Python 3.10 và 3.12, cài dependencies từ `uv.lock`, chạy `make test`, build wheel/sdist và chạy lại unit tests với wheel đã cài.
-- `PostgreSQL and MinIO integration`: Python 3.12, chạy simulator tests và `make test-bronze-integration` với disposable services và small SQL fixtures.
-- `Orders Spark Silver`: Python 3.12/Java 17, cài locked processing extra, chạy `make test-processing`, `make test-silver-integration` và `make test-customer-integration`.
+- `Airflow DAG checks`: import/serialize DAG với runtime Airflow riêng, kiểm tra retry wiring.
+- `PostgreSQL and MinIO integration`: simulator, Bronze, warehouse merge, deferred lifecycle và pipeline control/CAS; disposable services với small fixtures.
+- `dbt models and catalog`: job riêng (35 phút), chạy toàn bộ `make test-dbt-integration`, gồm metric/grain/FK reconciliation, reader grants và catalog descriptions/output columns.
+- `Spark`: bốn runners độc lập (30 phút mỗi runner): normalization/orders; dimensions/staging/deferred; full/incremental/backfill gates; recovery. Mỗi runner chạy tuần tự các Make targets trong `matrix.targets`; lỗi một nhóm không hủy các nhóm khác.
 
-CI không cần `.env`, raw CSV hay repository secrets. Integration suites tự tạo credentials cho services tạm và cleanup container/volume khi kết thúc. Full snapshot suite (`make test-source-integration`) vẫn chạy local sau khi tải canonical CSV; Job orchestration import/serialize DAG bằng runtime Airflow thật, độc lập với fast checks.
+CI không cần `.env`, raw CSV hay repository secrets. Integration suites tự tạo credentials cho services tạm và cleanup container/volume khi kết thúc. Full snapshot suite (`make test-source-integration`) vẫn chạy local sau khi tải canonical CSV. Spark dùng Java 17, heap 2 GiB và hai CPU JVM mỗi runner.
 
-Tái hiện CI từ checkout sạch: `make sync`, `make test`, `make build`, `make test-source-simulator-integration` và `make test-bronze-integration`. Workflow pin action commit SHAs và uv version; cập nhật các pins cùng validation khi nâng tools.
+Tái hiện fast checks: `make sync`, `make test`, `make build`. Với integration, cài locked extras tương ứng (`make sync-analytics` hoặc `uv sync --locked --extra processing --extra analytics`), rồi chạy các Make targets của job trong workflow. Khi chạy một máy local, giữ các nhóm Spark tuần tự và export `PYSPARK_PYTHON="$PWD/.venv/bin/python"` để worker dùng đúng Python environment.
 
-Spark job dùng Java 17: `make sync-processing`, `make test-processing`, `make test-silver-integration`.
+Workflow pin action commit SHAs và uv version; cập nhật các pins cùng validation khi nâng tools. Thời gian giới hạn là budget CI, không phải kết quả benchmark; chỉ xác nhận GitHub CI PASS từ workflow run thực tế.
 
 ## Documentation
 

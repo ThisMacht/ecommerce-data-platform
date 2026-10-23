@@ -21,7 +21,7 @@ Implemented: core layers, dbt, deferred retries, full/incremental audit, isolate
 - `infrastructure/`: Compose, PostgreSQL migrations, seeds, checks, and runners.
 - `data/raw/`: immutable CSVs; ignored `data/generated/` holds batches.
 - `docs/`: contracts, profiles, runbooks; reports: `build/reports/`.
-- `.github/workflows/ci.yml`: fast checks, source/Bronze and Spark/Silver integration.
+- `.github/workflows/ci.yml`: fast/Airflow checks, transactional integration, independent dbt/catalog job and four Spark fixture groups. Keep every existing suite when regrouping jobs; run Spark targets sequentially within each runner.
 
 ## Build, Test, and Development Commands
 

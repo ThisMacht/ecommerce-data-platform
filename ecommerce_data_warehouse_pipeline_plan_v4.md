@@ -676,7 +676,7 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 
 Unit tests tập trung vào source simulator, dirty-data injector, cursor ordering/serialization, parsing, row classification, canonical record hashing, source-version comparison và reconciliation logic. Integration tests sử dụng một deterministic fixture nhỏ với expected results được chốt độc lập, không tái sử dụng chính logic production để sinh expected output.
 
-- [ ] Chạy cùng batch hai lần và xác minh row count không đổi.
+- [x] Chạy cùng batch hai lần và xác minh row count không đổi.
 - [x] Update một order và xác minh record được update thay vì insert mới.
 - [x] Xác minh newer-same-hash được đếm unchanged nhưng source version vẫn advance.
 - [x] Xác minh older version bị stale-ignore và equal-version/different-hash làm run fail.
@@ -686,39 +686,33 @@ Unit tests tập trung vào source simulator, dirty-data injector, cursor orderi
 - [x] Kiểm tra deferred record expire đúng max age/attempts, terminal states và replay không double count.
 - [x] So sánh backfill với full reload.
 - [x] Kiểm tra duplicate không đi vào warehouse.
-- [ ] Kiểm tra schema evolution matrix, manifest checksum và incomplete batch marker.
+- [x] Kiểm tra schema evolution matrix, manifest checksum và incomplete batch marker.
 - [x] Failure-inject tại từng stage và xác minh watermark không commit sớm.
 - [x] Kiểm tra concurrent-run guard và cursor compare-and-swap.
 - [x] Chạy DAG import test và một MinIO → Spark → PostgreSQL vertical-slice smoke test.
 - [x] Chạy dbt grain tests, fan-out tests và reconciliation tests.
+- [ ] Xác nhận workflow mới PASS trên GitHub và trạng thái CI badge; local checks không thay thế hosted CI.
 
-CI skeleton hiện có trong `.github/workflows/ci.yml`: fast checks/build và installed-wheel tests trên Python 3.10/3.12; simulator integration trên Python 3.12 với disposable PostgreSQL, không cần raw CSV hoặc secrets. CI hiện có DAG import/serialization, Spark, dbt, full/incremental gates và failure recovery suites; raw CSV không bắt buộc cho các fixture suites.
+CI hiện có trong `.github/workflows/ci.yml`, chạy trên push, pull request và manual dispatch, không cần raw CSV hoặc repository secrets:
 
-GitHub Actions mục tiêu tách thành hai jobs. Fast job chạy trên mọi pull request:
+| Job/group | Checks | Time budget |
+|---|---|---|
+| Fast checks | Python 3.10/3.12, lockfile, Ruff, contracts/unit/config checks, build và installed-wheel tests | 15 phút mỗi runner |
+| Airflow DAG checks | Import/serialize DAG bằng isolated Airflow runtime, retry wiring | 10 phút |
+| PostgreSQL and MinIO integration | Simulator, Bronze, warehouse merge, deferred state và pipeline control/CAS | 15 phút |
+| dbt models and catalog | Toàn bộ analytics fixtures, reconciliation, BI reader grants, real docs catalog | 35 phút |
+| Spark: normalization-and-orders | Processing/dirty fixtures, orders Silver, customers và order children | 30 phút |
+| Spark: dimensions-and-staging | Products/sellers/geolocation/reviews, item dependencies, verified warehouse loading và deferred snapshots | 30 phút |
+| Spark: pipeline-gates | Full receipts/dbt gate, incremental windows/freeze và backfill equivalence | 30 phút |
+| Spark: recovery | Committed-stage failure injection, final rollback và resume | 30 phút |
 
-```text
-1. Install dependencies từ lockfile
-2. Run formatting/lint checks và unit tests
-3. Import/parse Airflow DAGs
-4. Start PostgreSQL service và apply migrations
-5. Load deterministic fixture
-6. Run integration tests không cần Spark cluster
-7. Run dbt deps
-8. Run dbt seed
-9. Run dbt build
-```
+Các nhóm Spark dùng matrix `fail-fast: false`, Java 17, driver heap 2 GiB và hai CPU JVM; mỗi runner chạy tuần tự các Make targets để tránh nhiều Spark workloads tranh tài nguyên. Budget trên là giới hạn cấu hình, không phải runtime đã đo trên GitHub. Khi regroup suites phải giữ đủ 23 test targets hiện có; action/uv pins giữ nguyên.
 
-Integration smoke job chạy trên pull request quan trọng hoặc manual workflow:
+Replay được kiểm tra ở source simulator, Bronze, Silver và warehouse: cùng ID trả NOOP; new load ID cùng business versions giữ nguyên row count và báo unchanged. Schema matrix có unit checks cho nullable additions, required/missing/renamed columns, type/precision/nullability, primary key và source-sequence constraints. Source catalog cho phép nullable addition với WARN; Bronze/Silver vẫn yêu cầu frozen schema/contract chính xác. Marker/checksum corruption và partial publication phải fail trước downstream consumption; retry dùng sealed bytes.
 
-```text
-1. Start PostgreSQL và MinIO bằng pinned images
-2. Wait for explicit health checks
-3. Apply migrations và load small fixture
-4. Run one-table Bronze → Spark → Silver → staging slice
-5. Run dbt build cho selected downstream models
-6. Assert manifests, reconciliations và idempotent rerun
-7. Collect logs/artifacts khi fail
-```
+Local verification (2026-10-23): `make test` PASS 126 unit tests; simulator/Bronze/warehouse-merge/deferred-state/pipeline-control PASS 50 integration tests; full/incremental/backfill PASS 9 tests với Java 17, hai CPU JVM và heap 2 GiB (các fresh dbt gates PASS 261/261 nodes). Toàn bộ `make test-dbt-integration` PASS 29 tests trong 1.311,935 giây (~21 phút 52 giây), gồm real docs catalog. Đây là runtime fixture trên máy local, không phải benchmark GitHub runner. `actionlint` 1.7.12 PASS; đối chiếu workflow trước/sau giữ đủ 23 test targets đúng một lần, dry-run cả bốn Spark groups PASS. Logs/self-checks ở ignored `build/reports/phase5-*`.
+
+Không rerun full Olist ingestion, Airflow hoặc ba nhóm Spark còn lại trong thay đổi cấu hình này; không sửa source algorithms, database schemas, grants hoặc cursor contracts. GitHub CI mới chưa được chạy/xác nhận.
 
 Đây là **Continuous Integration**, không gọi là CI/CD vì chưa có deployment tự động.
 
@@ -789,7 +783,7 @@ ecommerce-data-platform/
 └── uv.lock
 ```
 
-Package `olist_platform.source_simulator`, four-batch reliability fixture và isolated transactional tests đã được triển khai; xem `docs/data_contracts/03_source_simulator.md`. CI skeleton đã có fast checks, package build và simulator integration. Dirty-data injector, DAG checks và end-to-end smoke CI vẫn chưa triển khai.
+Package `olist_platform.source_simulator`, four-batch reliability fixture và isolated transactional tests đã được triển khai; xem `docs/data_contracts/03_source_simulator.md`. Dirty-data fixtures, real DAG checks và Bronze → Spark → staging/dbt integration đã nằm trong CI; topology jobs hiện tại được mô tả ở Phase 5. Passing GitHub CI cần được xác nhận từ workflow run thực tế.
 
 Package `olist_platform.raw` và uv workflow đã được triển khai. `scripts/` chỉ giữ compatibility wrappers; reusable Python logic nằm trong `src/olist_platform`. Các folders khác trong sơ đồ là target layout và chỉ được tạo khi có code/tests tương ứng. CLI defaults dùng working directory; config và raw data không được bundle vào wheel.
 

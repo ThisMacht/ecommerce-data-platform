@@ -90,15 +90,53 @@ jobs:
         run: make test-deferred-state-integration
       - name: Test pipeline control transactions and watermark CAS
         run: make test-pipeline-control-integration
+
+  analytics:
+    name: dbt models and catalog
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+        with:
+          version: "0.11.25"
+          python-version: "3.12"
+          enable-cache: true
+          cache-dependency-glob: uv.lock
       - name: Install locked analytics dependencies
         run: make sync-analytics
       - name: Test dbt models and metric reconciliation in isolated PostgreSQL
         run: make test-dbt-integration
 
   silver:
-    name: Core datasets Spark Silver
+    name: Spark (${{ matrix.suite }})
     runs-on: ubuntu-24.04
-    timeout-minutes: 25
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - suite: normalization-and-orders
+            targets: >-
+              test-processing test-silver-integration
+              test-customer-integration test-order-children-integration
+          - suite: dimensions-and-staging
+            targets: >-
+              test-product-integration test-seller-integration
+              test-geolocation-integration test-review-integration
+              test-item-dependencies-integration test-warehouse-integration
+              test-deferred-integration
+          - suite: pipeline-gates
+            targets: >-
+              test-pipeline-integration test-incremental-integration
+              test-backfill-integration
+          - suite: recovery
+            targets: test-recovery-integration
+    env:
+      PYSPARK_SUBMIT_ARGS: --driver-memory 2g pyspark-shell
+      JAVA_TOOL_OPTIONS: -XX:ActiveProcessorCount=2
     steps:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6.1.0
         with:
@@ -115,37 +153,9 @@ jobs:
           python-version: "3.12"
           enable-cache: true
           cache-dependency-glob: uv.lock
-      - name: Install locked processing dependencies
-        run: make sync-processing
-      - name: Test Spark normalization and routing
-        run: make test-processing
-      - name: Test orders PostgreSQL to Bronze to Silver
-        run: make test-silver-integration
-      - name: Test customer snapshots and orders dependencies
-        run: make test-customer-integration
-      - name: Test items/payments and pinned orders dependencies
-        run: make test-order-children-integration
-      - name: Test three-parent item FK checks and atomic deferred retries
-        run: make test-item-dependencies-integration
-      - name: Test verified Silver loading into PostgreSQL staging
-        run: make test-warehouse-integration
-      - name: Test deferred retries against verified full snapshots
-        run: make test-deferred-integration
-      - name: Install processing and analytics dependencies for the pipeline gate
+      - name: Install locked processing and analytics dependencies
         run: uv sync --locked --extra processing --extra analytics
-      - name: Test products snapshots and version-aware staging
-        run: make test-product-integration
-      - name: Test standalone reviews, composite keys and deferred retries
-        run: make test-review-integration
-      - name: Test geolocation snapshots and exact coordinate staging
-        run: make test-geolocation-integration
-      - name: Test sellers snapshots and version-aware staging
-        run: make test-seller-integration
-      - name: Test all core receipts and dbt-gated watermark commit
-        run: make test-pipeline-integration
-      - name: Test frozen incremental windows, lookback and recovery gates
-        run: make test-incremental-integration
-      - name: Test isolated bounded backfills and full reload equivalence
-        run: make test-backfill-integration
-      - name: Test recovery after committed stages and final gate rollback
-        run: make test-recovery-integration
+      - name: Run fixture suites sequentially within each runner
+        env:
+          TEST_TARGETS: ${{ matrix.targets }}
+        run: make $TEST_TARGETS
