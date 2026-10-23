@@ -1897,3 +1897,70 @@ class DbtModelsTest(PostgresIntegrationCase):
                     [(reconciliation, "fail")],
                 )
                 self.dbt()
+
+    def test_order_fact_reconciliation_rejects_valid_identity_and_time_drift(self):
+        row = valid_row("customers", "other", 3) | {
+            "customer_unique_id": "other_shopper"
+        }
+        with psycopg.connect(
+            host="127.0.0.1",
+            port=self.port,
+            dbname=self.database,
+            user="olist_test_loader",
+            password="isolated_test_loader",
+            autocommit=True,
+        ) as connection:
+            merge_rows(
+                connection,
+                self.contract,
+                table="customers",
+                run_id="other_shopper",
+                rows=[row],
+                request={"fixture": "fact_identity"},
+                silver_counts={
+                    "input_rows": 1,
+                    "valid_rows": 1,
+                    "rejected_rows": 0,
+                    "deferred_rows": 0,
+                    "duplicates_rows": 0,
+                    "warning_rows": 0,
+                },
+            )
+        self.dbt()
+        for change in (
+            "customer_id='cb'",
+            "customer_unique_id='other_shopper'",
+            "customer_key=MD5('other_shopper')",
+            "order_status='processing'",
+            "order_purchase_timestamp=order_purchase_timestamp+INTERVAL '1 minute'",
+            "order_purchase_date=order_purchase_date+1",
+            "is_metric_eligible=FALSE",
+        ):
+            with self.subTest(change=change):
+                self.psql(f"""DROP TABLE IF EXISTS analytics.saved_order_fact CASCADE;
+                    CREATE TABLE analytics.saved_order_fact AS SELECT * FROM analytics.fct_orders;
+                    GRANT SELECT ON analytics.saved_order_fact TO olist_test_loader;
+                    UPDATE analytics.saved_order_fact SET {change} WHERE order_id='a';
+                    CREATE OR REPLACE VIEW analytics.fct_orders AS SELECT * FROM analytics.saved_order_fact;""")
+                results = self.dbt("test", success=False)
+                self.assertTrue(
+                    any(
+                        r["unique_id"].endswith(".fact_reconciliation")
+                        and r["status"] == "fail"
+                        for r in results["results"]
+                    )
+                )
+                checks = [
+                    r
+                    for r in results["results"]
+                    if r["unique_id"].startswith(
+                        (
+                            "test.olist_analytics.not_null_fct_orders_",
+                            "test.olist_analytics.unique_fct_orders_",
+                            "test.olist_analytics.relationships_fct_orders_",
+                        )
+                    )
+                ]
+                self.assertEqual(len(checks), 7)
+                self.assertTrue(all(r["status"] == "pass" for r in checks))
+                self.dbt()

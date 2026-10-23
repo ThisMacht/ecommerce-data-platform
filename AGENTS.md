@@ -222,3 +222,10 @@ source semantics. After output/schema changes run the real docs catalog integrat
 check; source/model descriptions and exact output-column membership must match
 catalog.json. Keep catalog/manifest/compiled SQL local and ignored. README lineage
 is a grouped view of direct ref dependencies, not proof of atomic publication.
+
+Fact integrity: exact order reconciliation covers source customer_id/shopper/key,
+status, UTC purchase instant, local purchase date and eligibility, as well as
+independent item/payment counts and BRL sums. A foreign key that exists can still
+be the wrong business association; keep valid-but-wrong fixtures alongside generic
+FK/not-null tests. Preserve Silver-normalized local dates; views compare source
+attributes rather than silently correcting staging or assigning dummy parents.

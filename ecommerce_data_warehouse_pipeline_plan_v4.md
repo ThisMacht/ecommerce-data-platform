@@ -658,7 +658,7 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 - [x] Add `fct_payments` at composite payment-entry grain and daily payment-type observed amounts/counts; exact source reconciliation without installment multiplication or item fan-out.
 - [x] Extend Metabase with product/seller top-10 tables and payment-type charts; SELECT-only aggregate grants, date filters and publication gates.
 - [x] Add order-grain `fct_delivery` and daily purchase-cohort mart; explicit chronology/completeness, local-calendar lateness, UTC elapsed durations, DST and source reconciliation checks.
-- [ ] Kiểm tra fact foreign keys, BRL numeric precision và UTC/local-date semantics.
+- [x] Kiểm tra fact required FKs và exact source identity, BRL aggregate precision, UTC/Sao Paulo/DST dates; valid-but-wrong corruption gates và reviews-only full-parent scope.
 - [x] Tạo marts revenue, observed shopper value, repeat eligible purchases, product/seller, delivery cohorts và current order status; explicit grains, raw reconciliation và existing BI scope.
 - [x] Mô tả 31 dbt models/304 output columns và 8 sources; exact catalog coverage integration giữ docs khớp schema.
 - [x] Thêm `make dbt-docs` và chạy real docs generation/catalog verification; generated artifacts giữ local/ignored.

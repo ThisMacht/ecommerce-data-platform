@@ -616,3 +616,64 @@ validation, không tuyên bố đã visual-review browser UI. Generated artifact
 `build/reports/dbt-docs/`; evidence: ignored `build/reports/dbt-docs-local.json`,
 `dbt-docs-local.log`, `dbt-docs-integration.log` và `dbt-docs-final-checks.log`.
 Không public-host docs, rerun ingestion/pipeline integration suites hoặc GitHub CI.
+
+## Fact Integrity Acceptance
+
+Required FK, BRL và time behavior được kiểm tra theo grain thay vì chỉ kiểm tra
+một surrogate key có tồn tại. Generic not-null/relationships bảo vệ membership;
+raw-source reconciliation bảo vệ đúng business association và payload.
+
+| Fact | Required relationships | Exact amounts and time semantics |
+| --- | --- | --- |
+| `fct_orders` | Shopper key và purchase date key; source customer/order mapping giữ nguyên | Independent per-order item/payment sums; UTC purchase instant, normalized local date, current status và eligibility khớp staging |
+| `fct_order_items` | Order, current product/seller/shopper và purchase date | Composite item grain; BRL price/freight và UTC shipping deadline khớp source, không phân bổ payments |
+| `fct_payments` | Order/shopper và purchase date | Composite entry grain; BRL payment_value không nhân installments; order context khớp source |
+| `fct_delivery` | Order/shopper và purchase/estimated date; actual date key khi timestamp có | UTC elapsed hours, São Paulo calendar lateness; chronology/status không xóa actual date key hoặc biến missing observation thành on-time |
+| `fct_reviews` | Review creation date; full-order membership pin tại Silver | Composite review grain, UTC timestamps và local creation date; không yêu cầu bounded order staging có full parent set |
+
+`fact_reconciliation` đối chiếu source customer_id, customer_unique_id và MD5
+shopper key, status, purchase timestamp/date và is_metric_eligible cùng counts/
+amounts. Một valid key của shopper khác hoặc timestamp vẫn hợp lệ nhưng sai phải
+fail dù generic FK/not-null tests PASS. Không sửa SQL model để che sai staging.
+Local purchase date là Silver-normalized source attribute; review/delivery dates
+được derive với explicit timezone, không dựa session timezone.
+
+Source money giữ NUMERIC(18,2); SUM/derived analytics dùng exact NUMERIC không
+narrow về source precision hoặc float. Fixture có hai entries cùng order với
+9,000,000,000,000,000.01 BRL mỗi entry: aggregate vượt source typmod vẫn exact,
+paid-order AOV round hai decimals và zero-paid denominator giữ NULL. Quy mô đó
+là boundary fixture, không phải số liệu kinh doanh Olist.
+
+Acceptance tests bao gồm missing required parents mà không drop child rows,
+valid-but-wrong FK/date/identity attributes, composite grain, no child fan-out,
+UTC/São Paulo/DST behavior, actual-key completeness và reviews-only backfill.
+SQL model algorithms, output schema, BI grants và source data giữ nguyên trong
+đợt củng cố acceptance này; chỉ tăng độ đầy đủ của raw-source order fact gate.
+
+### Fact Integrity Verification (2026-10-23)
+
+126 unit tests, 10 targeted analytics cases và full pipeline gate (1 case) PASS.
+Order-fact corruption fixture cài từng customer_id, shopper ID/key, status,
+purchase UTC instant/local date và eligibility sai; cả bảy generic order checks
+vẫn PASS nhưng raw `fact_reconciliation` FAIL đúng yêu cầu. Fixtures missing
+customer/order/product/seller, exact large BRL aggregates/NULL AOV, valid-but-wrong
+date keys, DST delivery, ISO/leap calendar, review grain/local dates và reviews-only
+empty order staging đều PASS. Full fixture gate build đủ 261 nodes, zero skip/error.
+
+Trên Olist, selected test run dưới tám staging SHARE locks PASS cả sáu gates:
+order/item/payment/delivery/review fact reconciliation và fact date reconciliation.
+Current code hash được đối chiếu; views không rebuild, controls, deferred attempts
+và warehouse load receipt count giữ nguyên. Existing fact counts là orders/delivery
+99,424, items 112,621, payments 103,869, reviews 99,197.
+
+Metadata check xác nhận sáu money columns của ba money facts là NUMERIC; ba
+order-aggregate amounts không có narrowed numeric typmod. Purchase date so với
+UTC timestamp chuyển rõ São Paulo có zero mismatches trên Olist. Đây là kiểm tra
+selected integrity/schema, không phải full 261-node Olist rebuild hoặc ingestion mới.
+
+Logs/artifacts ignored: `build/reports/fact-integrity-fast.log`,
+`fact-integrity-integration.log`, `fact-integrity-gate.log`, `fact-integrity-local.log`,
+`fact-integrity-local.json`, `fact-integrity-local-dbt/` và
+`fact-integrity-final-checks.log`. Ruff/format, wheel/sdist PASS. Không chạy lại
+incremental/backfill/recovery suites hoặc GitHub CI trong thay đổi này; không đổi
+SQL model algorithms, output columns, BI grants hoặc dbt node counts.

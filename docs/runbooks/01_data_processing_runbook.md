@@ -686,6 +686,12 @@ Khi output columns đổi, bổ sung descriptions trong `dbt/models/schema.yml`,
 README lineage nếu refs đổi, chạy docs catalog integration và giữ artifacts ignored.
 Xem [docs workflow](../data_contracts/09_analytics_models.md#documentation-catalog-and-lineage).
 
+Khi `fact_reconciliation` fail dù generic FK tests PASS, đối chiếu cả source
+customer/order identity, current status/eligibility và purchase UTC/local-date
+attributes, không chỉ amounts/counts. Key tồn tại vẫn có thể là association sai.
+BRL sums giữ NUMERIC, optional delivery dates/review full-parent scope giữ policy
+hiện có; xem [fact acceptance](../data_contracts/09_analytics_models.md#fact-integrity-acceptance).
+
 ## 31. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
