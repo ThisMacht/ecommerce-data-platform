@@ -14,6 +14,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Dockerized PostgreSQL, migrations and source seed | Implemented |
 | Live schema contract checks and isolated source integration tests | Implemented |
 | Source simulator mutation batches | Implemented — 4 core tables |
+| Synthetic website events | Implemented — standalone deterministic JSONL generator/verification; engine benchmarks pending |
 | Bounded extraction and immutable Bronze on MinIO | Implemented — four core deltas plus full dimension/review snapshots and FK parents |
 | Orders PySpark normalization, routing and immutable Silver Parquet | Implemented — local rules and optional customer FK/deferred routing |
 | Full customer snapshots and normalized customer Silver | Implemented — parent manifest/hash pinned to orders runs |
@@ -112,6 +113,22 @@ CI không cần `.env`, raw CSV hay repository secrets. Integration suites tự 
 Tái hiện fast checks: `make sync`, `make test`, `make build`. Với integration, cài locked extras tương ứng (`make sync-analytics` hoặc `uv sync --locked --extra processing --extra analytics`), rồi chạy các Make targets của job trong workflow. Khi chạy một máy local, giữ các nhóm Spark tuần tự và export `PYSPARK_PYTHON="$PWD/.venv/bin/python"` để worker dùng đúng Python environment.
 
 Workflow pin action commit SHAs và uv version; cập nhật các pins cùng validation khi nâng tools. Thời gian giới hạn là budget CI, không phải kết quả benchmark; chỉ xác nhận GitHub CI PASS từ workflow run thực tế.
+
+## Synthetic events (Phase 6.1)
+
+```bash
+make generate-events  # 2M physical rows, seed 42; standalone, no Docker/Spark/CSVs
+make verify-events
+# A new request uses a new directory:
+make generate-events EVENT_ROWS=10000000 EVENT_SEED=43 EVENT_OUTPUT=data/generated/events/10m_seed43
+```
+
+Artifact JSONL/manifest/marker nằm trong ignored `data/generated/events/`. Generator
+streaming có anonymous/cart/checkout-abandonment/purchase sessions, exact duplicates,
+late và out-of-order events. IDs đều synthetic, không nối vào Olist core. Cùng request
+được verify rồi NOOP; khác request/corruption fail. Counts phân biệt physical/unique
+và censored session cuối. Xem [event contract](docs/data_contracts/20_synthetic_events.md).
+Engine benchmark chưa được triển khai; core pipeline/BI vẫn dùng tám datasets hiện có.
 
 ## Documentation
 

@@ -729,7 +729,7 @@ Job Python 3.10 của lượt đầu phát hiện shared cursor parser chưa nh�
 #### Baseline Before Scale-up
 
 - [x] Chạy lại full Olist end-to-end bằng source hiện tại và đối chiếu trước/sau.
-- [ ] Triển khai deterministic synthetic events, bắt đầu từ 2 triệu dòng.
+- [x] Triển khai deterministic synthetic events: đã sinh và verify 2 triệu physical rows với seed 42; xem Phase 6.1 dưới đây.
 - [ ] Benchmark pandas/Polars/PySpark với cùng input và điều kiện đo rõ ràng.
 
 Baseline ngày 2026-10-23: run `dataset_54ab35e89b4d48e48a2649bf88b5b862`, attempt 1, source tại commit `14f193a` (implementation đã được GitHub CI xác minh tại `751674d`). Chín CSV canonical PASS checksum; tám full streams gồm 1.550.851 source rows được freeze trong cùng source snapshot. Hoàn tất 34/34 tasks và fresh dbt build PASS 261/261 nodes (31 models, 230 tests).
@@ -746,6 +746,14 @@ Source/staging row counts giữ nguyên; warehouse counters ghi 1.550.761 candid
 Thời gian audit pipeline là 1.355,07 giây; toàn bộ `make dataset` gồm setup là 1.364,20 giây (~22 phút 44 giây). Task `dbt.build` gồm gate mất 423,92 giây; dbt execution riêng là 403,18 giây. `source.freeze` mất 314,68 giây; geolocation warehouse/Silver lần lượt 112,39/92,94 giây. Dùng Java 17, JVM tối đa 8 CPU, Spark driver heap 2 GiB, các workloads chạy tuần tự. Đây là full rerun trên staging/volumes có sẵn, không phải cold-load hoặc engine benchmark; chưa đo peak RAM tổng của cả stack.
 
 GMV đối soát là BRL 13.491.218,65; eligible gross paid BRL 15.736.441,59; global positive-paid AOV BRL 160,27 (98.190 orders, tổng paid amount chia tổng paid orders). Giữ raw snapshots và các queue terminal states. Evidence ở ignored `build/reports/olist-baseline-{before,after,health}.json`, `olist-baseline-full.log`, `olist-baseline-time.txt` và audit tables; không commit dữ liệu/generated artifacts.
+
+#### Synthetic Events Generator (Phase 6.1)
+
+Đã triển khai `olist-synthetic-events` và `make generate-events` / `make verify-events` bằng standard library. JSONL streaming dùng bounded heap cho arrival order, bốn session templates, `syn_*` identities, exact duplicates, late/out-of-order events và censored logical tail session. Artifact canonical manifest/checksum/marker được atomic publish; cùng request full verify rồi NOOP, request khác hoặc corruption bị từ chối. Tool độc lập với CSV/Docker/Spark và tám core streams/cursors/BI grants; xem [event contract](docs/data_contracts/20_synthetic_events.md) và [ADR-007](docs/adr/ADR-007-use-pyspark-on-small-olist-dataset.md).
+
+Local acceptance ngày 2026-10-24: 2.000.000 physical rows = 1.980.000 unique + 20.000 duplicate rows; 99.000 late và 572.116 out-of-order unique events. Payload 717.712.624 bytes. Generation/verify mất 19,62/19,50 giây, max process RSS 25.856/25.916 KiB. Full independent streaming audit PASS; 135 tests PASS trên Python 3.10/3.12 và installed wheel Python 3.10; artifact 2.000 rows giữa hai versions có bytes giống nhau. Logs/reports ở ignored `build/reports/events-*`, dữ liệu ở ignored `data/generated/events/scale_v1/`.
+
+Đây là measurements của generator/verifier trên local, không phải engine benchmark hoặc peak RAM toàn stack. pandas/Polars/PySpark benchmark chưa triển khai, chưa xác minh hosted CI cho thay đổi generator. Thay đổi không sửa Olist transformation/warehouse logic; full Olist baseline phía trên thuộc source `14f193a`.
 
 #### Scale-up Scope
 

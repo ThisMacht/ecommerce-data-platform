@@ -12,6 +12,9 @@ COMPOSE_FILE ?= infrastructure/docker-compose.yml
 SOURCE_BATCH_ROOT ?= data/generated/source_batches/reliability_v1
 SOURCE_BATCH_DIR ?= $(SOURCE_BATCH_ROOT)/001_initial
 SOURCE_SIMULATOR_SEED ?= 42
+EVENT_ROWS ?= 2000000
+EVENT_SEED ?= 42
+EVENT_OUTPUT ?= data/generated/events/scale_v1
 BRONZE_RUN_ID ?=
 BRONZE_PAGE_SIZE ?= 1000
 PROCESSING_PYTHON ?= $(UV) run --locked --extra processing python
@@ -39,6 +42,15 @@ BACKFILL_START ?=
 BACKFILL_END ?=
 
 .DEFAULT_GOAL := help
+
+.PHONY: generate-events verify-events
+
+generate-events:
+	$(PYTHON) -m olist_platform.source_simulator.events generate --rows "$(EVENT_ROWS)" \
+		--seed "$(EVENT_SEED)" --output-dir "$(EVENT_OUTPUT)"
+
+verify-events:
+	$(PYTHON) -m olist_platform.source_simulator.events verify --output-dir "$(EVENT_OUTPUT)"
 
 .PHONY: help dataset sync lint format build verify-raw profile-source validate-source-contract test-raw-tools \
 	test-unit test-infrastructure-config test infrastructure-up \
@@ -86,6 +98,7 @@ help:
 	@echo "  verify-source-schema      Compare live PostgreSQL schema with the contract"
 	@echo "  test-source-integration   Test schema, seed reruns and rollback in an isolated container"
 	@echo "  generate-source-batches   Publish deterministic simulator fixture batches"
+	@echo "  generate-events / verify-events Generate or verify standalone synthetic JSONL events (default 2M)"
 	@echo "  validate-source-batch     Verify a simulator batch without database access"
 	@echo "  apply-source-batch        Apply a batch using SOURCE_SIMULATOR_DSN or PG* environment"
 	@echo "  test-source-simulator-integration Test simulator transactions in disposable PostgreSQL"

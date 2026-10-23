@@ -68,6 +68,22 @@ class InstalledCliTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("Verified 1 files successfully.", result.stdout)
 
+    def test_synthetic_events_are_standalone_and_use_working_directory_paths(self):
+        args = ("--output-dir", "events")
+        result = self.run_command(
+            "olist-synthetic-events", "generate", "--rows", "100", *args
+        )
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(json.loads(result.stdout)["status"], "GENERATED")
+        self.assertTrue((self.workspace / "events/events.jsonl").is_file())
+        checked = self.run_command("olist-synthetic-events", "verify", *args)
+        self.assertEqual(checked.returncode, 0, checked.stderr)
+        self.assertEqual(json.loads(checked.stdout)["status"], "VALID")
+        rejected = self.run_command(
+            "olist-synthetic-events", "generate", "--rows", "0", *args
+        )
+        self.assertNotEqual(rejected.returncode, 0)
+
     def test_bronze_cli_is_installed_and_exposes_commands(self) -> None:
         result = self.run_command("olist-bronze-orders", "--help")
         self.assertEqual(result.returncode, 0, result.stderr)

@@ -5,7 +5,7 @@
 Implemented: core layers, dbt, deferred retries, full/incremental audit, isolated backfill and gated watermarks.
 
 - `src/olist_platform/raw/`: manifests, profiling, contracts.
-- `src/olist_platform/source_simulator/`: deterministic batches and transactional apply.
+- `src/olist_platform/source_simulator/`: deterministic batches, transactional apply and standalone bounded-memory synthetic events.
 - `src/olist_platform/bronze/`: bounded extraction, durable retry and verified MinIO publication.
 - `src/olist_platform/silver/`: Spark normalization, routing and Parquet publication.
 - `src/olist_platform/warehouse/`: verified Silver loading, canonical hashes, version-aware merges and local Metabase provisioning.
@@ -19,7 +19,7 @@ Implemented: core layers, dbt, deferred retries, full/incremental audit, isolate
 - `tests/integration/`: disposable PostgreSQL/MinIO tests. Seed tests require canonical CSVs; others use `tests/fixtures/`.
 - `config/`: raw manifest and source contract.
 - `infrastructure/`: Compose, PostgreSQL migrations, seeds, checks, and runners.
-- `data/raw/`: immutable CSVs; ignored `data/generated/` holds batches.
+- `data/raw/`: immutable CSVs; ignored `data/generated/` holds batches and synthetic workloads.
 - `docs/`: contracts, profiles, runbooks; reports: `build/reports/`.
 - `.github/workflows/ci.yml`: fast/Airflow checks, transactional integration, independent dbt/catalog job and four Spark fixture groups. Keep every existing suite when regrouping jobs; run Spark targets sequentially within each runner.
 
@@ -39,6 +39,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make verify-raw` / `make profile-source`: verify inputs or regenerate profiles.
 - `make seed-source` / `make verify-source`: load PostgreSQL or verify schema/state.
 - `make generate-source-batches` / `make validate-source-batch`: generate/verify batches.
+- `make generate-events` / `make verify-events`: standalone immutable JSONL workload (2M physical rows, seed 42); override `EVENT_ROWS`, `EVENT_SEED`, `EVENT_OUTPUT`. No database/Spark/CSVs; artifacts stay in ignored `data/generated/events/`.
 - `make apply-source-batch SOURCE_BATCH_DIR=<path>`: apply a batch transactionally.
 - `make test-source-integration` / `make test-source-simulator-integration`: test seed or simulator against isolated PostgreSQL.
 - `make infrastructure-down`: stop services; retain volumes.
@@ -229,3 +230,5 @@ independent item/payment counts and BRL sums. A foreign key that exists can stil
 be the wrong business association; keep valid-but-wrong fixtures alongside generic
 FK/not-null tests. Preserve Silver-normalized local dates; views compare source
 attributes rather than silently correcting staging or assigning dummy parents.
+
+Synthetic events: `syn_*` IDs have no Olist FK/PII meaning. Only purchases have order IDs. Preserve versioned deterministic bytes, arrival ordering, adjacent exact duplicates, separate unique/physical counts and the censored final session. Existing artifacts require full verification for NOOP; never overwrite another request or manually reseal modified files. Keep this workload outside the eight-table core and its cursors/grants. Benchmark engines separately; generator timings are not engine results.

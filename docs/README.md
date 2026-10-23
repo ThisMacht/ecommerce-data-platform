@@ -26,6 +26,7 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | 17 | [Item Dependency Snapshots](data_contracts/17_item_dependency_snapshots.md) | Three-parent item FK scope, immutable pins and atomic deferred retry | Active — standalone and scheduled v2 |
 | 18 | [Geolocation Snapshots](data_contracts/18_geolocation_snapshots.md) | Full observation snapshots, exact coordinates, ZIP medians/joint modes and Type 1 location dimension | Active — standalone and core full refresh |
 | 19 | [Review Snapshots](data_contracts/19_review_snapshots.md) | Composite full reviews, pinned orders, version-aware staging and atomic deferred retry | Active — standalone |
+| 20 | [Synthetic Website Events](data_contracts/20_synthetic_events.md) | Deterministic standalone JSONL workload, arrival/duplicate/session semantics and atomic artifact verification | Active — generator only |
 
 ## Related documents
 
@@ -34,6 +35,7 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | [Pipeline Implementation Plan](../ecommerce_data_warehouse_pipeline_plan_v4.md) | Kiến trúc, phases, contracts và implementation roadmap |
 | [Raw Dataset Manifest](../data/raw/README.md) | Nguồn dữ liệu, file inventory, checksums và raw-data handling rules |
 | [Customer Type 1 Decision](adr/ADR-004-use-scd-type-1.md) | Shopper identity, current attributes và giới hạn phân tích lịch sử |
+| [Local Spark and Scale-up Decision](adr/ADR-007-use-pyspark-on-small-olist-dataset.md) | Local MVP scope, reproducible workloads và giới hạn của performance claims |
 | [Local Infrastructure](../infrastructure/README.md) | Docker services, jobs, configuration và local operations |
 
 ## Naming convention
