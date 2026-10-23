@@ -23,7 +23,7 @@ from olist_platform.bronze.storage import (
 from olist_platform.raw.contracts import source_columns
 
 ROUTES = ("valid", "rejected", "duplicates")
-CHILDREN = ("order_items", "order_payments")
+CHILDREN = ("order_items", "order_payments", "order_reviews")
 ITEM_SCOPE = "ORDER_PRODUCT_SELLER_SNAPSHOTS"
 ITEM_RULES = ("missing_order", "missing_product", "missing_seller")
 VERSIONS = (
@@ -75,7 +75,7 @@ def validate_manifest(manifest: dict, contract: dict, table: str = "orders") -> 
         "config"
     ].get("pipeline_run_id")
     if (
-        table in ("products", "sellers", "geolocation")
+        table in ("products", "sellers", "geolocation", "order_reviews")
         and manifest.get("snapshot_kind") != "FULL"
     ):
         raise BronzeError(f"{table.title()} Silver requires a full Bronze snapshot")
@@ -203,11 +203,16 @@ def verify_objects(store: ObjectStore, manifest: dict) -> None:
                     raise BronzeError(f"Invalid pinned {name} dependency")
     if (
         manifest["schema_version"]
-        in ("products-silver-v1", "sellers-silver-v1", "geolocation-silver-v1")
+        in (
+            "products-silver-v1",
+            "sellers-silver-v1",
+            "geolocation-silver-v1",
+            "order_reviews-silver-v1",
+        )
         and manifest.get("snapshot_kind") != "FULL"
     ):
         raise BronzeError(
-            "Product/seller/geolocation Silver must declare a full snapshot"
+            "Product/seller/geolocation/review Silver must declare a full snapshot"
         )
     if (
         manifest["schema_version"] == "customers-silver-v1"
@@ -296,6 +301,7 @@ def process_batch(
     )
     from .orders import input_schema, transform_orders
     from .products import transform_products
+    from .reviews import transform_reviews
     from .sellers import transform_sellers
 
     if (
@@ -423,6 +429,8 @@ def process_batch(
             classified = transform_sellers(frame)
         elif table == "geolocation":
             classified = transform_geolocation(frame)
+        elif table == "order_reviews":
+            classified = transform_reviews(frame)
         else:
             classified = transform_order_children(frame, table)
         parent_keys = None

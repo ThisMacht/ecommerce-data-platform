@@ -2,7 +2,7 @@
 
 ## Scope
 
-Status: **Active — transactional Silver valid loading for four core datasets plus full products/sellers/geolocation**.
+Status: **Active — transactional Silver valid loading for four core datasets plus full products/sellers/geolocation/reviews**.
 Migration `006` thêm `raw_staging.customers`, `orders`, `order_items`,
 `order_payments` và `audit.warehouse_load_runs`. Source schema `olist` không đổi.
 Loader version là `warehouse-v1`; business hash version là `business-v1`.

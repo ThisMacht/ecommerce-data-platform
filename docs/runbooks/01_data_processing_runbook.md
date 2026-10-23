@@ -641,7 +641,18 @@ ID mới để tạo đủ receipts/gate mới. Không
 đổi request, copy proofs hoặc gán SUCCESS thủ công. Retry không đổi code vẫn dùng
 pending ID như cũ; Airflow retries tiếp tục tuân theo original DAG/run context.
 
-## 30. Change control
+## 30. Review snapshots
+
+Chạy `make migrate`, `make ingest-order-reviews BRONZE_RUN_ID=<id>` và
+`make process-order-reviews BRONZE_PREFIX=<prefix> SILVER_RUN_ID=<id> ORDER_SNAPSHOT=<full orders prefix>`.
+Load staging bằng `SOURCE_TABLE=order_reviews`, rồi register/resolve deferred với
+cùng generic commands. Resume cùng IDs, dùng new resolution ID khi parent đổi.
+`make test-review-integration` kiểm tra frozen retry, dirty routing, composite keys,
+expiry và atomic resolution. Không có core scheduled receipt, dbt model hoặc BI
+grant mới; standalone load làm publication unavailable cho tới fresh core SUCCESS.
+Xem [review contract](../data_contracts/19_review_snapshots.md).
+
+## 31. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:
 

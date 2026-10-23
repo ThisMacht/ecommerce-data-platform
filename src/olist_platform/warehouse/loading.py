@@ -126,8 +126,10 @@ def canonical_record(row: dict, contract: dict, table: str, run_id: str) -> dict
         or re.fullmatch(r"[0-9]{5}", record["geolocation_zip_code_prefix"]) is None
     ):
         raise BronzeError("Invalid staging geolocation identity/ZIP")
-    if len(KEYS[table]) > 1 and record[KEYS[table][1]] <= 0:
+    if table in ("order_items", "order_payments") and record[KEYS[table][1]] <= 0:
         raise BronzeError("Invalid staging business key ordinal")
+    if table == "order_reviews" and not 1 <= record["review_score"] <= 5:
+        raise BronzeError("Invalid staging review score")
     if record["source_sequence"] <= 0 or record["source_operation"] not in (
         "INSERT",
         "UPDATE",

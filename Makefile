@@ -100,6 +100,8 @@ help:
 	@echo "  test-processing           Run Spark normalization, routing and deduplication tests"
 	@echo "  test-silver-integration   Test PostgreSQL -> Bronze -> Spark -> Silver with disposable services"
 	@echo "  ingest-sellers / process-sellers Full sellers Bronze/Silver snapshots"
+	@echo "  ingest-order-reviews / process-order-reviews Full reviews with pinned orders"
+	@echo "  test-review-integration   Test review routing, replay, merges and deferred retries"
 	@echo "  ingest-geolocation / process-geolocation Full geolocation observations; load with SOURCE_TABLE=geolocation"
 	@echo "  test-geolocation-integration Test full snapshots, exact coordinates and version-aware staging"
 	@echo "  test-seller-integration   Test sellers publication, replay, routing and staging merges"
@@ -328,13 +330,13 @@ test-customer-integration:
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" \
 	$(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_customers.py' -v
 
-ingest-order-payments ingest-order-items:
+ingest-order-payments ingest-order-items ingest-order-reviews:
 	@test -n "$(BRONZE_RUN_ID)" || (echo "Set BRONZE_RUN_ID" >&2; exit 2)
 	$(PYTHON) -m olist_platform.bronze.cli --contract "$(SOURCE_CONTRACT)" --table $(subst -,_,$(@:ingest-%=%)) extract \
 		--run-id "$(BRONZE_RUN_ID)" --page-size "$(BRONZE_PAGE_SIZE)" \
 		$(if $(filter 1,$(BRONZE_FULL_SNAPSHOT)),--full-snapshot,)
 
-process-order-payments process-order-items:
+process-order-payments process-order-items process-order-reviews:
 	@test -n "$(BRONZE_PREFIX)" && test -n "$(SILVER_RUN_ID)" && test -n "$(ORDER_SNAPSHOT)" || (echo "Set BRONZE_PREFIX, SILVER_RUN_ID and ORDER_SNAPSHOT" >&2; exit 2)
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m olist_platform.silver.cli \
 		--contract "$(SOURCE_CONTRACT)" --table $(subst -,_,$(@:process-%=%)) process \
@@ -434,3 +436,11 @@ test-geolocation-integration:
 	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_geolocation.py' -v
 
 .PHONY: ingest-geolocation process-geolocation test-geolocation-integration
+
+.PHONY: ingest-order-reviews process-order-reviews test-review-integration
+
+test-review-integration:
+	$(COMPOSE) -f $(COMPOSE_FILE) build minio
+	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \
+	OLIST_TEST_COMPOSE_FILE="$(abspath $(COMPOSE_FILE))" \
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(PROCESSING_PYTHON) -m unittest discover -s tests/integration -p 'test_reviews.py' -v

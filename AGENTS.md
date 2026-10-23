@@ -44,6 +44,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make infrastructure-down`: stop services; retain volumes.
 - `make bronze-up` / `make init-bronze`: start MinIO or initialize its bucket.
 - `make ingest-orders BRONZE_RUN_ID=<id>`: extract/resume orders.
+- `make ingest-order-reviews` / `make process-order-reviews`: standalone full reviews; require `ORDER_SNAPSHOT=<full orders Silver prefix>`, then staging/deferred with `SOURCE_TABLE=order_reviews`; `make test-review-integration`.
 - `make ingest-geolocation` / `make process-geolocation`: full observations standalone or frozen in every core mode; load with `SOURCE_TABLE=geolocation`, then dbt; use `make test-geolocation-integration`.
 - `make ingest-sellers` / `make process-sellers`: standalone full seller snapshots, then staging/dbt; location warnings preserve NULLs and ZIP leading zeros.
 - `make test-seller-integration`: frozen retries, dirty location/ID rules, version-aware merges, corruption, empty snapshots and cursor isolation.
@@ -167,3 +168,13 @@ membership is checked separately by source reconciliation. Preserve item v2's
 three-parent scope and existing BI grants. Full/empty snapshots imply no deletes;
 current staging may include prior observations and newer versions. Backfill
 refreshes current geography, not geography as of its historical end bound.
+
+Reviews are standalone full-only, keyed by (review_id, order_id), never review_id
+or order_id alone. Preserve nonblank comment text/case/newlines; empty/all-space
+comments become NULL without warning. Score integer 1–5; local business times use
+Sao Paulo → UTC and reject DST gaps/folds; answer-before-creation warns. Require
+pinned full orders from the same contract; missing order defers only locally valid
+selected rows. Generic retry must preserve both string keys, frozen payload,
+limits and atomic queue/attempt/staging/audit behavior. No new core streams,
+completion cursors, analytics models or BI grants; core health does not include
+reviews backlog. Standalone review loads still hide BI until a fresh core gate.

@@ -1,6 +1,6 @@
 # Olist E-commerce Data Platform
 
-Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source simulator, immutable Bronze/Silver layers, warehouse models và dashboards. Hiện đã có source validation, PostgreSQL source layer/simulator và bảy datasets Bronze/PySpark Silver trên MinIO; các phase sau được theo dõi trong [Pipeline Implementation Plan](ecommerce_data_warehouse_pipeline_plan_v4.md).
+Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source simulator, immutable Bronze/Silver layers, warehouse models và dashboards. Hiện đã có source validation, PostgreSQL source layer/simulator và bảy core datasets cùng standalone reviews ở Bronze/PySpark Silver trên MinIO; các phase sau được theo dõi trong [Pipeline Implementation Plan](ecommerce_data_warehouse_pipeline_plan_v4.md).
 
 ## Current status
 
@@ -271,6 +271,15 @@ payment type/date và observed gross paid. Không nhân amount với installment
 không join items và không dùng type order counts làm AOV denominator. `make dataset`
 tự build/test; standalone dùng `make dbt-build` với PG/dbt environment hiện có.
 Xem [payment metric contract](docs/data_contracts/09_analytics_models.md#payment-facts-and-type-metrics).
+
+## Review snapshots
+
+Reviews chạy standalone full Bronze/Silver/staging ở grain `(review_id, order_id)`;
+`review_id` hoặc `order_id` riêng lẻ không unique. Dùng `make ingest-order-reviews`,
+`make process-order-reviews` với `ORDER_SNAPSHOT=<full orders Silver prefix>`, rồi
+warehouse/deferred commands với `SOURCE_TABLE=order_reviews`. Score 1–5, UTC/DST,
+optional comments và bounded retry được kiểm tra; chưa có scheduled core inputs,
+review marts hoặc BI grants. Xem [review contract](docs/data_contracts/19_review_snapshots.md).
 
 ## Geolocation analytics
 

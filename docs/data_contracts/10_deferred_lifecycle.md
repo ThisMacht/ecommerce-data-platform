@@ -11,7 +11,7 @@ CLI dùng Spark extra, Java 17, `WAREHOUSE_DSN`/`PG*` và S3 credentials như wa
 ## Registration and identity
 
 Registration chỉ nhận verified dependency-aware Silver: `orders-silver-v2`,
-`order_items-silver-v1/v2`, `order_payments-silver-v1`. Kiểm tra marker, manifest/hash,
+`order_items-silver-v1/v2`, `order_payments-silver-v1`, `order_reviews-silver-v1` (standalone, migration `020`). Kiểm tra marker, manifest/hash,
 source contract, all object bytes, physical Parquet schema và deferred row count.
 Legacy row có đúng một missing-parent rule; item v2 giữ mọi missing rule nhưng chỉ tạo một queue entry. Không nhận local errors. Raw Bronze payload,
 normalized typed payload, original physical/logical UID, source key/version và
@@ -34,7 +34,7 @@ PENDING -> RESOLVED: dependency có trong pinned full parent snapshot
 PENDING -> EXPIRED: đạt max age hoặc hết số lần thử
 ```
 
-Orders dùng full customer Silver; items/payments dùng full orders Silver. Snapshot
+Orders dùng full customer Silver; items/payments/reviews dùng full orders Silver. Snapshot
 phải đúng dataset/version, cùng source contract, đã verify và `snapshot_kind=FULL`.
 Parent key set chỉ gồm valid unique nonblank keys, count phải khớp manifest.
 Prefix và manifest SHA-256 được pin trong resolution request; đổi parent cần
@@ -55,7 +55,7 @@ Backfill resolver thêm `--origin-run-id <original payload _run_id>` (trùng own
 resolution request; thay origin cần resolution run ID mới. Backfill final gate
 bắt buộc origin bằng owning pipeline ID, giữ queue của run khác nguyên trạng.
 Không truyền origin filter thì xử lý global queue trong cùng dependency scope: legacy và item v2 không chọn lẫn nhau.
-Health/dashboard luôn đo backlog chung. Xem [contract 13](13_backfill_pipeline.md).
+Health/dashboard đo backlog chung của core datasets; standalone reviews cần kiểm tra queue riêng. Xem [contract 13](13_backfill_pipeline.md).
 
 ## Duplicate occurrences and version safety
 

@@ -25,6 +25,7 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | 16 | [Seller Snapshots](data_contracts/16_seller_snapshots.md) | Full sellers Bronze/Silver, location warnings, version-aware staging and Type 1 dimension | Active — standalone and core full refresh |
 | 17 | [Item Dependency Snapshots](data_contracts/17_item_dependency_snapshots.md) | Three-parent item FK scope, immutable pins and atomic deferred retry | Active — standalone and scheduled v2 |
 | 18 | [Geolocation Snapshots](data_contracts/18_geolocation_snapshots.md) | Full observation snapshots, exact coordinates, ZIP medians/joint modes and Type 1 location dimension | Active — standalone and core full refresh |
+| 19 | [Review Snapshots](data_contracts/19_review_snapshots.md) | Composite full reviews, pinned orders, version-aware staging and atomic deferred retry | Active — standalone |
 
 ## Related documents
 

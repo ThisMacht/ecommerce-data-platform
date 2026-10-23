@@ -61,6 +61,15 @@ def valid_row(table="customers", key="a", sequence=1):
             "price": Decimal("10.50"),
             "freight_value": Decimal("1.25"),
         },
+        "order_reviews": {
+            "review_id": key,
+            "order_id": "order",
+            "review_score": 5,
+            "review_comment_title": None,
+            "review_comment_message": "Ótimo!\nEntrega rápida.",
+            "review_creation_date": instant,
+            "review_answer_timestamp": instant,
+        },
         "order_payments": {
             "order_id": key,
             "payment_sequential": 1,

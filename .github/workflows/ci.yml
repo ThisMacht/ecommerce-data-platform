@@ -135,6 +135,8 @@ jobs:
         run: uv sync --locked --extra processing --extra analytics
       - name: Test products snapshots and version-aware staging
         run: make test-product-integration
+      - name: Test standalone reviews, composite keys and deferred retries
+        run: make test-review-integration
       - name: Test geolocation snapshots and exact coordinate staging
         run: make test-geolocation-integration
       - name: Test sellers snapshots and version-aware staging

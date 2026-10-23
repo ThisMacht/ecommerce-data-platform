@@ -28,6 +28,7 @@ DEPENDENCIES = {
     "orders": ("customers", "customer_id", "missing_customer"),
     "order_items": ("orders", "order_id", "missing_order"),
     "order_payments": ("orders", "order_id", "missing_order"),
+    "order_reviews": ("orders", "order_id", "missing_order"),
 }
 ITEM_QUEUE_RULE = "missing_item_dependencies"
 

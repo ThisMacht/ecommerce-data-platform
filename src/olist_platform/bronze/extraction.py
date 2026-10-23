@@ -25,6 +25,7 @@ KEYS = {
     "products": ("product_id",),
     "sellers": ("seller_id",),
     "geolocation": ("geolocation_row_id",),
+    "order_reviews": ("review_id", "order_id"),
 }
 PIPELINE = "bronze_orders_v1"
 LOCK = "olist.bronze.orders.v1"
@@ -73,6 +74,8 @@ def configuration(
 ) -> dict:
     if table not in KEYS:
         raise BronzeError("Unsupported extraction table")
+    if table == "order_reviews" and pipeline_run_id is not None:
+        raise BronzeError("Reviews support standalone full snapshots only")
     if contract["contract_version"] != "1.0.0":
         raise BronzeError("Unsupported source contract version")
     if type(page_size) is not int or not 1 <= page_size <= 10000:
@@ -279,7 +282,14 @@ def prepare(
             if before
             and config.get("snapshot_kind") != "FULL"
             and (
-                table not in ("customers", "products", "sellers", "geolocation")
+                table
+                not in (
+                    "customers",
+                    "products",
+                    "sellers",
+                    "geolocation",
+                    "order_reviews",
+                )
                 or config.get("pipeline_run_id")
             )
             else None
@@ -345,7 +355,8 @@ def prepare(
                 ).fetchone()[0],
             )
         elif (
-            table in ("customers", "products", "sellers", "geolocation")
+            table
+            in ("customers", "products", "sellers", "geolocation", "order_reviews")
             or config.get("snapshot_kind") == "FULL"
         ):
             manifest["snapshot_kind"] = "FULL"
