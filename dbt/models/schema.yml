@@ -1,48 +1,114 @@
 version: 2
 sources:
 - name: raw_staging
+  description: "Validated current Silver records merged transactionally by source_sequence; full snapshots do not imply deletes."
   schema: raw_staging
   tables:
   - name: customers
+    description: "Current source customer_id grain with shopper identity; version-aware validated Silver merges, no deletes inferred from full snapshots."
   - name: orders
+    description: "Current order_id grain with normalized UTC timestamps and local purchase date; missing dependencies remain outside staging."
   - name: order_items
+    description: "Current composite (order_id, order_item_id); core item v2 validates full order/product/seller membership before staging."
   - name: order_payments
+    description: "Current composite (order_id, payment_sequential); exact BRL observed entry values, not installment rows."
   - name: products
+    description: "Current product_id Type 1 snapshot attributes; source lenght spellings retained in staging, nullable attributes preserve warnings."
   - name: sellers
+    description: "Current seller_id Type 1 snapshot attributes; source ZIP text preserves leading zeros and location warnings."
   - name: geolocation
+    description: "Current physical CSV observation grain geolocation_row_id; full-only snapshots and exact numeric coordinates, ZIP is not a source key."
   - name: order_reviews
+    description: "Current composite (review_id, order_id); optional original comments protected in staging, full pinned order membership validated in Silver."
 models:
 - name: stg_customers
+  description: "One current source customer_id; order-scoped IDs retain shopper identity and source location without invented history."
   columns:
   - name: customer_id
+    description: "Order-scoped source customer key; several IDs may identify one shopper."
     data_tests:
     - unique
     - not_null
+  - name: customer_unique_id
+    description: "Source shopper identity shared across order-scoped customer IDs."
+  - name: customer_zip_code_prefix
+    description: "Source customer ZIP text; leading zeros retained, blank becomes NULL, invalid values retain warning semantics."
+  - name: customer_city
+    description: "Trimmed lowercase customer city from source; missing values stay NULL, not inferred from coordinates."
+  - name: customer_state
+    description: "Trimmed uppercase customer state from source; missing values stay NULL and invalid values remain flagged."
+  - name: source_sequence
+    description: "Authoritative monotonically assigned source version used for Type 1 selection and merge."
+  - name: source_updated_at
+    description: "Offset-aware UTC source update timestamp; not the business purchase or cohort date."
+  - name: first_seen_at
+    description: "First warehouse observation timestamp, not source business creation time."
+  - name: last_seen_at
+    description: "Latest accepted warehouse observation timestamp, including unchanged versions under new load requests."
 - name: stg_orders
+  description: "One current order_id with UTC business milestones and Silver-normalized Sao Paulo purchase date; all current statuses retained."
   columns:
   - name: order_id
+    description: "Source order business key; repeated across child entries according to each model grain."
     data_tests:
     - unique
     - not_null
   - name: customer_id
+    description: "Order-scoped source customer key; several IDs may identify one shopper."
     data_tests:
     - not_null
     - relationships:
         arguments:
           to: ref('stg_customers')
           field: customer_id
+  - name: order_status
+    description: "Current source status; no historical transitions inferred."
+  - name: order_purchase_timestamp
+    description: "Observed order purchase instant in UTC, normalized from source Sao Paulo local time."
+  - name: order_approved_at
+    description: "Nullable source approval instant in UTC, not an observed payment settlement timestamp."
+  - name: order_delivered_carrier_date
+    description: "Nullable source carrier handoff instant in UTC."
+  - name: order_delivered_customer_date
+    description: "Nullable source actual customer delivery instant in UTC."
+  - name: order_estimated_delivery_date
+    description: "Promised delivery instant normalized to UTC; use explicit Sao Paulo conversion for its calendar date."
+  - name: source_sequence
+    description: "Authoritative monotonically assigned source version used for Type 1 selection and merge."
+  - name: source_updated_at
+    description: "Offset-aware UTC source update timestamp; not the business purchase or cohort date."
+  - name: first_seen_at
+    description: "First warehouse observation timestamp, not source business creation time."
+  - name: last_seen_at
+    description: "Latest accepted warehouse observation timestamp, including unchanged versions under new load requests."
+  - name: order_purchase_date
+    description: "Sao Paulo purchase calendar date produced in Silver; independent of database session timezone."
 - name: int_order_item_summary
+  description: "One order with observed item counts and exact BRL sums; aggregate before joining payment totals."
   columns:
   - name: order_id
+    description: "Source order business key; repeated across child entries according to each model grain."
     data_tests:
     - unique
     - not_null
+  - name: item_count
+    description: "Observed item-entry count per order; zero only in fct_orders when no items are present."
+  - name: item_amount
+    description: "SUM of observed item prices in exact BRL NUMERIC at order grain; NULL in fct_orders without items."
+  - name: freight_amount
+    description: "SUM of all observed item freight per order in exact BRL NUMERIC; eligibility is applied downstream."
 - name: int_payment_summary
+  description: "One order with observed payment-entry count and exact BRL sum, without installment multiplication."
   columns:
   - name: order_id
+    description: "Source order business key; repeated across child entries according to each model grain."
     data_tests:
     - unique
     - not_null
+  - name: payment_count
+    description: "Observed payment-entry count per order; zero is distinct from an observed zero-value entry."
+  - name: gross_paid_amount
+    description: "SUM of all observed payment entries per order in exact BRL NUMERIC; eligibility applied downstream, never multiply by installments."
 - name: dim_customer
   description: "One current shopper from source customers; stable MD5 business key, without synthetic unknown members."
   columns:
@@ -57,6 +123,7 @@ models:
     - unique
     - not_null
   - name: record_hash
+    description: "MD5 of current representative source city/state/ZIP attributes; distinct from the staging business-v1 hash and excludes optional location membership."
     data_tests:
     - not_null
   - name: location_key
@@ -67,13 +134,28 @@ models:
           to: ref('dim_location')
           field: location_key
 
+  - name: latest_customer_id
+    description: "Current representative customer_id selected by source_sequence DESC, customer_id DESC."
+  - name: customer_city
+    description: "Trimmed lowercase customer city from source; missing values stay NULL, not inferred from coordinates."
+  - name: customer_state
+    description: "Trimmed uppercase customer state from source; missing values stay NULL and invalid values remain flagged."
+  - name: customer_zip_code_prefix
+    description: "Source customer ZIP text; leading zeros retained, blank becomes NULL, invalid values retain warning semantics."
+  - name: created_at
+    description: "Earliest warehouse observation across source customer IDs for this shopper."
+  - name: updated_at
+    description: "Latest warehouse observation of the selected current source customer representative."
 - name: fct_orders
+  description: "One current order with shopper/date keys and separate item/payment summaries; no child fan-out. Missing child amounts stay NULL, counts zero."
   columns:
   - name: order_id
+    description: "Source order business key; repeated across child entries according to each model grain."
     data_tests:
     - unique
     - not_null
   - name: customer_key
+    description: "Stable MD5 shopper identifier joined to dim_customer; required membership, not an anonymization hash."
     data_tests:
     - not_null
     - relationships:
@@ -81,6 +163,7 @@ models:
           to: ref('dim_customer')
           field: customer_key
   - name: order_purchase_date
+    description: "Sao Paulo purchase calendar date produced in Silver; independent of database session timezone."
     data_tests:
     - not_null
   - name: order_purchase_date_key
@@ -92,21 +175,67 @@ models:
           to: ref('dim_date')
           field: date_key
 
+  - name: customer_id
+    description: "Order-scoped source customer key; several IDs may identify one shopper."
+  - name: customer_unique_id
+    description: "Source shopper identity shared across order-scoped customer IDs."
+  - name: order_status
+    description: "Current source status; no historical transitions inferred."
+  - name: order_purchase_timestamp
+    description: "Observed order purchase instant in UTC, normalized from source Sao Paulo local time."
+  - name: is_metric_eligible
+    description: "True for delivered, shipped, invoiced, processing, approved or created; canceled/unavailable remain in facts but not eligible metrics."
+  - name: item_count
+    description: "Observed item-entry count per order; zero only in fct_orders when no items are present."
+  - name: payment_count
+    description: "Observed payment-entry count per order; zero is distinct from an observed zero-value entry."
+  - name: item_amount
+    description: "SUM of observed item prices in exact BRL NUMERIC at order grain; NULL in fct_orders without items."
+  - name: freight_amount
+    description: "Observed order-level item freight sum in exact BRL NUMERIC; NULL without item entries, eligibility applied in marts."
+  - name: gross_paid_amount
+    description: "Observed order-level payment sum in exact BRL NUMERIC across all statuses; NULL without payment entries."
 - name: mart_revenue_daily
+  description: "One Sao Paulo purchase date; observed eligible item GMV/freight, gross paid and incomplete-order counts, not net revenue."
   columns:
   - name: order_purchase_date
+    description: "Sao Paulo purchase calendar date produced in Silver; independent of database session timezone."
     data_tests:
     - unique
     - not_null
+  - name: total_order_count
+    description: "All observed orders in this purchase-date cohort, including incomplete and ineligible statuses."
+  - name: eligible_order_count
+    description: "Count of metric-eligible orders in this purchase-date cohort, whether paid or complete."
+  - name: orders_without_items
+    description: "Eligible orders without observed item entries; not proof the source order has no items."
+  - name: orders_without_payments
+    description: "Eligible orders without observed payment entries; distinct from observed zero-paid orders."
+  - name: gmv
+    description: "SUM of observed eligible item prices in exact BRL NUMERIC, excluding freight and payment joins."
+  - name: freight_amount
+    description: "SUM of observed eligible item freight in exact BRL NUMERIC; not a payout allocation."
+  - name: gross_paid_amount
+    description: "SUM of observed eligible payment values in exact BRL NUMERIC; not net revenue, profit or seller payout."
 - name: mart_average_order_value
+  description: "One Sao Paulo purchase date; positive-paid eligible order grain, NULL AOV without paid observations. Combine sums/counts, never daily means."
   columns:
   - name: order_purchase_date
+    description: "Sao Paulo purchase calendar date produced in Silver; independent of database session timezone."
     data_tests:
     - unique
     - not_null
+  - name: paid_order_count
+    description: "Eligible orders with summed observed payment value greater than zero, each counted once."
+  - name: paid_amount
+    description: "Observed positive-paid eligible order totals in exact BRL NUMERIC; not a sum across raw item/payment joins."
+  - name: average_order_value
+    description: "paid_amount / paid_order_count rounded to two decimals; NULL with no positive-paid eligible orders; combine sums/counts across dates."
 - name: stg_order_items
+  description: "One current (order_id, order_item_id); exact BRL price/freight and UTC shipping deadline, without item/payment joins."
   columns:
   - name: order_id
+    description: "Source order business key; repeated across child entries according to each model grain."
     data_tests:
     - not_null
     - relationships:
@@ -114,11 +243,32 @@ models:
           to: ref('stg_orders')
           field: order_id
   - name: order_item_id
+    description: "Item sequence within an order; pair with order_id, not an order quantity."
     data_tests:
     - not_null
+  - name: product_id
+    description: "Source product business key retained for traceability."
+  - name: seller_id
+    description: "Source seller business key retained for traceability."
+  - name: shipping_limit_date
+    description: "UTC source item shipping deadline, not an actual shipment milestone."
+  - name: price
+    description: "Exact BRL source item price; one row represents an item, not an order total."
+  - name: freight_value
+    description: "Exact BRL freight for this source item; not payment or seller payout allocation."
+  - name: source_sequence
+    description: "Authoritative monotonically assigned source version used for Type 1 selection and merge."
+  - name: source_updated_at
+    description: "Offset-aware UTC source update timestamp; not the business purchase or cohort date."
+  - name: first_seen_at
+    description: "First warehouse observation timestamp, not source business creation time."
+  - name: last_seen_at
+    description: "Latest accepted warehouse observation timestamp, including unchanged versions under new load requests."
 - name: stg_payments
+  description: "One current (order_id, payment_sequential); observed BRL entry amount and installments, not allocated item payments."
   columns:
   - name: order_id
+    description: "Source order business key; repeated across child entries according to each model grain."
     data_tests:
     - not_null
     - relationships:
@@ -126,8 +276,23 @@ models:
           to: ref('stg_orders')
           field: order_id
   - name: payment_sequential
+    description: "Source payment-entry ordinal within order_id, not an installment number."
     data_tests:
     - not_null
+  - name: payment_type
+    description: "Silver-validated observed type: credit_card, boleto, voucher, debit_card or not_defined."
+  - name: payment_installments
+    description: "Observed installment count; do not multiply payment_value by this field."
+  - name: payment_value
+    description: "Exact BRL observed value for this payment entry; not net revenue or profit."
+  - name: source_sequence
+    description: "Authoritative monotonically assigned source version used for Type 1 selection and merge."
+  - name: source_updated_at
+    description: "Offset-aware UTC source update timestamp; not the business purchase or cohort date."
+  - name: first_seen_at
+    description: "First warehouse observation timestamp, not source business creation time."
+  - name: last_seen_at
+    description: "Latest accepted warehouse observation timestamp, including unchanged versions under new load requests."
 - name: stg_products
   description: "Full product snapshots merged by source_sequence; nullable attributes retain warning flags in staging."
   columns:
@@ -136,6 +301,32 @@ models:
     data_tests:
     - unique
     - not_null
+  - name: product_category_name
+    description: "Normalized source Portuguese product category; missing values stay NULL without inferred translation."
+  - name: product_name_length
+    description: "Source character count from product_name_lenght; nullable, normalized spelling in analytics only."
+  - name: product_description_length
+    description: "Source character count from product_description_lenght; NULL means unavailable."
+  - name: product_photos_qty
+    description: "Nullable source product photo count; no inferred image assets."
+  - name: product_weight_g
+    description: "Nullable nonnegative source product weight in grams; zero retains a Silver warning."
+  - name: product_length_cm
+    description: "Nullable nonnegative source package length in centimeters."
+  - name: product_height_cm
+    description: "Nullable nonnegative source package height in centimeters."
+  - name: product_width_cm
+    description: "Nullable nonnegative source package width in centimeters."
+  - name: source_sequence
+    description: "Authoritative monotonically assigned source version used for Type 1 selection and merge."
+  - name: source_updated_at
+    description: "Offset-aware UTC source update timestamp; not the business purchase or cohort date."
+  - name: first_seen_at
+    description: "First warehouse observation timestamp, not source business creation time."
+  - name: last_seen_at
+    description: "Latest accepted warehouse observation timestamp, including unchanged versions under new load requests."
+  - name: record_hash
+    description: "Canonical business-v1 SHA-256 hash from staging; excludes source version and physical lineage."
 - name: dim_product
   description: "Type 1 current product attributes; no inferred history or category translation."
   columns:
@@ -181,6 +372,22 @@ models:
     data_tests:
     - unique
     - not_null
+  - name: seller_zip_code_prefix
+    description: "Source seller ZIP text; leading zeros retained; invalid or unmatched ZIP does not infer a location."
+  - name: seller_city
+    description: "Trimmed lowercase source seller city; NULL when blank."
+  - name: seller_state
+    description: "Trimmed uppercase source seller state; missing/invalid labels retain Silver warning semantics."
+  - name: source_sequence
+    description: "Authoritative monotonically assigned source version used for Type 1 selection and merge."
+  - name: source_updated_at
+    description: "Offset-aware UTC source update timestamp; not the business purchase or cohort date."
+  - name: first_seen_at
+    description: "First warehouse observation timestamp, not source business creation time."
+  - name: last_seen_at
+    description: "Latest accepted warehouse observation timestamp, including unchanged versions under new load requests."
+  - name: record_hash
+    description: "Canonical business-v1 SHA-256 hash from staging; excludes source version and physical lineage."
 - name: dim_seller
   description: "Type 1 current seller location; no synthetic unknown members or inferred historical address; optional current ZIP representative key."
   columns:
@@ -220,6 +427,7 @@ models:
   description: "One current row per (order_id, order_item_id); unallocated BRL item price/freight, all order statuses retained."
   columns:
   - name: order_id
+    description: "Source order business key; repeated across child entries according to each model grain."
     data_tests:
     - not_null
     - relationships:
@@ -227,9 +435,11 @@ models:
           to: ref('fct_orders')
           field: order_id
   - name: order_item_id
+    description: "Item sequence within an order; pair with order_id, not an order quantity."
     data_tests:
     - not_null
   - name: product_id
+    description: "Source product business key retained for traceability."
     data_tests:
     - not_null
   - name: product_key
@@ -241,6 +451,7 @@ models:
           to: ref('dim_product')
           field: product_key
   - name: seller_id
+    description: "Source seller business key retained for traceability."
     data_tests:
     - not_null
   - name: seller_key
@@ -252,6 +463,7 @@ models:
           to: ref('dim_seller')
           field: seller_key
   - name: customer_key
+    description: "Stable MD5 shopper identifier joined to dim_customer; required membership, not an anonymization hash."
     data_tests:
     - not_null
     - relationships:
@@ -259,15 +471,19 @@ models:
           to: ref('dim_customer')
           field: customer_key
   - name: order_purchase_date
+    description: "Sao Paulo purchase calendar date produced in Silver; independent of database session timezone."
     data_tests:
     - not_null
   - name: order_status
+    description: "Current source status; no historical transitions inferred."
     data_tests:
     - not_null
   - name: is_metric_eligible
+    description: "True for delivered, shipped, invoiced, processing, approved or created; canceled/unavailable remain in facts but not eligible metrics."
     data_tests:
     - not_null
   - name: shipping_limit_date
+    description: "UTC source item shipping deadline, not an actual shipment milestone."
     data_tests:
     - not_null
   - name: price
@@ -291,54 +507,70 @@ models:
   description: "One local purchase date and product; eligible item GMV/freight without payment joins. Order counts are distinct within a group, not additive across products."
   columns:
   - name: order_purchase_date
+    description: "Sao Paulo purchase calendar date produced in Silver; independent of database session timezone."
     data_tests:
     - not_null
   - name: product_id
+    description: "Source product business key retained for traceability."
     data_tests:
     - not_null
   - name: product_key
+    description: "Current stable MD5 product identifier; source-backed Type 1 membership."
     data_tests:
     - not_null
   - name: total_item_count
+    description: "All observed source item entries within this date/entity, including ineligible order statuses."
     data_tests:
     - not_null
   - name: eligible_item_count
+    description: "Observed source item entries whose current order status is metric-eligible."
     data_tests:
     - not_null
   - name: eligible_order_count
+    description: "Distinct eligible orders within this model group; group counts are not necessarily additive across products, sellers or payment types."
     data_tests:
     - not_null
   - name: gmv
+    description: "SUM of observed eligible item prices in exact BRL NUMERIC, excluding freight and payment joins."
     data_tests:
     - not_null
   - name: freight_amount
+    description: "SUM of observed eligible item freight in exact BRL NUMERIC; not a payout allocation."
     data_tests:
     - not_null
 - name: mart_seller_daily
   description: "One local purchase date and seller; eligible item GMV/freight without payment joins. Order counts are distinct within a group, not additive across sellers."
   columns:
   - name: order_purchase_date
+    description: "Sao Paulo purchase calendar date produced in Silver; independent of database session timezone."
     data_tests:
     - not_null
   - name: seller_id
+    description: "Source seller business key retained for traceability."
     data_tests:
     - not_null
   - name: seller_key
+    description: "Current stable MD5 seller identifier; source-backed Type 1 membership."
     data_tests:
     - not_null
   - name: total_item_count
+    description: "All observed source item entries within this date/entity, including ineligible order statuses."
     data_tests:
     - not_null
   - name: eligible_item_count
+    description: "Observed source item entries whose current order status is metric-eligible."
     data_tests:
     - not_null
   - name: eligible_order_count
+    description: "Distinct eligible orders within this model group; group counts are not necessarily additive across products, sellers or payment types."
     data_tests:
     - not_null
   - name: gmv
+    description: "SUM of observed eligible item prices in exact BRL NUMERIC, excluding freight and payment joins."
     data_tests:
     - not_null
   - name: freight_amount
+    description: "SUM of observed eligible item freight in exact BRL NUMERIC; not a payout allocation."
     data_tests:
     - not_null
 
@@ -346,6 +578,7 @@ models:
   description: "One current row per (order_id, payment_sequential); observed BRL payment value, not multiplied by installments or allocated to items. All order statuses retained."
   columns:
   - name: order_id
+    description: "Source order business key; repeated across child entries according to each model grain."
     data_tests:
     - not_null
     - relationships:
@@ -357,6 +590,7 @@ models:
     data_tests:
     - not_null
   - name: customer_key
+    description: "Stable MD5 shopper identifier joined to dim_customer; required membership, not an anonymization hash."
     data_tests:
     - not_null
     - relationships:
@@ -364,18 +598,23 @@ models:
           to: ref('dim_customer')
           field: customer_key
   - name: order_purchase_date
+    description: "Sao Paulo purchase calendar date produced in Silver; independent of database session timezone."
     data_tests:
     - not_null
   - name: order_status
+    description: "Current source status; no historical transitions inferred."
     data_tests:
     - not_null
   - name: is_metric_eligible
+    description: "True for delivered, shipped, invoiced, processing, approved or created; canceled/unavailable remain in facts but not eligible metrics."
     data_tests:
     - not_null
   - name: payment_type
+    description: "Silver-validated observed type: credit_card, boleto, voucher, debit_card or not_defined."
     data_tests:
     - not_null
   - name: payment_installments
+    description: "Observed installment count; do not multiply payment_value by this field."
     data_tests:
     - not_null
   - name: payment_value
@@ -395,21 +634,27 @@ models:
   description: "One local purchase date and payment type; eligible observed gross payments, not net revenue. Order counts are distinct within each type and cannot be added across types."
   columns:
   - name: order_purchase_date
+    description: "Sao Paulo purchase calendar date produced in Silver; independent of database session timezone."
     data_tests:
     - not_null
   - name: payment_type
+    description: "Silver-validated observed type: credit_card, boleto, voucher, debit_card or not_defined."
     data_tests:
     - not_null
   - name: total_payment_count
+    description: "All observed payment entries in this date/type, including ineligible order statuses."
     data_tests:
     - not_null
   - name: eligible_payment_count
+    description: "Observed payment entries whose current order status is metric-eligible."
     data_tests:
     - not_null
   - name: eligible_order_count
+    description: "Distinct eligible orders within this model group; group counts are not necessarily additive across products, sellers or payment types."
     data_tests:
     - not_null
   - name: gross_paid_amount
+    description: "SUM of observed eligible payment values in exact BRL NUMERIC; not net revenue, profit or seller payout."
     data_tests:
     - not_null
 
@@ -417,6 +662,7 @@ models:
   description: "One order, including incomplete/ineligible timelines. UTC elapsed durations; lateness uses Sao Paulo calendar dates. Invalid chronology is flagged, never silently repaired."
   columns:
   - name: order_id
+    description: "Source order business key; repeated across child entries according to each model grain."
     data_tests:
     - not_null
     - unique
@@ -425,6 +671,7 @@ models:
           to: ref('fct_orders')
           field: order_id
   - name: customer_key
+    description: "Stable MD5 shopper identifier joined to dim_customer; required membership, not an anonymization hash."
     data_tests:
     - not_null
     - relationships:
@@ -432,12 +679,15 @@ models:
           to: ref('dim_customer')
           field: customer_key
   - name: order_status
+    description: "Current source status; no historical transitions inferred."
     data_tests:
     - not_null
   - name: order_purchase_date
+    description: "Sao Paulo purchase calendar date produced in Silver; independent of database session timezone."
     data_tests:
     - not_null
   - name: order_purchase_timestamp
+    description: "Observed order purchase instant in UTC, normalized from source Sao Paulo local time."
     data_tests:
     - not_null
   - name: order_approved_at
@@ -447,20 +697,25 @@ models:
   - name: order_delivered_customer_date
     description: "Nullable UTC actual customer delivery."
   - name: order_estimated_delivery_date
+    description: "Promised delivery instant normalized to UTC; use explicit Sao Paulo conversion for its calendar date."
     data_tests:
     - not_null
   - name: estimated_delivery_date
+    description: "Promised delivery calendar date after explicit America/Sao_Paulo conversion."
     data_tests:
     - not_null
   - name: delivered_date
     description: "Nullable Sao Paulo actual delivery date, retained regardless of order status."
   - name: has_delivery_timestamp
+    description: "True when actual UTC delivery timestamp is present, regardless of current order status or chronology validity."
     data_tests:
     - not_null
   - name: has_invalid_delivery_chronology
+    description: "True for carrier-before-purchase or actual-before-purchase/carrier; missing optional milestones alone are not chronology errors."
     data_tests:
     - not_null
   - name: is_delivery_observed
+    description: "Delivered status with actual timestamp and valid purchase/carrier/delivery chronology; denominator for delivery metrics."
     data_tests:
     - not_null
   - name: delivery_delay_days
@@ -499,31 +754,40 @@ models:
   description: "Purchase-date cohort, not delivery-day throughput. Observed delivered timelines form the late-rate denominator; incomplete and invalid counts remain visible."
   columns:
   - name: order_purchase_date
+    description: "Sao Paulo purchase calendar date produced in Silver; independent of database session timezone."
     data_tests:
     - not_null
     - unique
   - name: total_order_count
+    description: "All observed orders in this purchase-date cohort, including incomplete and ineligible statuses."
     data_tests:
     - not_null
   - name: delivered_order_count
+    description: "Orders whose current status is delivered, including missing or invalid actual timelines."
     data_tests:
     - not_null
   - name: delivered_missing_timestamp_count
+    description: "Delivered-status orders without an actual delivery timestamp."
     data_tests:
     - not_null
   - name: invalid_chronology_count
+    description: "Orders with carrier-before-purchase or actual-before-purchase/carrier, across all statuses."
     data_tests:
     - not_null
   - name: observed_delivery_count
+    description: "Valid delivered observations; denominator for late rate and mean purchase-to-delivery hours."
     data_tests:
     - not_null
   - name: transit_observation_count
+    description: "Valid delivered observations with carrier milestone; denominator for mean carrier-to-delivery hours."
     data_tests:
     - not_null
   - name: late_delivery_count
+    description: "Valid delivered observations arriving after the promised Sao Paulo calendar date."
     data_tests:
     - not_null
   - name: on_time_delivery_count
+    description: "Valid delivered observations on or before the promised Sao Paulo calendar date."
     data_tests:
     - not_null
   - name: late_delivery_rate
@@ -534,7 +798,7 @@ models:
     description: "Mean UTC carrier-to-delivery hours over transit_observation_count; NULL when carrier observations are absent."
 
 - name: dim_date
-  description: "Continuous calendar covering observed purchase, promised and actual Sao Paulo delivery dates; empty without dates. Pair ISO week with iso_year."
+  description: "Continuous calendar covering observed purchase, promised/actual delivery and review creation Sao Paulo dates; empty without dates. Pair ISO week with iso_year."
   columns:
   - name: date_key
     description: "Stable integer YYYYMMDD."
@@ -542,15 +806,22 @@ models:
     - not_null
     - unique
   - name: calendar_date
+    description: "One continuous local calendar date between observed purchase/delivery/review bounds, including intervening unused days."
     data_tests:
     - not_null
     - unique
   - name: calendar_year
+    description: "Gregorian calendar year, distinct from ISO week-numbering year."
   - name: calendar_quarter
+    description: "Gregorian quarter number from 1 through 4."
   - name: calendar_month
+    description: "Gregorian month number from 1 through 12."
   - name: day_of_month
+    description: "Gregorian day number from 1 through 31."
   - name: iso_year
+    description: "ISO week-numbering year; pair with iso_week at calendar-year boundaries."
   - name: iso_week
+    description: "ISO week number from 1 through 53, interpreted together with iso_year."
   - name: iso_day_of_week
     description: "Monday=1 through Sunday=7."
   - name: is_weekend
@@ -560,18 +831,55 @@ models:
   description: "Current source observations keyed by positive CSV row position, never ZIP; coordinates remain exact NUMERIC."
   columns:
   - name: geolocation_row_id
+    description: "Positive immutable CSV data-row position; physical observation key, not ZIP or address identity."
     data_tests: [not_null, unique]
   - name: geolocation_zip_code_prefix
+    description: "Validated five-digit source ZIP text, preserving leading zeros; not a unique source key."
     data_tests: [not_null]
   - name: geolocation_lat
+    description: "Exact NUMERIC latitude of this physical observation; validated in [-90,90]."
     data_tests: [not_null]
   - name: geolocation_lng
+    description: "Exact NUMERIC longitude of this physical observation; validated in [-180,180]."
     data_tests: [not_null]
+  - name: geolocation_city
+    description: "Trimmed lowercase source city label; missing label may remain NULL with warning."
+  - name: geolocation_state
+    description: "Trimmed uppercase source state label; invalid or missing labels retain warning semantics."
+  - name: warning_rule_ids
+    description: "Persisted Silver warning rule IDs; warnings retain the valid observation and may overlap."
+  - name: source_sequence
+    description: "Authoritative monotonically assigned source version used for Type 1 selection and merge."
+  - name: source_updated_at
+    description: "Offset-aware UTC source update timestamp; not the business purchase or cohort date."
+  - name: first_seen_at
+    description: "First warehouse observation timestamp, not source business creation time."
+  - name: last_seen_at
+    description: "Latest accepted warehouse observation timestamp, including unchanged versions under new load requests."
+  - name: record_hash
+    description: "Canonical business-v1 SHA-256 hash from staging; excludes source version and physical lineage."
 - name: int_geolocation_by_zip
   description: "One ZIP with exact coordinate medians; joint city/state mode, ties by state then city using C collation. All source observations count, including identical coordinates."
   columns:
   - name: zip_code_prefix
+    description: "Validated five-digit ZIP group text; leading zeros retained, no address identity inferred."
     data_tests: [not_null, unique]
+  - name: latitude
+    description: "Exact numeric median latitude across physical observations for this ZIP, averaging middle values for even counts."
+  - name: longitude
+    description: "Exact numeric median longitude across physical observations for this ZIP, computed independently of latitude."
+  - name: sample_count
+    description: "Physical source observations in the ZIP, retaining repeated points; not distinct addresses or people."
+  - name: created_at
+    description: "First warehouse observation across the represented source members, not business creation time."
+  - name: updated_at
+    description: "Latest warehouse observation of the current represented source attributes, not an effective historical boundary."
+  - name: city
+    description: "City from the modal valid city/state pair; ties resolved jointly by C-collated state then city; NULL without valid labels."
+  - name: state
+    description: "State paired with the modal city, not an independent state mode; NULL without valid labels."
+  - name: modal_sample_count
+    description: "Physical frequency of the selected valid city/state pair; zero if no pair is available."
 - name: dim_location
   description: "Current Type 1 ZIP representatives, not exact customer/seller addresses; no inferred membership or historical locations."
   columns:
@@ -579,6 +887,7 @@ models:
     description: "Stable MD5 of the five-character ZIP prefix."
     data_tests: [not_null, unique]
   - name: zip_code_prefix
+    description: "Validated five-digit ZIP group text; leading zeros retained, no address identity inferred."
     data_tests: [not_null, unique]
   - name: latitude
     description: "Exact numeric median over all valid source observations at this ZIP."
@@ -597,8 +906,10 @@ models:
     description: "Frequency of the chosen city/state pair; zero when labels unavailable."
     data_tests: [not_null]
   - name: created_at
+    description: "First warehouse observation across the represented source members, not business creation time."
     data_tests: [not_null]
   - name: updated_at
+    description: "Latest warehouse observation of the current represented source attributes, not an effective historical boundary."
     data_tests: [not_null]
   - name: record_hash
     description: "MD5 of current representative attributes and counts; excludes observation timestamps."

@@ -660,9 +660,9 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 - [x] Add order-grain `fct_delivery` and daily purchase-cohort mart; explicit chronology/completeness, local-calendar lateness, UTC elapsed durations, DST and source reconciliation checks.
 - [ ] Kiểm tra fact foreign keys, BRL numeric precision và UTC/local-date semantics.
 - [x] Tạo marts revenue, observed shopper value, repeat eligible purchases, product/seller, delivery cohorts và current order status; explicit grains, raw reconciliation và existing BI scope.
-- [ ] Viết descriptions cho models và columns.
-- [ ] Chạy `dbt docs generate`.
-- [ ] Thêm lineage graph vào README.
+- [x] Mô tả 31 dbt models/304 output columns và 8 sources; exact catalog coverage integration giữ docs khớp schema.
+- [x] Thêm `make dbt-docs` và chạy real docs generation/catalog verification; generated artifacts giữ local/ignored.
+- [x] Thêm grouped direct-ref lineage vào README, full metadata graph nằm trong generated dbt docs.
 
 `fct_delivery` sử dụng các timestamp giao hàng trong `orders`, không dùng `order_items` như shipment table.
 

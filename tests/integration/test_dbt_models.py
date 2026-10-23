@@ -496,7 +496,7 @@ class DbtModelsTest(PostgresIntegrationCase):
         result = subprocess.run(
             [
                 str(Path(sys.executable).parent / "dbt"),
-                command,
+                *command.split(),
                 "--project-dir",
                 str(REPOSITORY_ROOT / "dbt"),
                 "--profiles-dir",
@@ -516,7 +516,39 @@ class DbtModelsTest(PostgresIntegrationCase):
             self.assertEqual(result.returncode, 0, result.stdout + "\n" + result.stderr)
         else:
             self.assertNotEqual(result.returncode, 0, result.stdout)
-        return json.loads((Path(self.directory.name) / "run_results.json").read_text())
+        artifact = "catalog.json" if command == "docs generate" else "run_results.json"
+        return json.loads((Path(self.directory.name) / artifact).read_text())
+
+    def test_docs_catalog_covers_all_models_columns_and_sources(self):
+        self.dbt()
+        catalog = self.dbt("docs generate")
+        manifest = json.loads((Path(self.directory.name) / "manifest.json").read_text())
+        self.assertFalse(catalog["errors"])
+        self.assertEqual(
+            catalog["metadata"]["invocation_id"], manifest["metadata"]["invocation_id"]
+        )
+        models = {
+            uid: node
+            for uid, node in manifest["nodes"].items()
+            if node["resource_type"] == "model"
+        }
+        self.assertEqual(len(models), 31)
+        self.assertEqual(set(models), set(catalog["nodes"]))
+        for uid, model in models.items():
+            with self.subTest(model=model["name"]):
+                self.assertTrue(model["description"].strip())
+                self.assertEqual(
+                    set(model["columns"]), set(catalog["nodes"][uid]["columns"])
+                )
+                for column in model["columns"].values():
+                    self.assertTrue(column["description"].strip(), column["name"])
+        self.assertEqual(sum(len(m["columns"]) for m in models.values()), 304)
+        self.assertEqual(len(manifest["sources"]), 8)
+        self.assertEqual(set(manifest["sources"]), set(catalog["sources"]))
+        self.assertTrue(
+            all(s["description"].strip() for s in manifest["sources"].values())
+        )
+        self.assertTrue((Path(self.directory.name) / "index.html").is_file())
 
     def test_independent_money_grains_statuses_type_one_customer_and_rebuild(self):
         self.dbt()

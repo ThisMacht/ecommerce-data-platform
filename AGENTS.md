@@ -57,6 +57,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make test-order-children-integration`: verify child datasets and pinned orders dependencies.
 - `make load-warehouse SOURCE_TABLE=<table> SILVER_PREFIX=<prefix> WAREHOUSE_RUN_ID=<id>`: load staging via `WAREHOUSE_DSN`/`PG*`.
 - `make test-warehouse-merge-integration` / `make test-warehouse-integration`: transactional merge and verified Silver loading checks.
+- `make dbt-docs`: generate local catalog/lineage under ignored `build/reports/dbt-docs/` after build; same PG/dbt environment, override `DBT_DOCS_OUTPUT`. Docs do not build/test or publish.
 - `make sync-analytics` / `make dbt-build`: locked dbt dependencies and build/tests; export `PG*`, `DBT_ENV_SECRET_PASSWORD`, `DBT_READER_USER`.
 - `make test-dbt-integration`: verify grains, metrics, shopper keys and failure gates in disposable PostgreSQL.
 - `make register-deferred SOURCE_TABLE=<table> SILVER_PREFIX=<prefix> DEFERRED_RUN_ID=<id>`: persist deferred rows with immutable limits.
@@ -215,3 +216,9 @@ Paulo purchase date. Late earlier orders/status changes can reclassify history.
 Combine repeat counts before dividing rates; distinct shoppers are not additive.
 `mart_order_status_daily` counts current status in purchase cohorts, not transitions.
 Preserve all eight dbt sources, core gates and existing six-model BI grants.
+
+Document every exported model column in dbt/models/schema.yml, preserving tests and
+source semantics. After output/schema changes run the real docs catalog integration
+check; source/model descriptions and exact output-column membership must match
+catalog.json. Keep catalog/manifest/compiled SQL local and ignored. README lineage
+is a grouped view of direct ref dependencies, not proof of atomic publication.

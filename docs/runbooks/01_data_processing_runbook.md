@@ -679,6 +679,13 @@ có thể thay đổi ngày cũ. Status mart không phải transition log. Khôn
 Chạy `make test-dbt-integration` và backfill equivalence sau sửa các marts này.
 Xem [customer metric policy](../data_contracts/09_analytics_models.md#customer-value-and-repeat-purchase).
 
+Sau successful dbt build, dùng `make dbt-docs` với cùng environment để generate
+catalog/manifest/viewer tại `build/reports/dbt-docs/`. Command không sửa staging,
+build relations hoặc promote watermark; phải kiểm tra build/test status riêng.
+Khi output columns đổi, bổ sung descriptions trong `dbt/models/schema.yml`, cập nhật
+README lineage nếu refs đổi, chạy docs catalog integration và giữ artifacts ignored.
+Xem [docs workflow](../data_contracts/09_analytics_models.md#documentation-catalog-and-lineage).
+
 ## 31. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:

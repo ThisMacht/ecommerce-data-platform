@@ -201,6 +201,76 @@ Sau staging, `make dataset` tự chạy dbt build/tests cho `dim_customer`, `fct
 
 Chạy riêng bằng `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_PASSWORD`, `DBT_READER_USER`, rồi `make dbt-build`. Xem [analytics contract](docs/data_contracts/09_analytics_models.md); kiểm thử bằng `make test-dbt-integration`. Views chưa có atomic publication; standalone dbt build không promote end-to-end watermarks. Chỉ coi build thành công sau khi tests pass.
 
+## dbt documentation and lineage
+
+Sau `make dbt-build`, giữ cùng `PG*`, `DBT_ENV_SECRET_PASSWORD` và
+`DBT_READER_USER`, chạy `make dbt-docs`. Kết quả mặc định ở ignored
+`build/reports/dbt-docs/`: `index.html`, `manifest.json`, `catalog.json` và compiled
+SQL. Có thể đổi `DBT_DOCS_OUTPUT=<directory>`. Xem bằng locked dbt runtime:
+
+```bash
+uv run --locked --extra analytics dbt docs serve --project-dir dbt --profiles-dir dbt --target-path "$PWD/build/reports/dbt-docs" --host 127.0.0.1 --port 8081
+```
+
+Docs phản ánh các relations hiện có và metadata tại thời điểm generate; command
+không build/test models, promote watermark hoặc tạo published analytics snapshot.
+Giữ artifacts local/ignored. Integration kiểm tra descriptions cho đủ model/output
+columns, đúng source catalog và không còn column docs đã lỗi thời.
+
+Sơ đồ dưới gom raw staging thành một nhóm; mỗi source cấp cho staging view cùng
+dataset. Các mũi tên còn lại là trực tiếp `ref()` dependencies, không phải physical
+snapshot boundaries. Đồ thị đầy đủ và column metadata nằm trong generated docs.
+
+```mermaid
+flowchart LR
+    raw["raw_staging: 8 datasets"] --> sc[stg_customers]
+    raw --> so[stg_orders]
+    raw --> si[stg_order_items]
+    raw --> sp[stg_payments]
+    raw --> spr[stg_products]
+    raw --> ss[stg_sellers]
+    raw --> sg[stg_geolocation]
+    raw --> sr[stg_reviews]
+    sg --> gz[int_geolocation_by_zip] --> loc[dim_location]
+    sc --> dc[dim_customer]
+    loc --> dc
+    ss --> ds[dim_seller]
+    loc --> ds
+    spr --> dp[dim_product]
+    so --> dd[dim_date]
+    sr --> dd
+    si --> isum[int_order_item_summary]
+    sp --> psum[int_payment_summary]
+    sc --> fo[fct_orders]
+    so --> fo
+    dc --> fo
+    dd --> fo
+    isum --> fo
+    psum --> fo
+    si --> fi[fct_order_items]
+    fo --> fi
+    dp --> fi
+    ds --> fi
+    sp --> fp[fct_payments]
+    fo --> fp
+    so --> fd[fct_delivery]
+    fo --> fd
+    dd --> fd
+    sr --> fr[fct_reviews]
+    dd --> fr
+    fo --> rev[mart_revenue_daily]
+    fo --> aov[mart_average_order_value]
+    fo --> cv[mart_customer_value]
+    dc --> cv
+    fo --> rep[mart_repeat_purchase_daily]
+    fo --> status[mart_order_status_daily]
+    fi --> prod[mart_product_daily]
+    fi --> sell[mart_seller_daily]
+    fp --> pay[mart_payment_type_daily]
+    fd --> delivery[mart_delivery_daily]
+    fr --> review[mart_review_daily]
+```
+
 ## Business dashboard
 
 Sau một pipeline SUCCESS, chạy `make metabase-up`, rồi mở

@@ -30,6 +30,7 @@ DEFERRED_RUN_ID ?=
 MAX_DEFERRED_ATTEMPTS ?= 3
 MAX_DEFERRED_AGE_HOURS ?= 168
 ANALYTICS_PYTHON ?= $(UV) run --locked --extra analytics python
+DBT_DOCS_OUTPUT ?= build/reports/dbt-docs
 PIPELINE_PYTHON ?= $(UV) run --locked --extra processing --extra analytics python
 PIPELINE_HEALTH_CONFIG ?= config/pipeline_health.json
 PIPELINE_DASHBOARD_OUTPUT ?= build/reports/pipeline_dashboard.html
@@ -50,7 +51,7 @@ BACKFILL_END ?=
 	ingest-products process-products test-product-integration \
 	ingest-sellers process-sellers test-seller-integration \
 	ingest-order-payments ingest-order-items process-order-payments process-order-items test-order-children-integration test-item-dependencies-integration \
-	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build test-dbt-integration \
+	load-warehouse test-warehouse-merge-integration test-warehouse-integration sync-analytics dbt-build dbt-docs test-dbt-integration \
 	register-deferred resolve-deferred test-deferred-integration test-deferred-state-integration \
 	test-pipeline-control-integration test-pipeline-integration pipeline-health pipeline-dashboard \
 	sync-airflow airflow-local test-airflow dataset-incremental test-incremental-integration dataset-backfill test-backfill-integration test-recovery-integration metabase-up metabase-setup metabase-down
@@ -118,6 +119,7 @@ help:
 	@echo "  test-warehouse-merge-integration Test PostgreSQL versions, atomic counters and replay"
 	@echo "  test-warehouse-integration Test verified Silver -> PostgreSQL staging"
 	@echo "  sync-analytics / dbt-build Install locked dbt dependencies / build models and tests"
+	@echo "  dbt-docs                  Generate local catalog, descriptions and lineage (requires built relations)"
 	@echo "  test-dbt-integration      Test marts and repeatable customer keys in disposable PostgreSQL"
 	@echo "  register-deferred         Persist deferred Silver; set SOURCE_TABLE, SILVER_PREFIX, DEFERRED_RUN_ID"
 	@echo "  resolve-deferred          Retry pending rows; set SOURCE_TABLE, PARENT_SNAPSHOT, DEFERRED_RUN_ID"
@@ -374,6 +376,9 @@ sync-analytics:
 
 dbt-build:
 	DBT_SEND_ANONYMOUS_USAGE_STATS=false $(UV) run --locked --extra analytics dbt build --project-dir dbt --profiles-dir dbt
+
+dbt-docs:
+	DBT_SEND_ANONYMOUS_USAGE_STATS=false $(UV) run --locked --extra analytics dbt docs generate --project-dir dbt --profiles-dir dbt --target-path "$(abspath $(DBT_DOCS_OUTPUT))"
 
 test-dbt-integration:
 	OLIST_TEST_CONTRACT="$(abspath $(SOURCE_CONTRACT))" \

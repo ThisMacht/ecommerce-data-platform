@@ -567,3 +567,52 @@ Evidence ignored: `build/reports/customer-marts-fast.log`,
 `customer-marts-final-checks.log`. Ruff/format và package build PASS. Không chạy lại
 full ingestion, toàn bộ analytics/incremental/recovery suites hoặc GitHub CI trong
 lượt này; các node-count expectations cho core gates cùng cập nhật 261.
+
+## Documentation Catalog and Lineage
+
+`dbt/models/schema.yml` mô tả grains, units, time semantics, null behavior và metric
+limits cho 31 models/304 output columns, cùng 8 raw staging sources. Giữ tests hiện
+có khi cập nhật descriptions. Source catalog có thêm technical lineage columns;
+coverage 304 columns nói về exported analytics models, không khẳng định mọi source
+technical column đều có column description riêng.
+
+Sau successful build, dùng cùng PG/dbt environment:
+
+```bash
+make dbt-docs
+# Optional local viewer, port independent of Metabase:
+uv run --locked --extra analytics dbt docs serve --project-dir dbt --profiles-dir dbt --target-path "$PWD/build/reports/dbt-docs" --host 127.0.0.1 --port 8081
+```
+
+`DBT_DOCS_OUTPUT` đổi target directory; default ignored `build/reports/dbt-docs/`.
+`index.html` là docs viewer, manifest chứa model descriptions/SQL/ref dependencies,
+catalog chứa database relation/column metadata. Cần relations hiện có để catalog
+đối chiếu đúng; docs generation không chạy data tests, build/rebuild relations,
+register load receipts hoặc promote completion cursors. Không dùng docs SUCCESS
+thay cho receipt/dbt completion gate. Artifacts giữ local, không commit hoặc publish.
+
+`test_docs_catalog_covers_all_models_columns_and_sources` thực thi build và docs
+trong disposable PostgreSQL, kiểm tra same invocation, empty catalog errors, đủ
+sources/models và exact column membership/descriptions. Test này được chạy qua
+`make test-dbt-integration` trong existing CI job. README có grouped lineage; graph
+chi tiết lấy từ manifest/docs, không coi arrows là immutable publication boundaries.
+
+### Documentation Verification (2026-10-23)
+
+126 unit tests và real docs integration case PASS. Integration build đủ 261 nodes
+(31 views/230 tests) trên fixture trước docs generation; catalog có đủ 31 models,
+304 model columns với nonblank descriptions và 8 described sources, không catalog
+errors hoặc stale/missing documented columns. Viewer index được tạo thành công.
+
+`make dbt-docs` chạy trên existing Olist relations dưới tám staging SHARE locks:
+metadata coverage khớp các counts trên. Manifest model SQL checksums và dbt node IDs
+không thay đổi so với successful customer-marts build. Definitions của analytics
+views, controls, deferred statuses/attempts và warehouse load receipt count giữ nguyên.
+Không chạy data tests/rebuild Olist relations trong docs command.
+
+README Mermaid được đối chiếu với generated manifest: đủ 31 model nodes và đúng
+39 direct model-ref edges; raw sources được gom thành một node. Đây là structural
+validation, không tuyên bố đã visual-review browser UI. Generated artifacts ở
+`build/reports/dbt-docs/`; evidence: ignored `build/reports/dbt-docs-local.json`,
+`dbt-docs-local.log`, `dbt-docs-integration.log` và `dbt-docs-final-checks.log`.
+Không public-host docs, rerun ingestion/pipeline integration suites hoặc GitHub CI.
