@@ -14,7 +14,8 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Dockerized PostgreSQL, migrations and source seed | Implemented |
 | Live schema contract checks and isolated source integration tests | Implemented |
 | Source simulator mutation batches | Implemented — 4 core tables |
-| Synthetic website events | Implemented — standalone deterministic JSONL generator/verification; engine benchmarks pending |
+| Synthetic website events | Implemented — standalone deterministic JSONL generator/verification; benchmark measured separately |
+| Local event engine benchmark | Implemented — 2M rows, three rounds/engine, independent oracle and Python/JVM resource guards; configuration-specific results |
 | Bounded extraction and immutable Bronze on MinIO | Implemented — four core deltas plus full dimension/review snapshots and FK parents |
 | Orders PySpark normalization, routing and immutable Silver Parquet | Implemented — local rules and optional customer FK/deferred routing |
 | Full customer snapshots and normalized customer Silver | Implemented — parent manifest/hash pinned to orders runs |
@@ -129,6 +130,22 @@ late và out-of-order events. IDs đều synthetic, không nối vào Olist core
 được verify rồi NOOP; khác request/corruption fail. Counts phân biệt physical/unique
 và censored session cuối. Xem [event contract](docs/data_contracts/20_synthetic_events.md).
 Engine benchmark chưa được triển khai; core pipeline/BI vẫn dùng tám datasets hiện có.
+
+## Event engine benchmark (Phase 6.2)
+
+```bash
+make sync-benchmark
+make test-benchmark  # Linux + Java 17; tiny correctness fixtures
+make benchmark-events  # default 3 rounds, 4 CPUs, 4 GiB sampled RSS budget
+```
+
+Dùng cùng verified JSONL, global event dedup và UTC day/type aggregates cho
+pandas/Polars/PySpark. Parent kiểm tra independent oracle, mỗi trial dùng process
+mới và được giám sát cả Python/JVM. Cần >=5 GiB RAM khả dụng với default budget;
+resource guard dừng workload của benchmark khi không đủ. Không chạy engine song song.
+Reports/logs ở ignored `build/reports/events-benchmark/`; dùng `BENCHMARK_OUTPUT`
+mới cho lượt sau. Xem [benchmark contract](docs/data_contracts/21_event_engine_benchmark.md)
+để biết workload, pinned versions, cache/memory limitations và cách đọc timings.
 
 ## Documentation
 

@@ -27,6 +27,7 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | 18 | [Geolocation Snapshots](data_contracts/18_geolocation_snapshots.md) | Full observation snapshots, exact coordinates, ZIP medians/joint modes and Type 1 location dimension | Active — standalone and core full refresh |
 | 19 | [Review Snapshots](data_contracts/19_review_snapshots.md) | Composite full reviews, pinned orders, version-aware staging and atomic deferred retry | Active — standalone |
 | 20 | [Synthetic Website Events](data_contracts/20_synthetic_events.md) | Deterministic standalone JSONL workload, arrival/duplicate/session semantics and atomic artifact verification | Active — generator only |
+| 21 | [Event Engine Benchmark](data_contracts/21_event_engine_benchmark.md) | Local engine parity, independent oracle, process-tree RSS/resource guards and timing methodology | Active — local benchmark harness |
 
 ## Related documents
 

@@ -15,6 +15,11 @@ SOURCE_SIMULATOR_SEED ?= 42
 EVENT_ROWS ?= 2000000
 EVENT_SEED ?= 42
 EVENT_OUTPUT ?= data/generated/events/scale_v1
+BENCHMARK_PYTHON ?= $(UV) run --locked --extra benchmark python
+BENCHMARK_OUTPUT ?= build/reports/events-benchmark
+BENCHMARK_REPEATS ?= 3
+BENCHMARK_CPUS ?= 4
+BENCHMARK_MEMORY_MIB ?= 4096
 BRONZE_RUN_ID ?=
 BRONZE_PAGE_SIZE ?= 1000
 PROCESSING_PYTHON ?= $(UV) run --locked --extra processing python
@@ -43,7 +48,18 @@ BACKFILL_END ?=
 
 .DEFAULT_GOAL := help
 
-.PHONY: generate-events verify-events
+.PHONY: generate-events verify-events sync-benchmark benchmark-events test-benchmark
+
+sync-benchmark:
+	$(UV) sync --locked --extra benchmark
+
+benchmark-events:
+	$(BENCHMARK_PYTHON) -m olist_platform.benchmark.events run --input-dir "$(EVENT_OUTPUT)" \
+		--output-dir "$(BENCHMARK_OUTPUT)" --repeats "$(BENCHMARK_REPEATS)" \
+		--cpus "$(BENCHMARK_CPUS)" --memory-mib "$(BENCHMARK_MEMORY_MIB)"
+
+test-benchmark:
+	SPARK_LOCAL_IP="$${SPARK_LOCAL_IP:-127.0.0.1}" $(BENCHMARK_PYTHON) -m unittest discover -s tests/benchmark -p 'test_*.py' -v
 
 generate-events:
 	$(PYTHON) -m olist_platform.source_simulator.events generate --rows "$(EVENT_ROWS)" \
@@ -99,6 +115,8 @@ help:
 	@echo "  test-source-integration   Test schema, seed reruns and rollback in an isolated container"
 	@echo "  generate-source-batches   Publish deterministic simulator fixture batches"
 	@echo "  generate-events / verify-events Generate or verify standalone synthetic JSONL events (default 2M)"
+	@echo "  sync-benchmark / benchmark-events Install locked engines / compare event workload in fresh sequential workers"
+	@echo "  test-benchmark            Check engine/oracle parity and resource/failure guards on small fixtures"
 	@echo "  validate-source-batch     Verify a simulator batch without database access"
 	@echo "  apply-source-batch        Apply a batch using SOURCE_SIMULATOR_DSN or PG* environment"
 	@echo "  test-source-simulator-integration Test simulator transactions in disposable PostgreSQL"

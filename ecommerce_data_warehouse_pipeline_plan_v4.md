@@ -730,7 +730,7 @@ Job Python 3.10 của lượt đầu phát hiện shared cursor parser chưa nh�
 
 - [x] Chạy lại full Olist end-to-end bằng source hiện tại và đối chiếu trước/sau.
 - [x] Triển khai deterministic synthetic events: đã sinh và verify 2 triệu physical rows với seed 42; xem Phase 6.1 dưới đây.
-- [ ] Benchmark pandas/Polars/PySpark với cùng input và điều kiện đo rõ ràng.
+- [x] Benchmark pandas/Polars/PySpark trên cùng 2M artifact: 3 rounds/engine, oracle parity và resource/timing evidence; xem Phase 6.2.
 
 Baseline ngày 2026-10-23: run `dataset_54ab35e89b4d48e48a2649bf88b5b862`, attempt 1, source tại commit `14f193a` (implementation đã được GitHub CI xác minh tại `751674d`). Chín CSV canonical PASS checksum; tám full streams gồm 1.550.851 source rows được freeze trong cùng source snapshot. Hoàn tất 34/34 tasks và fresh dbt build PASS 261/261 nodes (31 models, 230 tests).
 
@@ -753,7 +753,23 @@ GMV đối soát là BRL 13.491.218,65; eligible gross paid BRL 15.736.441,59; g
 
 Local acceptance ngày 2026-10-24: 2.000.000 physical rows = 1.980.000 unique + 20.000 duplicate rows; 99.000 late và 572.116 out-of-order unique events. Payload 717.712.624 bytes. Generation/verify mất 19,62/19,50 giây, max process RSS 25.856/25.916 KiB. Full independent streaming audit PASS; 135 tests PASS trên Python 3.10/3.12 và installed wheel Python 3.10; artifact 2.000 rows giữa hai versions có bytes giống nhau. Logs/reports ở ignored `build/reports/events-*`, dữ liệu ở ignored `data/generated/events/scale_v1/`.
 
-Đây là measurements của generator/verifier trên local, không phải engine benchmark hoặc peak RAM toàn stack. pandas/Polars/PySpark benchmark chưa triển khai, chưa xác minh hosted CI cho thay đổi generator. Thay đổi không sửa Olist transformation/warehouse logic; full Olist baseline phía trên thuộc source `14f193a`.
+Đây là measurements của generator/verifier trên local, không phải engine benchmark hoặc peak RAM toàn stack. Benchmark extension ở Phase 6.2; hosted CI cho generator `7eca8e4` đã SUCCESS qua [run 39994459686](https://github.com/ThisMacht/ecommerce-data-platform/actions/runs/39994459686). Thay đổi không sửa Olist transformation/warehouse logic; full Olist baseline phía trên thuộc source `14f193a`.
+
+#### Event Engine Benchmark (Phase 6.2)
+
+Đã thêm optional locked benchmark extra, `make sync-benchmark`, `make test-benchmark` và `make benchmark-events`. Workload là JSONL read → global event-ID dedup → UTC day/type aggregates (counts, anonymous, late >48h, purchase và summed lag). Expected groups đến từ independent streaming oracle và fixture thủ công; không lấy generator stats làm expected. Mỗi trial dùng fresh process, cùng affinity 4 CPUs, RSS guard 4 GiB với Python/JVM tree monitoring; rotate order qua ba rounds. Code/version/input phải giữ nguyên; giữ log/kết quả từng trial, không overwrite reports hoặc gộp partial failures thành passing medians.
+
+Acceptance local ngày 2026-10-24: 9/9 trials PASS trên 2.000.000 physical / 1.980.000 unique events, cùng 165 oracle groups. pandas 3.1.0 / Polars 2.0.0 / Spark 4.0.2, Python 3.12.13, Java 17.0.20.1, Intel i5-1235U. Spark 6 input / 8 shuffle partitions, AQE off. Kết quả đo:
+
+| Engine | Startup median (s) | Work median (s) | Wall median (s) | Max sampled tree RSS (MiB) |
+|---|---:|---:|---:|---:|
+| pandas | 0.167 | 17.076 | 17.358 | 1607.0 |
+| polars | 0.060 | 2.086 | 2.376 | 1564.5 |
+| spark | 5.695 | 14.369 | 21.098 | 1822.7 |
+
+Medians từ 3 fresh-worker trials; filesystem cache được input verification/oracle làm ấm và không evict. Tổng harness 155,93 giây. RSS là sampled sum của worker/descendants, không phải PSS/RAM toàn host; CPU/background load không được độc quyền kiểm soát. Đây là comparison cho workload/config này, chưa có 10M, cold-cache, Parquet hoặc exhaustive tuning. Preflight lần đầu đã từ chối RAM thấp trước khi có trial; r2 hoàn tất sau khi tài nguyên khả dụng.
+
+138 fast tests PASS trên Python 3.10/3.12; 138 installed-wheel tests Python 3.10; 5 engine/guard checks PASS mỗi version; build/lock/actionlint PASS. CI thêm benchmark correctness lanes 3.10/3.12 bằng tiny fixtures, không speed thresholds hoặc large measurements. Evidence ở ignored `build/reports/events-benchmark-2m-r2/`; [benchmark contract](docs/data_contracts/21_event_engine_benchmark.md) mô tả method/limits. Chưa xác minh hosted CI cho extension này; Olist core/BI vẫn độc lập.
 
 #### Scale-up Scope
 

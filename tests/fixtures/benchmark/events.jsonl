@@ -1,0 +1,10 @@
+{"event_id":"a","session_id":"s1","anonymous_id":"v1","customer_unique_id":null,"event_type":"page_view","event_time":"2024-01-01T23:59:59Z","received_at":"2024-01-02T00:00:00Z","product_id":null,"order_id":null}
+{"event_id":"b","session_id":"s2","anonymous_id":"v2","customer_unique_id":"c2","event_type":"purchase","event_time":"2024-01-02T00:00:00Z","received_at":"2024-01-04T00:00:00Z","product_id":"p","order_id":"o2"}
+{"event_id":"c","session_id":"s3","anonymous_id":"v3","customer_unique_id":"","event_type":"purchase","event_time":"2024-01-02T00:00:01Z","received_at":"2024-01-04T00:00:02Z","product_id":"p","order_id":"o3"}
+{"event_id":"d","session_id":"s4","anonymous_id":"v4","customer_unique_id":"","event_type":"product_view","event_time":"2024-01-02T01:00:00Z","received_at":"2024-01-02T01:00:20Z","product_id":"p","order_id":null}
+{"event_id":"e","session_id":"s5","anonymous_id":"v5","customer_unique_id":null,"event_type":"add_to_cart","event_time":"2024-01-01T12:00:00Z","received_at":"2024-01-04T12:00:00Z","product_id":"p","order_id":null}
+{"event_id":"f","session_id":"s6","anonymous_id":"v6","customer_unique_id":"c6","event_type":"checkout_started","event_time":"2024-01-02T12:00:00Z","received_at":"2024-01-02T12:00:01Z","product_id":"p","order_id":null}
+{"event_id":"g","session_id":"s7","anonymous_id":"v7","customer_unique_id":"c7","event_type":"purchase","event_time":"2024-01-02T13:00:00Z","received_at":"2024-01-02T13:00:02Z","product_id":"p","order_id":null}
+{"event_id":"a","session_id":"s1","anonymous_id":"v1","customer_unique_id":null,"event_type":"page_view","event_time":"2024-01-01T23:59:59Z","received_at":"2024-01-02T00:00:00Z","product_id":null,"order_id":null}
+{"event_id":"b","session_id":"s2","anonymous_id":"v2","customer_unique_id":"c2","event_type":"purchase","event_time":"2024-01-02T00:00:00Z","received_at":"2024-01-04T00:00:00Z","product_id":"p","order_id":"o2"}
+{"event_id":"e","session_id":"s5","anonymous_id":"v5","customer_unique_id":null,"event_type":"add_to_cart","event_time":"2024-01-01T12:00:00Z","received_at":"2024-01-04T12:00:00Z","product_id":"p","order_id":null}

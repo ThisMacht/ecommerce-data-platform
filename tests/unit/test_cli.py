@@ -84,6 +84,11 @@ class InstalledCliTest(unittest.TestCase):
         )
         self.assertNotEqual(rejected.returncode, 0)
 
+    def test_benchmark_help_does_not_require_optional_engines(self):
+        result = self.run_command("olist-benchmark-events", "--help")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("run", result.stdout)
+
     def test_bronze_cli_is_installed_and_exposes_commands(self) -> None:
         result = self.run_command("olist-bronze-orders", "--help")
         self.assertEqual(result.returncode, 0, result.stderr)

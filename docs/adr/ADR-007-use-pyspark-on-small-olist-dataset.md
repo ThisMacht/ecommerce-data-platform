@@ -9,7 +9,7 @@ Accepted for the batch MVP and Phase 6 workload preparation.
 Olist MVP hiện có khoảng 1,55 triệu source rows trong tám streams, phần lớn là
 geolocation. Full rerun đã hoàn tất bằng local Spark; correctness, transactional
 merges và audit gates là yêu cầu chính. Kích thước này không tự chứng minh cần
-một distributed cluster. Chưa có kết quả so sánh pandas/Polars/PySpark.
+một distributed cluster. Tại thời điểm khởi tạo Phase 6.1 chưa có kết quả so sánh pandas/Polars/PySpark.
 
 ## Decision
 
@@ -29,3 +29,11 @@ speedup. Benchmark tiếp theo phải dùng cùng công việc, input và correc
 oracle; ghi startup overhead, CPU/memory limits, partitions, cache conditions và
 execution environment. Chỉ quyết định scale-up dựa trên measurements đã thu thập.
 Streaming, event marts và cloud deployment chưa được triển khai bởi quyết định này.
+
+## Follow-up Evidence
+
+Phase 6.2 đã đo local JSONL workload 2M rows, 3 fresh-process trials/engine, cùng
+4 CPU affinity và independent oracle. [Benchmark contract](../data_contracts/21_event_engine_benchmark.md)
+ghi actual results và limitations; đây không phải evidence cho distributed
+scale-up hoặc full Olist speedup. Quyết định giữ cluster/ClickHouse ngoài MVP
+vẫn áp dụng.

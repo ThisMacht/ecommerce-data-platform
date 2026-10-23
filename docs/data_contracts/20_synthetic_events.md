@@ -2,7 +2,7 @@
 
 Status: **Active — standalone generator, synthetic-events-v1**. Đây là workload
 cho Phase 6, độc lập với tám Olist datasets, staging/dbt, deferred queues và
-completion cursors. Chưa có ingestion, event marts hoặc engine benchmark.
+completion cursors. Chưa có event ingestion hoặc event marts; engine benchmark được triển khai riêng ở [contract 21](21_event_engine_benchmark.md).
 
 ## Commands
 
@@ -89,7 +89,7 @@ counts/profiles, kiểm tra UTC/delays/arrival order, small prefixes, replay,
 corruption/forged hashes, failure cleanup và lazy source consumption. CLI được
 kiểm tra từ ngoài checkout, gồm installed-wheel tests trong fast CI. Generated
 artifacts ở ignored `data/generated/`; không commit dữ liệu hoặc kết quả benchmark
-chưa đo. Engine benchmark là bước tiếp theo.
+chưa đo. Engine benchmark được mô tả riêng ở [contract 21](21_event_engine_benchmark.md).
 
 ## Local Acceptance (2026-10-24)
 
@@ -109,4 +109,4 @@ exact duplicates, unique counts và SHA-256 đều PASS.
 135 fast tests PASS trên Python 3.10 và 3.12; 135 installed-wheel tests PASS trên
 Python 3.10, wheel/sdist build PASS. Artifact 2.000 rows từ Python 3.10 installed
 wheel và Python 3.12 có bytes giống nhau cho cả ba files. Evidence local ở ignored
-`build/reports/events-*`; chưa xác minh hosted CI cho thay đổi generator này.
+`build/reports/events-*`. [Hosted CI run 39994459686](https://github.com/ThisMacht/ecommerce-data-platform/actions/runs/39994459686) đã SUCCESS cho source `7eca8e4`; benchmark extension được kiểm tra riêng.

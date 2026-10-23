@@ -1,0 +1,7 @@
+[
+  {"event_day":"2024-01-01","event_type":"add_to_cart","event_count":1,"anonymous_count":1,"late_count":1,"purchase_count":0,"lag_seconds_sum":259200},
+  {"event_day":"2024-01-01","event_type":"page_view","event_count":1,"anonymous_count":1,"late_count":0,"purchase_count":0,"lag_seconds_sum":1},
+  {"event_day":"2024-01-02","event_type":"checkout_started","event_count":1,"anonymous_count":0,"late_count":0,"purchase_count":0,"lag_seconds_sum":1},
+  {"event_day":"2024-01-02","event_type":"product_view","event_count":1,"anonymous_count":0,"late_count":0,"purchase_count":0,"lag_seconds_sum":20},
+  {"event_day":"2024-01-02","event_type":"purchase","event_count":3,"anonymous_count":0,"late_count":1,"purchase_count":2,"lag_seconds_sum":345603}
+]

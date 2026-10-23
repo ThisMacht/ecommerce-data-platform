@@ -5,6 +5,7 @@
 Implemented: core layers, dbt, deferred retries, full/incremental audit, isolated backfill and gated watermarks.
 
 - `src/olist_platform/raw/`: manifests, profiling, contracts.
+- `src/olist_platform/benchmark/`: isolated pandas/Polars/Spark event workload, independent oracle, fresh worker measurements and resource guards.
 - `src/olist_platform/source_simulator/`: deterministic batches, transactional apply and standalone bounded-memory synthetic events.
 - `src/olist_platform/bronze/`: bounded extraction, durable retry and verified MinIO publication.
 - `src/olist_platform/silver/`: Spark normalization, routing and Parquet publication.
@@ -16,6 +17,7 @@ Implemented: core layers, dbt, deferred retries, full/incremental audit, isolate
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
 - `tests/processing/`: Spark checks with independent expected fixtures.
+- `tests/benchmark/`: optional-engine parity and process/resource guards; tiny independent fixtures, no performance thresholds.
 - `tests/integration/`: disposable PostgreSQL/MinIO tests. Seed tests require canonical CSVs; others use `tests/fixtures/`.
 - `config/`: raw manifest and source contract.
 - `infrastructure/`: Compose, PostgreSQL migrations, seeds, checks, and runners.
@@ -40,6 +42,7 @@ Use Python 3.10+, uv and Docker Compose. From repository root: `cp .env.example 
 - `make seed-source` / `make verify-source`: load PostgreSQL or verify schema/state.
 - `make generate-source-batches` / `make validate-source-batch`: generate/verify batches.
 - `make generate-events` / `make verify-events`: standalone immutable JSONL workload (2M physical rows, seed 42); override `EVENT_ROWS`, `EVENT_SEED`, `EVENT_OUTPUT`. No database/Spark/CSVs; artifacts stay in ignored `data/generated/events/`.
+- `make sync-benchmark` / `make test-benchmark` / `make benchmark-events`: locked optional engines, tiny correctness checks or sequential fresh-worker trials; Linux/Java 17. Defaults 3 rounds/4 CPUs/4 GiB sampled RSS guard, require another 1 GiB available reserve. Use a new `BENCHMARK_OUTPUT` per run; do not change code/deps/input mid-run.
 - `make apply-source-batch SOURCE_BATCH_DIR=<path>`: apply a batch transactionally.
 - `make test-source-integration` / `make test-source-simulator-integration`: test seed or simulator against isolated PostgreSQL.
 - `make infrastructure-down`: stop services; retain volumes.
@@ -232,3 +235,5 @@ FK/not-null tests. Preserve Silver-normalized local dates; views compare source
 attributes rather than silently correcting staging or assigning dummy parents.
 
 Synthetic events: `syn_*` IDs have no Olist FK/PII meaning. Only purchases have order IDs. Preserve versioned deterministic bytes, arrival ordering, adjacent exact duplicates, separate unique/physical counts and the censored final session. Existing artifacts require full verification for NOOP; never overwrite another request or manually reseal modified files. Keep this workload outside the eight-table core and its cursors/grants. Benchmark engines separately; generator timings are not engine results.
+
+Event benchmark: preserve independent fixture/oracle parity, explicit string/null/UTC semantics and exact duplicate scope. Report startup/work/wall separately and sampled whole-worker-tree RSS including JVM; never label it PSS/whole-host RAM or cold-cache performance. Pin versions, input/source hashes, CPU affinity and all trials; failed rounds must not disappear into passing medians. Keep large performance runs out of CI; benchmark CI runs tiny correctness fixtures on Python 3.10/3.12.
