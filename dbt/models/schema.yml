@@ -710,3 +710,97 @@ models:
   - name: comment_rate
     description: "commented_review_count / review_count, not a measure of text sentiment."
     data_tests: [not_null]
+
+- name: mart_customer_value
+  description: "One current staged shopper, including no-order members; observed eligible order value, not predicted customer lifetime value."
+  columns:
+  - name: customer_key
+    description: "Stable shopper key from dim_customer; no order-scoped customer_id grouping."
+    data_tests:
+    - unique
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_customer')
+          field: customer_key
+  - name: customer_unique_id
+    description: "Unique shopper business key retained for traceability."
+    data_tests: [unique, not_null]
+  - name: total_order_count
+    description: "All observed orders, including canceled/unavailable statuses; zero for no-order shoppers."
+    data_tests: [not_null]
+  - name: eligible_order_count
+    description: "Orders in the shared eligible status set; payment completeness does not change this count."
+    data_tests: [not_null]
+  - name: paid_order_count
+    description: "Eligible orders with positive summed payment value, counted once per order."
+    data_tests: [not_null]
+  - name: orders_without_items
+    description: "Eligible orders with no observed item entries."
+    data_tests: [not_null]
+  - name: orders_without_payments
+    description: "Eligible orders with no payment entries; observed zero-paid orders remain distinct."
+    data_tests: [not_null]
+  - name: gmv
+    description: "Eligible item prices in exact BRL NUMERIC, excluding freight."
+    data_tests: [not_null]
+  - name: freight_amount
+    description: "Observed eligible item freight in exact BRL NUMERIC."
+    data_tests: [not_null]
+  - name: gross_paid_amount
+    description: "Observed eligible payment sums in BRL, not profit or net revenue."
+    data_tests: [not_null]
+  - name: average_order_value
+    description: "Positive-paid eligible amount / paid_order_count, rounded to two decimals; NULL without paid orders."
+  - name: first_eligible_purchase_timestamp
+    description: "Earliest observed eligible order instant in UTC; NULL without eligible orders, not verified acquisition time."
+  - name: last_eligible_purchase_timestamp
+    description: "Latest observed eligible order instant in UTC; NULL without eligible orders."
+  - name: is_repeat_customer
+    description: "At least two observed eligible orders in current staging, including unpaid/zero-paid orders."
+    data_tests: [not_null]
+
+- name: mart_repeat_purchase_daily
+  description: "One observed eligible local purchase date; first/repeat classification over current staged history by shopper, UTC instant then order_id."
+  columns:
+  - name: order_purchase_date
+    description: "Sao Paulo purchase date inherited from orders; empty eligible input yields no rows."
+    data_tests: [unique, not_null]
+  - name: eligible_order_count
+    description: "All observed eligible orders, regardless of payment completeness."
+    data_tests: [not_null]
+  - name: first_order_count
+    description: "Each shopper's first observed eligible order; ties break by order_id."
+    data_tests: [not_null]
+  - name: repeat_order_count
+    description: "Observed eligible orders after that shopper's first order."
+    data_tests: [not_null]
+  - name: purchasing_customer_count
+    description: "Distinct shoppers within this date; not additive across dates."
+    data_tests: [not_null]
+  - name: repeat_customer_count
+    description: "Distinct shoppers with a repeat order on this date; a shopper may also have a first order here."
+    data_tests: [not_null]
+  - name: repeat_order_rate
+    description: "repeat_order_count / eligible_order_count; combine counts before dividing over multiple dates."
+    data_tests: [not_null]
+
+- name: mart_order_status_daily
+  description: "One local purchase date and current order status, across all observed statuses; counts only, no inferred historical status transitions."
+  columns:
+  - name: order_purchase_date
+    description: "Sao Paulo order purchase cohort, not status update date."
+    data_tests: [not_null]
+  - name: order_status
+    description: "Current source status retained at order grain."
+    data_tests:
+    - not_null
+    - accepted_values:
+        arguments:
+          values: [delivered, shipped, invoiced, processing, approved, created, canceled, unavailable]
+  - name: order_count
+    description: "Orders in this status/date; additive across groups."
+    data_tests: [not_null]
+  - name: customer_count
+    description: "Distinct shoppers in this status/date; not additive across statuses or dates."
+    data_tests: [not_null]

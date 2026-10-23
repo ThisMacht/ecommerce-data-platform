@@ -671,6 +671,14 @@ hoặc sửa source để bypass. Optional location NULL khác required parent m
 Chạy `make test-dbt-integration` sau thay đổi keys/membership, gồm cả empty staging
 và members chưa có fact. Xem [key policy](../data_contracts/09_analytics_models.md#dimension-keys-and-missing-members).
 
+Customer marts build/test trong cùng core dbt gate. Customer value dùng shopper
+identity và order-grain sums; first/repeat dùng observed eligible history, UTC
+purchase instant/order_id tie-break và local purchase cohorts. Kiểm tra counts/
+completeness trước khi dùng AOV/repeat rate; late earlier orders/status updates
+có thể thay đổi ngày cũ. Status mart không phải transition log. Không thêm BI grants.
+Chạy `make test-dbt-integration` và backfill equivalence sau sửa các marts này.
+Xem [customer metric policy](../data_contracts/09_analytics_models.md#customer-value-and-repeat-purchase).
+
 ## 31. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:

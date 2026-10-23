@@ -272,6 +272,17 @@ không join items và không dùng type order counts làm AOV denominator. `make
 tự build/test; standalone dùng `make dbt-build` với PG/dbt environment hiện có.
 Xem [payment metric contract](docs/data_contracts/09_analytics_models.md#payment-facts-and-type-metrics).
 
+## Customer value and purchase behavior
+
+`mart_customer_value` gộp theo shopper, gồm cả members chưa có order: observed
+eligible GMV/paid value, positive-paid AOV, completeness counts và repeat flag.
+`mart_repeat_purchase_daily` đếm first/repeat eligible orders theo current staged
+history; late earlier orders/status changes có thể phân loại lại ngày cũ.
+`mart_order_status_daily` đếm current status theo purchase cohort, không phải
+status transitions. Không join raw items/payments/reviews làm nhân bản metrics,
+không suy diễn lifetime value hoặc retention đầy đủ. BI grants giữ nguyên;
+xem [metric contract](docs/data_contracts/09_analytics_models.md#customer-value-and-repeat-purchase).
+
 ## Dimension keys and missing members
 
 Customer/product/seller/ZIP dùng stable MD5 business keys; dates dùng YYYYMMDD.

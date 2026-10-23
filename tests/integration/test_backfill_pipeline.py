@@ -85,12 +85,17 @@ class BackfillPipelineTest(CorePipelineCase):
             ("mart_revenue_daily", "order_purchase_date"),
             ("mart_average_order_value", "order_purchase_date"),
             ("mart_review_daily", "review_creation_date"),
+            ("mart_customer_value", "customer_key"),
+            ("mart_repeat_purchase_daily", "order_purchase_date"),
         ):
             result[table] = c.execute(
                 sql.SQL("SELECT * FROM analytics.{} ORDER BY {}").format(
                     sql.Identifier(table), sql.Identifier(key)
                 )
             ).fetchall()
+        result["mart_order_status_daily"] = c.execute(
+            "SELECT * FROM analytics.mart_order_status_daily ORDER BY order_purchase_date,order_status"
+        ).fetchall()
         result["fct_reviews"] = c.execute(
             "SELECT * FROM analytics.fct_reviews ORDER BY review_id,order_id"
         ).fetchall()

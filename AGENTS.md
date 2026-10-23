@@ -204,3 +204,14 @@ do not remove real members. Customer representative uses source_sequence DESC, c
 `dimension_key_reconciliation` checks raw-staging membership, unreferenced MD5 keys
 and latest_customer_id; location/date retain their source-backed gates. Empty
 staging yields empty dimensions; empty source snapshots still never imply deletes.
+
+Customer marts: `mart_customer_value` has one row per current dim_customer shopper,
+including no-order shoppers; aggregate order-grain facts, never raw item/payment
+joins. Counts/GMV/paid amounts use existing eligibility and positive-paid AOV policy.
+Repeat means at least two observed eligible orders, including unpaid/zero-paid;
+not verified retention or predicted lifetime value. `mart_repeat_purchase_daily`
+ranks current staged history by UTC purchase instant then order_id, groups by Sao
+Paulo purchase date. Late earlier orders/status changes can reclassify history.
+Combine repeat counts before dividing rates; distinct shoppers are not additive.
+`mart_order_status_daily` counts current status in purchase cohorts, not transitions.
+Preserve all eight dbt sources, core gates and existing six-model BI grants.

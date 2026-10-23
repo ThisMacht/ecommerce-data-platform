@@ -140,6 +140,9 @@ class DbtModelsTest(PostgresIntegrationCase):
                 "analytics.stg_reviews",
                 "analytics.fct_reviews",
                 "analytics.mart_review_daily",
+                "analytics.mart_customer_value",
+                "analytics.mart_repeat_purchase_daily",
+                "analytics.mart_order_status_daily",
             ):
                 with (
                     self.subTest(table=table),
@@ -651,6 +654,9 @@ class DbtModelsTest(PostgresIntegrationCase):
             "stg_reviews",
             "fct_reviews",
             "mart_review_daily",
+            "mart_customer_value",
+            "mart_repeat_purchase_daily",
+            "mart_order_status_daily",
         ):
             self.assertEqual(self.psql(f"SELECT COUNT(*) FROM analytics.{model}"), "0")
 
@@ -1627,13 +1633,16 @@ class DbtModelsTest(PostgresIntegrationCase):
                     UPDATE analytics.saved_dimension_keys SET {change} WHERE {column}='{business}';
                     CREATE OR REPLACE VIEW analytics.dim_{entity} AS SELECT * FROM analytics.saved_dimension_keys;""")
                 results = self.dbt("test", success=False)
+                expected_failures = {"dimension_key_reconciliation"}
+                if entity == "customer" and change.startswith("customer_key="):
+                    expected_failures.add("customer_value_reconciliation")
                 self.assertEqual(
-                    [
+                    {
                         (r["unique_id"].split(".")[-1], r["status"])
                         for r in results["results"]
                         if r["status"] != "pass"
-                    ],
-                    [("dimension_key_reconciliation", "fail")],
+                    },
+                    {(name, "fail") for name in expected_failures},
                 )
                 self.dbt()
 
@@ -1654,12 +1663,205 @@ class DbtModelsTest(PostgresIntegrationCase):
                     FROM analytics.dim_{entity} d LIMIT 1;
                     CREATE OR REPLACE VIEW analytics.dim_{entity} AS SELECT * FROM analytics.saved_unknown_member;""")
                 results = self.dbt("test", success=False)
+                expected_failures = {"dimension_key_reconciliation"}
+                if entity == "customer":
+                    expected_failures.add("customer_value_reconciliation")
+                self.assertEqual(
+                    {
+                        (r["unique_id"].split(".")[-1], r["status"])
+                        for r in results["results"]
+                        if r["status"] != "pass"
+                    },
+                    {(name, "fail") for name in expected_failures},
+                )
+                self.dbt()
+
+    def test_customer_value_combines_shopper_ids_and_preserves_zero_order_members(self):
+        rows = [
+            valid_row("customers", "idle", 3) | {"customer_unique_id": "idle_shopper"},
+            valid_row("customers", "canceled_only", 4)
+            | {"customer_unique_id": "canceled_shopper"},
+        ]
+        with psycopg.connect(
+            host="127.0.0.1",
+            port=self.port,
+            dbname=self.database,
+            user="olist_test_loader",
+            password="isolated_test_loader",
+            autocommit=True,
+        ) as connection:
+            merge_rows(
+                connection,
+                self.contract,
+                table="customers",
+                run_id="customer_marts",
+                rows=rows,
+                request={"fixture": "customer_marts"},
+                silver_counts={
+                    "input_rows": 2,
+                    "valid_rows": 2,
+                    "rejected_rows": 0,
+                    "deferred_rows": 0,
+                    "duplicates_rows": 0,
+                    "warning_rows": 0,
+                },
+            )
+        self.psql(
+            "UPDATE raw_staging.orders SET customer_id='canceled_only' WHERE order_id='cancel'"
+        )
+        self.dbt()
+        self.assertEqual(
+            self.psql("SELECT COUNT(*) FROM analytics.mart_customer_value"), "3"
+        )
+        self.assertEqual(
+            self.psql("""SELECT total_order_count,eligible_order_count,paid_order_count,
+            orders_without_items,orders_without_payments,gmv,freight_amount,gross_paid_amount,
+            average_order_value,is_repeat_customer FROM analytics.mart_customer_value WHERE customer_unique_id='shopper'"""),
+            "4|4|2|2|1|37.25|6.75|43.25|21.63|t",
+        )
+        self.assertEqual(
+            self.psql("""SELECT customer_unique_id,total_order_count,eligible_order_count,paid_order_count,
+            gmv=0,freight_amount=0,gross_paid_amount=0,average_order_value IS NULL,
+            first_eligible_purchase_timestamp IS NULL,last_eligible_purchase_timestamp IS NULL,is_repeat_customer
+            FROM analytics.mart_customer_value WHERE customer_unique_id<>'shopper' ORDER BY customer_unique_id"""),
+            "canceled_shopper|1|0|0|t|t|t|t|t|t|f\nidle_shopper|0|0|0|t|t|t|t|t|t|f",
+        )
+        self.assertEqual(
+            self.psql("""SELECT eligible_order_count,first_order_count,repeat_order_count,
+            purchasing_customer_count,repeat_customer_count,ROUND(repeat_order_rate,2) FROM analytics.mart_repeat_purchase_daily"""),
+            "4|1|3|1|1|0.75",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT order_status,order_count,customer_count FROM analytics.mart_order_status_daily ORDER BY order_status"
+            ),
+            "approved|4|1\ncanceled|1|1",
+        )
+        self.assertEqual(self.psql("SELECT COUNT(*) FROM analytics.fct_orders"), "5")
+        for model in (
+            "mart_customer_value",
+            "mart_repeat_purchase_daily",
+            "mart_order_status_daily",
+        ):
+            self.assertEqual(
+                self.psql(
+                    f"SELECT has_table_privilege('olist_bi_reader','analytics.{model}','SELECT')"
+                ),
+                "f",
+            )
+
+    def test_repeat_purchase_uses_observed_eligible_history_and_local_dates(self):
+        self.psql("""UPDATE raw_staging.orders SET
+            order_purchase_timestamp=CASE order_id
+                WHEN 'a' THEN '2018-11-04T02:30:00Z'::timestamptz
+                WHEN 'b' THEN '2018-11-04T03:30:00Z'::timestamptz
+                WHEN 'pending' THEN '2018-11-04T03:30:00Z'::timestamptz
+                WHEN 'zero' THEN '2018-11-05T03:30:00Z'::timestamptz
+                ELSE '2018-11-03T02:30:00Z'::timestamptz END;
+            UPDATE raw_staging.orders SET order_purchase_date=(order_purchase_timestamp AT TIME ZONE 'America/Sao_Paulo')::date;""")
+        self.dbt()
+        query = "SELECT order_purchase_date,eligible_order_count,first_order_count,repeat_order_count,purchasing_customer_count,repeat_customer_count FROM analytics.mart_repeat_purchase_daily ORDER BY order_purchase_date"
+        expected = "2018-11-03|1|1|0|1|0\n2018-11-04|2|0|2|1|1\n2018-11-05|1|0|1|1|1"
+        self.assertEqual(self.psql(query), expected)
+        self.assertEqual(
+            self.psql("SET TIME ZONE 'Asia/Tokyo'; " + query).splitlines()[-3:],
+            expected.splitlines(),
+        )
+        self.assertEqual(
+            self.psql("""SELECT first_eligible_purchase_timestamp='2018-11-04T02:30:00Z'::timestamptz,
+            last_eligible_purchase_timestamp='2018-11-05T03:30:00Z'::timestamptz FROM analytics.mart_customer_value"""),
+            "t|t",
+        )
+        row = valid_row("orders", "earlier", 10) | {
+            "customer_id": "ca",
+            "order_purchase_timestamp": datetime.fromisoformat(
+                "2018-11-03T01:30:00+00:00"
+            ),
+            "order_purchase_date": "2018-11-02",
+        }
+        with psycopg.connect(
+            host="127.0.0.1",
+            port=self.port,
+            dbname=self.database,
+            user="olist_test_loader",
+            password="isolated_test_loader",
+            autocommit=True,
+        ) as connection:
+            merge_rows(
+                connection,
+                self.contract,
+                table="orders",
+                run_id="earlier",
+                rows=[row],
+                request={"fixture": "earlier"},
+                silver_counts={
+                    "input_rows": 1,
+                    "valid_rows": 1,
+                    "rejected_rows": 0,
+                    "deferred_rows": 0,
+                    "duplicates_rows": 0,
+                    "warning_rows": 0,
+                },
+            )
+        self.dbt()
+        self.assertEqual(
+            self.psql(query),
+            "2018-11-02|1|1|0|1|0\n2018-11-03|1|0|1|1|1\n2018-11-04|2|0|2|1|1\n2018-11-05|1|0|1|1|1",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT eligible_order_count,paid_order_count,average_order_value FROM analytics.mart_customer_value"
+            ),
+            "5|2|21.63",
+        )
+
+    def test_customer_value_keeps_unbounded_brl_sums_and_null_unpaid_aov(self):
+        self.psql("""UPDATE raw_staging.order_items SET price=9000000000000000.01 WHERE order_id='a';
+            UPDATE raw_staging.order_payments SET payment_value=9000000000000000.01 WHERE order_id='a';""")
+        self.dbt()
+        self.assertEqual(
+            self.psql(
+                "SELECT gmv,gross_paid_amount,paid_order_count,average_order_value FROM analytics.mart_customer_value"
+            ),
+            "18000000000000007.27|18000000000000008.27|2|9000000000000004.14",
+        )
+        self.psql("UPDATE raw_staging.order_payments SET payment_value=0")
+        self.dbt()
+        self.assertEqual(
+            self.psql(
+                "SELECT paid_order_count,gross_paid_amount=0,average_order_value IS NULL,is_repeat_customer FROM analytics.mart_customer_value"
+            ),
+            "0|t|t|t",
+        )
+
+    def test_customer_mart_reconciliations_reject_valid_but_wrong_metrics(self):
+        self.dbt()
+        for model, change, reconciliation in (
+            ("mart_customer_value", "gmv=gmv+0.01", "customer_value_reconciliation"),
+            (
+                "mart_repeat_purchase_daily",
+                "first_order_count=0,repeat_order_count=eligible_order_count,repeat_order_rate=1",
+                "repeat_purchase_reconciliation",
+            ),
+            (
+                "mart_order_status_daily",
+                "order_count=order_count+1",
+                "order_status_reconciliation",
+            ),
+        ):
+            with self.subTest(model=model):
+                self.psql(f"""DROP TABLE IF EXISTS analytics.saved_customer_mart CASCADE;
+                    CREATE TABLE analytics.saved_customer_mart AS SELECT * FROM analytics.{model};
+                    GRANT SELECT ON analytics.saved_customer_mart TO olist_test_loader;
+                    UPDATE analytics.saved_customer_mart SET {change};
+                    CREATE OR REPLACE VIEW analytics.{model} AS SELECT * FROM analytics.saved_customer_mart;""")
+                results = self.dbt("test", success=False)
                 self.assertEqual(
                     [
                         (r["unique_id"].split(".")[-1], r["status"])
                         for r in results["results"]
                         if r["status"] != "pass"
                     ],
-                    [("dimension_key_reconciliation", "fail")],
+                    [(reconciliation, "fail")],
                 )
                 self.dbt()

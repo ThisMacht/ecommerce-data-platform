@@ -659,7 +659,7 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 - [x] Extend Metabase with product/seller top-10 tables and payment-type charts; SELECT-only aggregate grants, date filters and publication gates.
 - [x] Add order-grain `fct_delivery` and daily purchase-cohort mart; explicit chronology/completeness, local-calendar lateness, UTC elapsed durations, DST and source reconciliation checks.
 - [ ] Kiểm tra fact foreign keys, BRL numeric precision và UTC/local-date semantics.
-- [ ] Tạo các marts về revenue, customer value, repeat purchase, product, seller, delivery delay và order status.
+- [x] Tạo marts revenue, observed shopper value, repeat eligible purchases, product/seller, delivery cohorts và current order status; explicit grains, raw reconciliation và existing BI scope.
 - [ ] Viết descriptions cho models và columns.
 - [ ] Chạy `dbt docs generate`.
 - [ ] Thêm lineage graph vào README.

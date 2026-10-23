@@ -198,7 +198,7 @@ class PipelineRecoveryTest(CorePipelineCase):
 
             def rollback_after_dbt(*args):
                 result = promote(*args)
-                self.assertEqual(result["dbt"]["node_count"], 227)
+                self.assertEqual(result["dbt"]["node_count"], 261)
                 failed_builds.append(result["dbt"]["invocation_id"])
                 raise InjectedFailure("after dbt and CAS, before transaction commit")
 
@@ -249,7 +249,7 @@ class PipelineRecoveryTest(CorePipelineCase):
                 Path(directory) / "success",
             )
             self.assertEqual(completed["status"], "SUCCESS")
-            self.assertEqual(completed["dbt"]["node_count"], 227)
+            self.assertEqual(completed["dbt"]["node_count"], 261)
             self.assertNotEqual(completed["dbt"]["invocation_id"], failed_builds[0])
             self.assertEqual(self.frozen_inputs(c, identity), frozen)
             self.assertEqual(self.objects(), preserved)

@@ -50,6 +50,9 @@ khi chạy runner. Analytics dependency sync có thể bỏ Spark extra; dùng
 | `mart_delivery_daily` | Purchase-date cohort: observed delivery counts, late rate và mean elapsed hours |
 | `mart_revenue_daily` | Một local purchase date: GMV, freight, gross paid và completeness counts |
 | `mart_average_order_value` | Một local purchase date: paid amount, paid order count và AOV |
+| `mart_customer_value` | Một current shopper kể cả chưa có order; observed eligible value/counts, paid AOV, first/last purchase và repeat flag |
+| `mart_repeat_purchase_daily` | Một local eligible purchase date; first/repeat order counts theo observed shopper history |
+| `mart_order_status_daily` | Một local purchase date × current status; order counts và group-distinct shoppers |
 
 `fct_orders` giữ `customer_id`, shopper ID và `customer_key`. Missing customer không được
 inner join để âm thầm drop order hoặc gán unknown member: relationship/not-null
@@ -479,3 +482,88 @@ Logs/artifacts ignored: `build/reports/dimension-policy-fast.log`,
 Ruff/format và wheel/sdist build PASS. Không chạy lại toàn bộ ingestion,
 incremental/backfill/recovery suites hoặc GitHub CI trong thay đổi này; các modes
 cùng sử dụng manifest-based final gate, node-count expectations đã cập nhật 227.
+
+## Customer Value and Repeat Purchase
+
+`mart_customer_value` bắt đầu từ `dim_customer` ở shopper grain
+`customer_unique_id`/`customer_key`, LEFT JOIN `fct_orders` đã aggregate items và
+payments riêng. Một shopper có nhiều order-scoped customer IDs vẫn chỉ một row.
+Shoppers chưa có order giữ counts/amounts=0, AOV và first/last timestamps=NULL,
+repeat flag=false. Cancel-only shoppers có total_order_count nhưng không eligible.
+
+- `total_order_count` gồm mọi status; eligible/paid counts dùng shared eligible
+  statuses, paid order phải có summed payment > 0. Không coi missing payment như
+  observed zero payment: giữ riêng orders_without_payments/items.
+- GMV/freight/gross paid là observed eligible sums, BRL exact NUMERIC không narrow
+  aggregate precision. Paid AOV chia positive-paid sum cho paid_order_count, ROUND
+  hai decimals; không average order/customer/day means để gộp AOV.
+- First/last eligible purchase là min/max observed UTC instants, không khẳng định
+  acquisition date hoặc lịch sử lifetime đã đầy đủ. Đây là observed value, không
+  phải predicted customer lifetime value, net revenue hoặc profit.
+- `is_repeat_customer` là ít nhất hai eligible orders hiện có trong staging, kể cả
+  unpaid/zero-paid. Không đưa canceled/unavailable orders vào repeat denominator.
+
+`mart_repeat_purchase_daily` rank eligible orders theo UTC purchase timestamp rồi
+order_id trong mỗi shopper; thứ tự tie chỉ phục vụ deterministic classification,
+không khẳng định thứ tự nghiệp vụ giữa các simultaneous orders. First order là
+first **observed eligible** order, các order còn lại là repeat. Một ngày có thể
+chứa cả first và repeat orders của cùng shopper.
+
+Mart group theo São Paulo purchase date từ Silver, không theo source update date.
+`first_order_count + repeat_order_count = eligible_order_count`;
+repeat_order_rate = repeat_order_count / eligible_order_count. Gộp counts trước
+khi chia; purchasing/repeat_customer_count distinct trong ngày không additive qua
+ngày. Không có eligible orders thì mart rỗng, không tạo zero-observation cohorts.
+
+Late earlier orders hoặc current status changes có thể đổi first/repeat classification
+và các ngày cũ khi view rebuild. Backfill dùng shared current staging, không tái dựng
+lịch sử còn thiếu hoặc một point-in-time retention cohort. No fixed observation
+window, acquisition/retention/churn rate, RFM hoặc survival model được suy diễn.
+
+`mart_order_status_daily` giữ tất cả observed current statuses theo local purchase
+cohort, mỗi order một lần, distinct shoppers chỉ trong status/date. Không dùng nó
+như status-transition history hoặc cộng customer_count qua groups thành total.
+Không join review/item/payment rows vào các status counts.
+
+Các marts dùng existing reader role; không thêm grants/cards cho business BI.
+Source-based reconciliations tính expected từ raw orders/customers và independent
+per-order item/payment sums, bắt wrong grain, extra/missing groups, money/rate sai.
+Empty input, canceled-only/no-order shoppers, DST local dates, late earlier orders,
+zero/missing payments và aggregate sums vượt source precision có fixtures riêng.
+
+## Customer Marts Verification (2026-10-23)
+
+126 fast unit tests, 8 targeted analytics cases và 3 full/backfill pipeline cases
+đã PASS. Fixtures bao phủ shopper có nhiều customer IDs, no-order/canceled-only
+members, zero/missing payments, exact BRL aggregate vượt source-row precision,
+São Paulo DST dates, late earlier order reclassification, empty input, unchanged
+BI grants và wrong-but-valid metrics. Dimension corruption expectations được cập
+nhật để customer reconciliation cùng bắt wrong keys/synthetic members. Backfill
+đối chiếu cả ba marts với independent full reload, giữ scheduled cursors/foreign queue.
+
+Locked standalone build trên Olist PASS=261 (31 views, 230 tests), đúng tám sources,
+WARN/ERROR/SKIP=0. Tám staging SHARE locks giữ qua fresh build/đối soát; current code
+hash được kiểm tra trước/sau. Đây không phải ingestion hoặc core run mới.
+
+- Customer value có 96,096 shoppers; 17 chưa có staged orders, 2,888 repeat shoppers,
+  1,123 NULL AOV. Total orders=99,424, eligible=98,191, positive-paid=98,190.
+- Observed eligible GMV=BRL 13,491,218.65, freight=2,240,547.03 và gross paid=
+  15,736,441.59; khớp existing daily marts, không gọi gross paid là net revenue.
+- Repeat mart có 614 ngày từ 2016-09-04 đến 2018-09-03: first orders=94,974,
+  repeat orders=3,217, tổng=98,191; aggregate repeat-order rate=
+  0.03276267682374148344. Không phải tỷ lệ retention toàn bộ lifetime.
+- Status counts: delivered=96,462, shipped=1,107, invoiced=314, processing=301,
+  created=5, approved=2, canceled=625, unavailable=608; tổng=99,424.
+
+Existing fact counts giữ nguyên orders/delivery=99,424, items=112,621,
+payments=103,869. Pipeline controls, deferred statuses/attempts và số warehouse
+load receipts không đổi. Health HEALTHY, publication available; business reader
+không đọc được ba marts mới. Không thêm Metabase cards hoặc mở service.
+
+Evidence ignored: `build/reports/customer-marts-fast.log`,
+`customer-marts-integration.log`, `customer-marts-gates.log`,
+`customer-marts-local-build.log`, `customer-marts-local.json`,
+`customer-marts-health.json`, `customer-marts-local-dbt/` và
+`customer-marts-final-checks.log`. Ruff/format và package build PASS. Không chạy lại
+full ingestion, toàn bộ analytics/incremental/recovery suites hoặc GitHub CI trong
+lượt này; các node-count expectations cho core gates cùng cập nhật 261.
