@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ThisMacht/ecommerce-data-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/ThisMacht/ecommerce-data-platform/actions/workflows/ci.yml)
 
-Local batch data-engineering platform từ Olist raw CSV qua PostgreSQL source simulator, immutable Bronze/PySpark Silver trên MinIO, version-aware warehouse staging, dbt analytics và Metabase. Tám core datasets chạy full/incremental/backfill với deferred recovery và gated completion watermarks. Xem [architecture and ERDs](docs/22_architecture_and_data_model.md), [runbook](docs/runbooks/01_data_processing_runbook.md) và [acceptance checklist](docs/23_project_acceptance.md) để phân biệt implementation, evidence và phần closeout còn lại.
+A local batch data-engineering platform that takes Olist raw CSVs through a PostgreSQL source simulator, immutable Bronze and PySpark Silver layers on MinIO, version-aware warehouse staging, dbt analytics and Metabase. Eight core datasets support full, incremental and backfill runs with deferred recovery and gated completion watermarks. See the [architecture and ERDs](docs/22_architecture_and_data_model.md), [runbook](docs/runbooks/01_data_processing_runbook.md) and [acceptance checklist](docs/23_project_acceptance.md) for implementation details, verification evidence and remaining closeout work.
 
 ## Current status
 
@@ -35,17 +35,17 @@ Local batch data-engineering platform từ Olist raw CSV qua PostgreSQL source s
 
 ## Quick start
 
-Đặt đủ 9 CSV Olist canonical vào `data/raw/`, rồi chạy:
+Place all nine canonical Olist CSVs in `data/raw/`, then run:
 
 ```bash
 make dataset
 ```
 
-[`scripts/make_dataset.sh`](scripts/make_dataset.sh) tự tạo `.env` nếu thiếu, sync dependencies, verify/seed PostgreSQL, start MinIO và chạy customers/products/sellers/geolocation → full orders → order_items/order_payments/order_reviews qua Bronze/Silver rồi PostgreSQL staging và dbt build/tests, tự truyền parent snapshots cho FK checks. Không cần nhập run IDs, prefixes hay export local credentials; runner lấy cấu hình từ Compose và lưu kết quả trong ignored `build/reports/dataset/`. Cần Python 3.10+, uv, Docker Compose; Java 17 cho Silver/staging (tự nhận diện JDK 17 trong `/usr/lib/jvm` nếu chưa đặt `JAVA_HOME`).
+[`scripts/make_dataset.sh`](scripts/make_dataset.sh) creates `.env` if missing, syncs dependencies, verifies and seeds PostgreSQL, starts MinIO, and processes customers/products/sellers/geolocation → full orders → order_items/order_payments/order_reviews through Bronze/Silver, PostgreSQL staging and dbt build/tests. Parent snapshots are passed automatically for FK checks. The runner obtains configuration from Compose and writes results to ignored `build/reports/dataset/`; run IDs, prefixes and local credentials require no manual input. Requirements: Python 3.10+, uv, Docker Compose and Java 17 for Silver/staging. JDK 17 is detected under `/usr/lib/jvm` when `JAVA_HOME` is unset.
 
-Runner xử lý full snapshots cả 8 datasets, freeze cùng source snapshot trước publication. Thiếu bất kỳ CSV nào trong snapshot 9 files thì seed/downstream được bỏ qua và liệt kê file thiếu; loader hiện không hỗ trợ partial seed. Thiếu Java thì chỉ chạy Bronze, báo `PARTIAL` và giữ pending ID để resume. CSV có sẵn nhưng sai checksum, migration hoặc processing/load lỗi sẽ dừng. Sau lỗi, gọi lại `make dataset` với code/config cũ để resume; sau success, lần gọi tiếp tạo run mới. Runner giữ local file lock; services/volumes được giữ lại. Pending runs từ bounded runner cũ phải hoàn tất bằng config cũ trước khi chuyển sang full mode; xem [pipeline contract](docs/data_contracts/11_pipeline_control.md).
+The runner freezes full snapshots of all eight datasets in the same source snapshot before publication. If any of the nine CSVs is missing, it lists the missing files and skips seeding and downstream work; partial seeding is unsupported. Without Java, it runs Bronze only, reports `PARTIAL` and retains the pending ID for resumption. Invalid checksums, migration errors and processing/load failures stop execution. After failure, rerun `make dataset` with the original code/configuration to resume; after success, the next invocation creates a new run. The runner holds a local file lock and retains services/volumes. Pending runs from the older bounded runner must finish with their original configuration before switching to full mode; see the [pipeline contract](docs/data_contracts/11_pipeline_control.md).
 
-Prerequisites: Python `>=3.10`, [uv](https://docs.astral.sh/uv/getting-started/installation/), Docker Engine và Docker Compose.
+Prerequisites: Python `>=3.10`, [uv](https://docs.astral.sh/uv/getting-started/installation/), Docker Engine and Docker Compose.
 
 ```bash
 cp .env.example .env
@@ -55,45 +55,45 @@ make seed-source
 make verify-source
 ```
 
-`make seed-source` xác minh raw files trước khi start PostgreSQL, apply migration và load 1,550,922 logical records. Lần chạy lại cùng snapshot là no-op.
+`make seed-source` verifies raw files before starting PostgreSQL, applying migrations and loading 1,550,922 logical records. Repeating the same snapshot is a no-op.
 
 ## Project structure
 
-- `src/olist_platform/raw/`: package Python chứa manifest helpers, verification, profiling và source contracts.
-- `src/olist_platform/source_simulator/`: batch artifacts, deterministic fixtures và transactional apply.
-- `src/olist_platform/benchmark/`: standalone event engine workload, independent oracle và resource-guarded measurements.
-- `src/olist_platform/bronze/`: eight-dataset extraction, durable frozen retry state và verified MinIO publication.
-- `src/olist_platform/silver/`: explicit-schema Spark processing, row routing và Parquet publication.
-- `src/olist_platform/warehouse/`: verified staging merges/load audit và Metabase provisioning.
-- `src/olist_platform/deferred/`: durable quarantine, bounded retry/expiry và atomic resolution.
-- `src/olist_platform/pipeline/`: run/task audit, health/dashboard và receipt/dbt/CAS gates.
-- `airflow/`: three local DAG wrappers, isolated Python 3.12 runtime và lock.
-- `dbt/`: staging/intermediate/dimension/fact/mart SQL cùng schema descriptions và tests.
-- `tests/processing/`: Spark tests và independent dirty fixture expectations; tách khỏi fast unit tests.
-- `tests/benchmark/`: optional engine parity/resource checks trên tiny fixtures.
-- `scripts/`: compatibility wrappers cho các Python commands trước đây; cần cài package trước khi dùng.
-- `tests/unit/`: `unittest` và fixture nhỏ, gồm kiểm tra installed CLI từ thư mục ngoài checkout.
-- `tests/integration/`: PostgreSQL tests dùng container tạm; simulator dùng small SQL fixture trong `tests/fixtures/`, source seed dùng canonical raw snapshot.
-- `config/`: raw manifest và source contract versioned.
-- `infrastructure/`: Docker Compose cùng PostgreSQL migrations, seed và checks.
-- `data/raw/`: immutable CSV local, không commit vào Git.
-- `docs/`: contracts, generated source profile và runbooks; JSON reports nằm trong `build/reports/` đã ignore.
+- `src/olist_platform/raw/`: Python manifest helpers, verification, profiling and source contracts.
+- `src/olist_platform/source_simulator/`: batch artifacts, deterministic fixtures and transactional apply.
+- `src/olist_platform/benchmark/`: standalone event engine workload, independent oracle and resource-guarded measurements.
+- `src/olist_platform/bronze/`: eight-dataset extraction, durable frozen retry state and verified MinIO publication.
+- `src/olist_platform/silver/`: explicit-schema Spark processing, row routing and Parquet publication.
+- `src/olist_platform/warehouse/`: verified staging merges/load audit and Metabase provisioning.
+- `src/olist_platform/deferred/`: durable quarantine, bounded retry/expiry and atomic resolution.
+- `src/olist_platform/pipeline/`: run/task audit, health/dashboard and receipt/dbt/CAS gates.
+- `airflow/`: three local DAG wrappers with an isolated Python 3.12 runtime and lock.
+- `dbt/`: staging/intermediate/dimension/fact/mart SQL, schema descriptions and tests.
+- `tests/processing/`: Spark tests and independent dirty-fixture expectations, separate from fast unit tests.
+- `tests/benchmark/`: optional engine parity/resource checks on tiny fixtures.
+- `scripts/`: compatibility wrappers for earlier Python commands; install the package before use.
+- `tests/unit/`: `unittest` and small fixtures, including installed CLI checks outside the checkout.
+- `tests/integration/`: disposable PostgreSQL tests; simulator tests use small SQL fixtures in `tests/fixtures/`, while source seed tests require the canonical raw snapshot.
+- `config/`: versioned raw manifest and source contract.
+- `infrastructure/`: Docker Compose, PostgreSQL migrations, seeding and checks.
+- `data/raw/`: immutable local CSVs, excluded from Git.
+- `docs/`: contracts, generated source profile and runbooks; JSON reports go to ignored `build/reports/`.
 
 ## Python development
 
-`pyproject.toml` khai báo package, Python version, CLI entry points và development tools. `uv.lock` khóa dependencies và phải được commit. Source dùng Psycopg 3, object storage dùng Boto3, Ruff thuộc development group. PySpark nằm trong optional extra `processing`: dùng Java 17 và `make sync-processing`. dbt dùng extra `analytics`; pandas/Polars/Spark benchmark dùng extra `benchmark`. Airflow có Python 3.12 environment và lock riêng trong `airflow/`.
+`pyproject.toml` defines the package, Python version, CLI entry points and development tools. `uv.lock` locks dependencies and must be committed. Source access uses Psycopg 3, object storage uses Boto3, and Ruff belongs to the development group. PySpark is in the optional `processing` extra: use Java 17 and `make sync-processing`. dbt uses the `analytics` extra; the pandas/Polars/Spark benchmark uses `benchmark`. Airflow has a separate Python 3.12 environment and lock under `airflow/`.
 
 ```bash
-make sync       # uv sync --locked: cài editable package và dev tools vào .venv
-make lint       # Ruff lint và formatting checks
+make sync       # uv sync --locked: install the editable package and dev tools in .venv
+make lint       # Ruff lint and formatting checks
 make format     # Format Python code
-make test-unit  # Chạy unittest, không cần Docker hoặc full raw snapshot
-make build      # Build wheel và source distribution vào dist/
+make test-unit  # Run unittest without Docker or the full raw snapshot
+make build      # Build wheel and source distribution in dist/
 ```
 
-Make dùng `uv run --locked python` mặc định; có thể override interpreter bằng `make test-unit PYTHON=.venv/bin/python`. Khi thêm dependencies, dùng `uv add <package>` hoặc `uv add --dev <tool>` và commit cả `pyproject.toml` lẫn `uv.lock`. Không duy trì một root `requirements.txt` riêng.
+Make defaults to `uv run --locked python`; override the interpreter with `make test-unit PYTHON=.venv/bin/python`. Add dependencies using `uv add <package>` or `uv add --dev <tool>`, then commit both `pyproject.toml` and `uv.lock`. A separate root `requirements.txt` is not maintained.
 
-Các CLI sau khả dụng sau khi sync:
+The following CLIs are available after syncing:
 
 ```bash
 uv run --locked olist-verify-raw
@@ -102,26 +102,26 @@ uv run --locked olist-validate-source-contract
 uv run --locked olist-verify-source-schema --catalog build/reports/source_schema.json
 ```
 
-Chạy Make và CLI từ repository root để dùng default paths. CLI resolve relative paths theo working directory, không suy ra checkout từ vị trí package. Khi gọi executable đã cài từ thư mục khác, truyền absolute paths qua `--manifest`, `--raw-dir`, `--contract` và các output options phù hợp. Wheel chỉ chứa application code; config, raw CSV và reports vẫn nằm ngoài package.
+Run Make and CLI commands from the repository root to use default paths. CLIs resolve relative paths against the working directory, rather than inferring the checkout from the package location. When invoking an installed executable elsewhere, pass absolute paths through `--manifest`, `--raw-dir`, `--contract` and the relevant output options. The wheel contains application code only; configuration, raw CSVs and reports remain external.
 
 ## Continuous integration
 
-[GitHub Actions CI](.github/workflows/ci.yml) chạy trên push, pull request và manual dispatch:
+[GitHub Actions CI](.github/workflows/ci.yml) runs on pushes, pull requests and manual dispatch:
 
-- `Fast checks`: Python 3.10 và 3.12, cài dependencies từ `uv.lock`, chạy `make test`, build wheel/sdist và chạy lại unit tests với wheel đã cài.
-- `Airflow DAG checks`: import/serialize DAG với runtime Airflow riêng, kiểm tra retry wiring.
-- `PostgreSQL and MinIO integration`: simulator, Bronze, warehouse merge, deferred lifecycle và pipeline control/CAS; disposable services với small fixtures.
-- `dbt models and catalog`: job riêng (35 phút), chạy toàn bộ `make test-dbt-integration`, gồm metric/grain/FK reconciliation, reader grants và catalog descriptions/output columns.
-- `Spark`: bốn runners độc lập (30 phút mỗi runner): normalization/orders; dimensions/staging/deferred; full/incremental/backfill gates; recovery. Mỗi runner chạy tuần tự các Make targets trong `matrix.targets`; lỗi một nhóm không hủy các nhóm khác.
-- `Event benchmark correctness`: Python 3.10/3.12, independent oracle parity và process/resource guards với tiny fixtures; không đo large-workload performance.
+- `Fast checks`: Python 3.10 and 3.12; install dependencies from `uv.lock`, run `make test`, build wheel/sdist and rerun unit tests against the installed wheel.
+- `Airflow DAG checks`: import/serialize DAGs in the separate Airflow runtime and verify retry wiring.
+- `PostgreSQL and MinIO integration`: simulator, Bronze, warehouse merge, deferred lifecycle and pipeline control/CAS checks using disposable services and small fixtures.
+- `dbt models and catalog`: a separate job with a 35-minute timeout, running all of `make test-dbt-integration`, including metric/grain/FK reconciliation, reader grants and catalog descriptions/output columns.
+- `Spark`: four independent runners with 30-minute timeouts: normalization/orders; dimensions/staging/deferred; full/incremental/backfill gates; recovery. Each runner executes its Make targets sequentially from `matrix.targets`; one group's failure does not cancel the others.
+- `Event benchmark correctness`: Python 3.10/3.12, independent oracle parity and process/resource guards on tiny fixtures; no large-workload performance measurements.
 
-CI không cần `.env`, raw CSV hay repository secrets. Integration suites tự tạo credentials cho services tạm và cleanup container/volume khi kết thúc. Full snapshot suite (`make test-source-integration`) vẫn chạy local sau khi tải canonical CSV. Spark dùng Java 17, heap 2 GiB và hai CPU JVM mỗi runner.
+CI requires no `.env`, raw CSVs or repository secrets. Integration suites generate credentials for disposable services and clean up containers/volumes afterward. The full snapshot suite (`make test-source-integration`) runs locally after downloading the canonical CSVs. Spark uses Java 17, a 2 GiB heap and two JVM CPUs per runner.
 
-Tái hiện fast checks: `make sync`, `make test`, `make build`. Với integration, cài locked extras tương ứng (`make sync-analytics` hoặc `uv sync --locked --extra processing --extra analytics`), rồi chạy các Make targets của job trong workflow. Khi chạy một máy local, giữ các nhóm Spark tuần tự và export `PYSPARK_PYTHON="$PWD/.venv/bin/python"` để worker dùng đúng Python environment.
+Reproduce fast checks with `make sync`, `make test` and `make build`. For integration, install the relevant locked extras (`make sync-analytics` or `uv sync --locked --extra processing --extra analytics`), then run the job's Make targets from the workflow. On a single local machine, run Spark groups sequentially and export `PYSPARK_PYTHON="$PWD/.venv/bin/python"` so workers use the correct Python environment.
 
-Hosted [run 40000218387](https://github.com/ThisMacht/ecommerce-data-platform/actions/runs/40000218387) đã SUCCESS 11/11 jobs tại `f2ced4d`; full Olist baseline và large benchmark được ghi riêng trong [acceptance evidence](docs/23_project_acceptance.md).
+Hosted [run 40000218387](https://github.com/ThisMacht/ecommerce-data-platform/actions/runs/40000218387) completed successfully with 11/11 jobs at `f2ced4d`; the full Olist baseline and large benchmark are recorded separately in the [acceptance evidence](docs/23_project_acceptance.md).
 
-Workflow pin action commit SHAs và uv version; cập nhật các pins cùng validation khi nâng tools. Thời gian giới hạn là budget CI, không phải kết quả benchmark; chỉ xác nhận GitHub CI PASS từ workflow run thực tế.
+The workflow pins action commit SHAs and the uv version; update these pins with validation when upgrading tools. Timeouts are CI budgets, not benchmark results. Claim hosted CI success only from an actual workflow run.
 
 ## Synthetic events
 
@@ -132,12 +132,7 @@ make verify-events
 make generate-events EVENT_ROWS=10000000 EVENT_SEED=43 EVENT_OUTPUT=data/generated/events/10m_seed43
 ```
 
-Artifact JSONL/manifest/marker nằm trong ignored `data/generated/events/`. Generator
-streaming có anonymous/cart/checkout-abandonment/purchase sessions, exact duplicates,
-late và out-of-order events. IDs đều synthetic, không nối vào Olist core. Cùng request
-được verify rồi NOOP; khác request/corruption fail. Counts phân biệt physical/unique
-và censored session cuối. Xem [event contract](docs/data_contracts/20_synthetic_events.md).
-Engine benchmark chạy độc lập như mục tiếp theo; core pipeline/BI vẫn dùng tám datasets hiện có.
+JSONL/manifest/marker artifacts go to ignored `data/generated/events/`. The streaming generator produces anonymous, cart-abandonment, checkout-abandonment and purchase sessions, exact duplicates, late arrivals and out-of-order events. All IDs are synthetic and have no Olist core associations. Repeating a request verifies the artifact and returns NOOP; request mismatches or corruption fail. Counts distinguish physical/unique events and the final censored session. See the [event contract](docs/data_contracts/20_synthetic_events.md). The independent engine benchmark is described below; the core pipeline/BI continues to use the existing eight datasets.
 
 ## Event engine benchmark
 
@@ -147,13 +142,7 @@ make test-benchmark  # Linux + Java 17; tiny correctness fixtures
 make benchmark-events  # default 3 rounds, 4 CPUs, 4 GiB sampled RSS budget
 ```
 
-Dùng cùng verified JSONL, global event dedup và UTC day/type aggregates cho
-pandas/Polars/PySpark. Parent kiểm tra independent oracle, mỗi trial dùng process
-mới và được giám sát cả Python/JVM. Cần >=5 GiB RAM khả dụng với default budget;
-resource guard dừng workload của benchmark khi không đủ. Không chạy engine song song.
-Reports/logs ở ignored `build/reports/events-benchmark/`; dùng `BENCHMARK_OUTPUT`
-mới cho lượt sau. Xem [benchmark contract](docs/data_contracts/21_event_engine_benchmark.md)
-để biết workload, pinned versions, cache/memory limitations và cách đọc timings.
+pandas/Polars/PySpark process the same verified JSONL using global event deduplication and UTC day/type aggregates. The parent checks an independent oracle, and each trial runs in a fresh process with both Python and JVM monitoring. The default budget requires at least 5 GiB available RAM; resource guards stop the benchmark workload when resources are insufficient. Engines run sequentially. Reports/logs go to ignored `build/reports/events-benchmark/`; use a new `BENCHMARK_OUTPUT` for each run. See the [benchmark contract](docs/data_contracts/21_event_engine_benchmark.md) for the workload, pinned versions, cache/memory limitations and timing interpretation.
 
 ## Documentation
 
@@ -169,21 +158,21 @@ mới cho lượt sau. Xem [benchmark contract](docs/data_contracts/21_event_eng
 
 ## Commands
 
-Chạy `make help` để xem interface hiện tại. `make test` chạy Ruff, contract validation, unit tests và Compose/shell syntax checks, không start container. `make test-source-integration` thực thi full database seed và idempotence check.
+Run `make help` for the current command interface. `make test` runs Ruff, contract validation, unit tests and Compose/shell syntax checks without starting containers. `make test-source-integration` performs full database seeding and idempotence checks.
 
 ## Source integration tests
 
 ```bash
-make verify-source-schema     # So sánh live schema với source contract
-make verify-source            # Kiểm tra schema, row counts và seed audit
-make test-source-integration  # Chạy tests trong PostgreSQL tạm, tự cleanup
+make verify-source-schema     # Compare the live schema with the source contract
+make verify-source            # Verify schema, row counts and seed audit
+make test-source-integration  # Run tests in disposable PostgreSQL with automatic cleanup
 ```
 
-`make verify-source-schema` export catalog bằng reader role vào `build/reports/source_schema.json`, rồi kiểm tra types (gồm numeric precision/scale), nullability, technical keys, ordered primary keys, identity và uniqueness của `source_sequence`. Nullable additions tạo warning theo contract; required additions hoặc missing/incompatible columns làm command fail.
+`make verify-source-schema` exports a catalog through the reader role to `build/reports/source_schema.json`, then checks types (including numeric precision/scale), nullability, technical keys, ordered primary keys, identity and `source_sequence` uniqueness. Nullable additions produce contract warnings; required additions and missing/incompatible columns fail the command.
 
-Integration suite cần Docker và toàn bộ 9 CSV canonical đã khóa checksum. Suite dùng cùng PostgreSQL image từ Compose, tạo container riêng không publish port và database mới cho từng test. Container cùng anonymous volume được xóa khi kết thúc; local Compose database không được dùng. Không cần chạy `make seed-source` trước.
+The integration suite requires Docker and all nine canonical CSVs with pinned checksums. It uses the PostgreSQL image from Compose, creates a separate container without published ports, and creates a new database for each test. The container and anonymous volume are removed afterward; the local Compose database is untouched. Running `make seed-source` first is unnecessary.
 
-Các tests xác minh migration rerun, real schema drift, exact seed row counts, SHA-256 fingerprints của mọi source field (gồm metadata), audit rows và sequence state trước/sau rerun. Suite còn kiểm tra updates được giữ nguyên qua shell no-op lẫn SQL reseed, chèn lỗi tại table cuối và audit insert, rồi xác minh rollback cùng successful retry. PostgreSQL `setval` không transactional: audit failure có thể để lại sequence gaps; sequence không cần liên tục, nhưng data và audit phải rollback.
+Tests verify migration reruns, real schema drift, exact seed row counts, SHA-256 fingerprints of every source field (including metadata), audit rows and sequence state before/after replay. They also check that updates survive shell no-ops and SQL reseeding, inject failures in the final table and audit insert, and verify rollback and successful retry. PostgreSQL `setval` is nontransactional: audit failures may leave sequence gaps. Sequences need not be contiguous, but data and audit must roll back together.
 
 ## Source simulator
 
@@ -193,9 +182,9 @@ make validate-source-batch
 make test-source-simulator-integration
 ```
 
-Generator tạo 4 immutable batches với 16 insert/update operations: same-timestamp records, child-before-parent arrivals, late payment và backdated corrections. Apply trong transaction, audit ở `audit.source_batch_runs`; cùng batch/hash là no-op, cùng ID khác payload bị reject. Source versions dùng identity sequence, kể cả khi timestamp đi lùi.
+The generator creates four immutable batches with 16 insert/update operations: same-timestamp records, child-before-parent arrivals, late payments and backdated corrections. Applying a batch commits source changes and `audit.source_batch_runs` together; replaying the same batch/hash is a no-op, while reusing an ID with a different payload fails. Source versions use identity sequences even when timestamps move backward.
 
-Sau `make seed-source`, cấu hình connection qua process environment rồi apply từng directory theo thứ tự:
+After `make seed-source`, configure the connection through the process environment and apply each directory in order:
 
 ```bash
 export SOURCE_SIMULATOR_DSN='postgresql://olist_loader:local_loader_change_me@127.0.0.1:5432/olist_source'
@@ -205,68 +194,53 @@ make apply-source-batch SOURCE_BATCH_DIR=data/generated/source_batches/reliabili
 make apply-source-batch SOURCE_BATCH_DIR=data/generated/source_batches/reliability_v1/004_backdated
 ```
 
-DSN ở trên chỉ minh họa default local credentials; CLI cũng hỗ trợ standard `PG*` environment. Compose `.env` không tự được export vào CLI. Simulator integration tests dùng small synthetic baseline, không yêu cầu raw CSV; xem [contract](docs/data_contracts/03_source_simulator.md) cho expected counts, semantics và limitations.
+The DSN above illustrates local default credentials only; the CLI also supports standard `PG*` variables. Compose `.env` is not automatically exported to CLIs. Simulator integration tests use a small synthetic baseline and require no raw CSVs; see the [contract](docs/data_contracts/03_source_simulator.md) for expected counts, semantics and limitations.
 
 ## Orders to Bronze
 
-MinIO và orders extractor đã có CLI slice với consistent snapshot, composite cursor/lookback, durable retry pages, immutable JSONL objects, manifest/SHA-256 và `_SUCCESS`. Checkpoint chỉ tiến sau verified publication; đây là Bronze delivery checkpoint, chưa phải watermark của toàn pipeline.
+The MinIO/orders CLI supports consistent snapshots, composite cursors/lookback, durable retry pages, immutable JSONL objects, manifests/SHA-256 and `_SUCCESS`. Its checkpoint advances only after verified publication; this is a Bronze delivery checkpoint, separate from the pipeline completion watermark.
 
-Chạy `make bronze-up`, export database/S3 environment, `make init-bronze`, rồi `make ingest-orders BRONZE_RUN_ID=<stable_id>`. Resume cùng ID khi lỗi; dùng ID mới cho extraction tiếp theo. Xem [Bronze contract](docs/data_contracts/04_orders_bronze.md) cho đầy đủ commands, lookback SLA và limitations. `make test-bronze-integration` dùng small fixture, không cần canonical CSV.
+Run `make bronze-up`, export the database/S3 environment, run `make init-bronze`, then `make ingest-orders BRONZE_RUN_ID=<stable_id>`. Resume the same ID after failure; use a new ID for the next extraction. See the [Bronze contract](docs/data_contracts/04_orders_bronze.md) for commands, the lookback SLA and limitations. `make test-bronze-integration` uses a small fixture and requires no canonical CSVs.
 
 ## Orders to Silver
 
-Sau Bronze, dùng Java 17, `make sync-processing`, rồi `make process-orders BRONZE_PREFIX='<manifest.prefix>' SILVER_RUN_ID=<stable_id>`. Spark chuẩn hóa strings/timezone, giữ version mới nhất, phân loại valid/rejected/duplicates và publish Parquet immutable có manifest/reconciliation. Warning là subset của valid.
+After Bronze, use Java 17, run `make sync-processing`, then `make process-orders BRONZE_PREFIX='<manifest.prefix>' SILVER_RUN_ID=<stable_id>`. Spark normalizes strings/timezones, retains the latest version, routes valid/rejected/duplicate records and publishes immutable Parquet with a manifest and reconciliation. Warning rows are a subset of valid rows.
 
-Muốn kiểm tra customer FK, tạo full customer Bronze/Silver bằng `make ingest-customers` và `make process-customers`, rồi truyền `CUSTOMER_SNAPSHOT=<customer Silver prefix>` khi process orders. Orders thiếu parent vào deferred; dùng snapshot mới và Silver run ID mới để reprocess cùng Bronze input, hoặc dùng [durable deferred lifecycle](docs/data_contracts/10_deferred_lifecycle.md) để resolve frozen pending records. Silver không promote end-to-end watermark.
+For customer FK checks, create full customer Bronze/Silver snapshots with `make ingest-customers` and `make process-customers`, then pass `CUSTOMER_SNAPSHOT=<customer Silver prefix>` when processing orders. Orders missing a parent are deferred. Reprocess the original Bronze input with a new snapshot and Silver run ID, or use the [durable deferred lifecycle](docs/data_contracts/10_deferred_lifecycle.md) to resolve frozen pending records. Silver does not promote the end-to-end watermark.
 
 ## Order items and payments
 
-Bronze hỗ trợ composite cursors, decimal-as-string và checkpoint độc lập cho hai bảng con. Silver dùng toàn bộ business key, `decimal(18,2)` và bắt buộc full orders snapshot để kiểm tra FK; missing orders vào deferred. Tạo parent bằng `make ingest-orders BRONZE_RUN_ID=<id> BRONZE_FULL_SNAPSHOT=1`, rồi process orders và truyền `ORDER_SNAPSHOT=<orders Silver prefix>` cho `make process-order-items` / `make process-order-payments`.
+Bronze supports composite cursors, decimal-as-string serialization and independent checkpoints for both child tables. Silver uses the complete business key and `decimal(18,2)`, and requires a full orders snapshot for FK checks; missing orders are deferred. Create the parent with `make ingest-orders BRONZE_RUN_ID=<id> BRONZE_FULL_SNAPSHOT=1`, process orders, then pass `ORDER_SNAPSHOT=<orders Silver prefix>` to `make process-order-items` / `make process-order-payments`.
 
-Items v1 chỉ kiểm tra product/seller ID không thiếu. [V2](docs/data_contracts/17_item_dependency_snapshots.md) kiểm tra đủ order/product/seller FK khi cấp ba full snapshots; cả ba core modes tự bật v2. Xem [contract và commands](docs/data_contracts/07_order_children.md). Chạy `make test-order-children-integration` sau thay đổi; suite dùng fixtures và disposable services.
+Items v1 checks only that product/seller IDs are present. [V2](docs/data_contracts/17_item_dependency_snapshots.md) checks order/product/seller membership when all three full snapshots are supplied; all three core modes enable v2 automatically. See the [contract and commands](docs/data_contracts/07_order_children.md). Run `make test-order-children-integration` after changes; the suite uses fixtures and disposable services.
 
-Products có vertical slice riêng: `make ingest-products`, `make process-products`,
-`make load-warehouse SOURCE_TABLE=products`, rồi `make dbt-build`. Xem
-[product contract và prerequisites](docs/data_contracts/15_product_snapshots.md).
-Products được full refresh trong full/incremental/backfill và là FK parent của items.
-Không có product delta cursor; full/empty snapshots không xóa staging rows.
+Products have a standalone path: `make ingest-products`, `make process-products`, `make load-warehouse SOURCE_TABLE=products`, then `make dbt-build`. See the [product contract and prerequisites](docs/data_contracts/15_product_snapshots.md). Products are refreshed as full snapshots in full/incremental/backfill modes and serve as item FK parents. There is no product delta cursor; full/empty snapshots never imply staging deletes.
 
-Sellers có luồng tương tự: `make ingest-sellers`, `make process-sellers`, rồi
-`make load-warehouse SOURCE_TABLE=sellers` và `make dbt-build`. Xem
-[seller contract](docs/data_contracts/16_seller_snapshots.md). Hai slice được
-schedule bởi core runner; standalone item FK v2 bật bằng flags theo [contract 17](docs/data_contracts/17_item_dependency_snapshots.md).
+Sellers follow the same pattern: `make ingest-sellers`, `make process-sellers`, then `make load-warehouse SOURCE_TABLE=sellers` and `make dbt-build`. See the [seller contract](docs/data_contracts/16_seller_snapshots.md). The core runner schedules both datasets; standalone item FK v2 is enabled with flags from [contract 17](docs/data_contracts/17_item_dependency_snapshots.md).
 
 ## Silver to PostgreSQL staging
 
-Sau migration `006`, dùng `make load-warehouse SOURCE_TABLE=<table> SILVER_PREFIX='<prefix>' WAREHOUSE_RUN_ID=<id>`. CLI nhận `WAREHOUSE_DSN` hoặc `PG*` và cùng S3 environment. Chỉ valid rows được COPY/merge vào `raw_staging`; data và `audit.warehouse_load_runs` commit cùng transaction. Source sequence mới thắng, version cũ bị bỏ qua, cùng version khác business hash làm fail; retry cùng ID/input trả `NOOP`.
+After migration `006`, run `make load-warehouse SOURCE_TABLE=<table> SILVER_PREFIX='<prefix>' WAREHOUSE_RUN_ID=<id>`. The CLI accepts `WAREHOUSE_DSN` or `PG*` and the same S3 environment. Only valid rows are copied/merged into `raw_staging`; data and `audit.warehouse_load_runs` commit in one transaction. Newer source sequences win, older versions are ignored, and equal versions with different business hashes fail. Replaying the same ID/input returns `NOOP`.
 
-`make dataset` tự chạy bước này và lưu `*_warehouse.json`. Xem [staging contract](docs/data_contracts/08_warehouse_staging.md); kiểm tra bằng `make test-warehouse-merge-integration` và `make test-warehouse-integration`. Local run/task audit và gated pipeline watermarks đã có ở [pipeline contract](docs/data_contracts/11_pipeline_control.md); full/incremental/manual-backfill Airflow wrappers đã có.
+`make dataset` runs this step automatically and saves `*_warehouse.json`. See the [staging contract](docs/data_contracts/08_warehouse_staging.md); verify with `make test-warehouse-merge-integration` and `make test-warehouse-integration`. Local run/task audit and gated pipeline watermarks are described in the [pipeline contract](docs/data_contracts/11_pipeline_control.md); full/incremental/manual-backfill Airflow wrappers are implemented.
 
 ## dbt analytics
 
-Sau tám staging loads, core runner build/test 31 dbt views: 8 staging, 3 intermediate, 5 dimensions, 5 facts và 10 marts. Có order/item/payment/delivery/review analytics cùng customer value/repeat/status metrics; xem [warehouse ERD và mart grains](docs/22_architecture_and_data_model.md#warehouse-erd). Items/payments aggregate riêng theo order trước khi join. Customer dùng shopper business key, stable surrogate key và current Type 1 attributes. Tests đối soát exact với staging, gồm business associations, fan-out, canceled orders và zero payments.
+After eight staging loads, the core runner builds/tests 31 dbt views: eight staging, three intermediates, five dimensions, five facts and ten marts. These cover order/item/payment/delivery/review analytics and customer value/repeat/status metrics; see the [warehouse ERD and mart grains](docs/22_architecture_and_data_model.md#warehouse-erd). Items/payments are aggregated separately at order grain before joining. Customers use shopper business keys, stable surrogate keys and current Type 1 attributes. Tests reconcile exactly against staging, including business associations, fan-out, canceled orders and zero payments.
 
-Chạy riêng bằng `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_PASSWORD`, `DBT_READER_USER`, rồi `make dbt-build`. Xem [analytics contract](docs/data_contracts/09_analytics_models.md); kiểm thử bằng `make test-dbt-integration`. Views chưa có atomic publication; standalone dbt build không promote end-to-end watermarks. Chỉ coi build thành công sau khi tests pass.
+For standalone execution, run `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_PASSWORD` and `DBT_READER_USER`, then run `make dbt-build`. See the [analytics contract](docs/data_contracts/09_analytics_models.md); verify with `make test-dbt-integration`. Views do not provide atomic publication, and standalone dbt builds do not promote end-to-end watermarks. A build is successful only when its tests pass.
 
 ## dbt documentation and lineage
 
-Sau `make dbt-build`, giữ cùng `PG*`, `DBT_ENV_SECRET_PASSWORD` và
-`DBT_READER_USER`, chạy `make dbt-docs`. Kết quả mặc định ở ignored
-`build/reports/dbt-docs/`: `index.html`, `manifest.json`, `catalog.json` và compiled
-SQL. Có thể đổi `DBT_DOCS_OUTPUT=<directory>`. Xem bằng locked dbt runtime:
+After `make dbt-build`, keep the same `PG*`, `DBT_ENV_SECRET_PASSWORD` and `DBT_READER_USER`, then run `make dbt-docs`. The default output is ignored `build/reports/dbt-docs/`: `index.html`, `manifest.json`, `catalog.json` and compiled SQL. Override it with `DBT_DOCS_OUTPUT=<directory>`. Serve it with the locked dbt runtime:
 
 ```bash
 uv run --locked --extra analytics dbt docs serve --project-dir dbt --profiles-dir dbt --target-path "$PWD/build/reports/dbt-docs" --host 127.0.0.1 --port 8081
 ```
 
-Docs phản ánh các relations hiện có và metadata tại thời điểm generate; command
-không build/test models, promote watermark hoặc tạo published analytics snapshot.
-Giữ artifacts local/ignored. Integration kiểm tra descriptions cho đủ model/output
-columns, đúng source catalog và không còn column docs đã lỗi thời.
+The docs reflect existing relations and metadata at generation time; the command does not build/test models, promote watermarks or publish an analytics snapshot. Keep artifacts local and ignored. Integration checks cover descriptions for every model/output column, the source catalog and removal of stale column documentation.
 
-Sơ đồ dưới gom raw staging thành một nhóm; mỗi source cấp cho staging view cùng
-dataset. Các mũi tên còn lại là trực tiếp `ref()` dependencies, không phải physical
-snapshot boundaries. Đồ thị đầy đủ và column metadata nằm trong generated docs.
+The diagram below groups raw staging sources into one node; each source feeds the staging view for its dataset. All other arrows represent direct `ref()` dependencies, rather than physical snapshot boundaries. The full graph and column metadata are available in the generated docs.
 
 ```mermaid
 flowchart LR
@@ -320,157 +294,73 @@ flowchart LR
 
 ## Business dashboard
 
-Sau một pipeline SUCCESS, chạy `make metabase-up`, rồi mở
-[Metabase local](http://127.0.0.1:3000). URL dashboard và IDs nằm trong ignored
-`build/metabase/dashboard.json`; admin login được tạo trong
-`build/metabase/credentials.json` (0600). `METABASE_PORT` đổi host port trong `.env`.
+After a successful pipeline run, execute `make metabase-up` and open [local Metabase](http://127.0.0.1:3000). Dashboard URLs and IDs are stored in ignored `build/metabase/dashboard.json`; generated admin credentials are stored in `build/metabase/credentials.json` (0600). Set `METABASE_PORT` in `.env` to change the host port.
 
-Dashboard có GMV/gross paid/AOV/eligible-order KPIs, daily trends, status và
-completeness; start/end date inclusive. AOV dùng tổng paid amount / paid orders.
-Dedicated BI reader không có quyền đọc source/raw staging. Cards bị chặn khi latest
-pipeline chưa SUCCESS hoặc có audited load mới hơn. `make metabase-setup` reconcile
-managed resources; `make metabase-down` stop và giữ metadata. Xem
-[business dashboard contract](docs/data_contracts/14_business_dashboard.md).
-Metabase/H2 metadata dành cho local demo; live views chưa atomic xuyên các cards.
+The dashboard includes GMV/gross paid/AOV/eligible-order KPIs, daily trends, status and completeness, with inclusive start/end dates. AOV divides total paid amount by paid orders. The dedicated BI reader cannot access source/raw staging. Cards are gated when the latest pipeline has not succeeded or a newer audited load exists. `make metabase-setup` reconciles managed resources; `make metabase-down` stops the service and retains metadata. See the [business dashboard contract](docs/data_contracts/14_business_dashboard.md). Metabase/H2 metadata is intended for local demos; live views do not provide atomic snapshots across cards.
 
 ## Dirty-data verification
 
-`make test-dirty-data` với Java 17 chạy Spark trên 44 deterministic synthetic
-records của bốn core tables. Handwritten expected-error manifest kiểm tra từng
-physical UID, exact route và error/warning/deferred rules; checksums pin input
-bytes. Các fixtures cũng nằm trong `make test-processing` của CI. Xem
-[fixture guide](tests/fixtures/silver/README.md). Command không sửa raw CSV hoặc
-source database; không đại diện cho toàn bộ rule combinations/schema failures.
+`make test-dirty-data` uses Java 17 and Spark to process 44 deterministic synthetic records across four core tables. A handwritten expected-error manifest checks every physical UID, exact route and error/warning/deferred rule; checksums pin input bytes. These fixtures also run in CI through `make test-processing`. See the [fixture guide](tests/fixtures/silver/README.md). The command does not modify raw CSVs or the source database; it does not cover every rule combination or schema failure.
 
 ## Deferred retries
 
-`make dataset` tự register missing-parent records, rồi resolve theo full parent snapshot sau từng dependent dataset và trước dbt. Queue lưu original UID/payload, default ba attempts hoặc bảy ngày. Retry cùng run ID không tăng attempts; expiry là terminal reject. Queue transitions, version-aware staging merge và audit commit cùng transaction.
+`make dataset` registers missing-parent records and resolves them against full parent snapshots after each dependent dataset and before dbt. The queue retains original UIDs/payloads, with default limits of three attempts or seven days. Replaying the same run ID does not increase attempts; expiry is a terminal rejection. Queue transitions, version-aware staging merges and audit commit in one transaction.
 
-Standalone operations: `make register-deferred SOURCE_TABLE=<table> SILVER_PREFIX=<prefix> DEFERRED_RUN_ID=<id>`, rồi `make resolve-deferred SOURCE_TABLE=<table> PARENT_SNAPSHOT=<full prefix> DEFERRED_RUN_ID=<new id>`. Xem [contract](docs/data_contracts/10_deferred_lifecycle.md). Mỗi pass tối đa 1.000 rows/bảng; chưa có background scheduler; local watermarks chỉ được commit ở final pipeline gate.
+Standalone operations: `make register-deferred SOURCE_TABLE=<table> SILVER_PREFIX=<prefix> DEFERRED_RUN_ID=<id>`, then `make resolve-deferred SOURCE_TABLE=<table> PARENT_SNAPSHOT=<full prefix> DEFERRED_RUN_ID=<new id>`. See the [contract](docs/data_contracts/10_deferred_lifecycle.md). Each pass processes at most 1,000 rows per table; there is no background retry scheduler. Local watermarks commit only at the final pipeline gate.
 
 ## Pipeline completion and watermarks
 
-`make dataset` ghi run/task audit và đối chiếu server-side Bronze/Silver/warehouse/deferred receipts. Final gate khóa ghi staging trong lúc chạy fresh dbt build; chỉ sau tất cả tasks/tests/counts đạt mới commit bốn pipeline cursors bằng CAS cùng reconciliation audit. Lỗi giữ watermark cũ; committed replay trả `NOOP`.
+`make dataset` records run/task audit and reconciles server-side Bronze/Silver/warehouse/deferred receipts. The final gate holds staging SHARE locks during a fresh dbt build. Only after all tasks, tests and counts pass does it atomically commit the four pipeline cursors through CAS with reconciliation audit. Failure preserves previous watermarks; replaying a committed run returns `NOOP`.
 
-Xem [pipeline contract](docs/data_contracts/11_pipeline_control.md); chạy `make test-pipeline-control-integration` và `make test-pipeline-integration` sau thay đổi gates. Full mode dùng `local_core_v1`; incremental dùng `incremental_core_v1`, có Airflow wrapper riêng. Backfill dùng `backfill_core_v1`, giữ nguyên scheduled cursors. Atomic analytics publication chưa triển khai.
+See the [pipeline contract](docs/data_contracts/11_pipeline_control.md); run `make test-pipeline-control-integration` and `make test-pipeline-integration` after gate changes. Full mode uses `local_core_v1`; incremental uses `incremental_core_v1` with its own Airflow wrapper. Backfill uses `backfill_core_v1` and preserves scheduled cursors. Atomic analytics publication is not implemented.
 
-Kiểm thử recovery bằng `make test-recovery-integration` với Java 17: lỗi sau
-Bronze/Silver/warehouse commit và sau dbt/CAS trước final commit, cho incremental
-và backfill. Suite xác minh frozen bytes, receipts, queue attempts, row counts và
-watermarks khi resume; xem [failure recovery evidence](docs/data_contracts/11_pipeline_control.md#failure-recovery-verification).
+Verify recovery with `make test-recovery-integration` and Java 17: incremental/backfill failures after Bronze/Silver/warehouse commits and after dbt/CAS before the final commit. The suite checks frozen bytes, receipts, queue attempts, row counts and watermarks on resumption; see the [failure recovery evidence](docs/data_contracts/11_pipeline_control.md#failure-recovery-verification).
 
-`make pipeline-health` đọc audit qua `PG*` (có thể dùng reader role), xuất JSON về run đang chạy/gần nhất, lần thành công cuối, freshness, runtime, reject/warning rates và deferred backlog. Ngưỡng nằm trong `config/pipeline_health.json`; đổi bằng `PIPELINE_HEALTH_CONFIG=<path>`. CLI `olist-pipeline-health` trả exit `0` healthy, `1` vượt ngưỡng/thiếu success, `2` không thể kiểm tra; Make trả nonzero khi CLI thất bại. Command không tự đọc `.env`, không thay đổi queue/watermark và chưa tự được lập lịch. Chi tiết cách tính và giới hạn ở [operational health](docs/data_contracts/11_pipeline_control.md#operational-health).
+`make pipeline-health` reads audit data through `PG*` (a reader role is sufficient) and emits JSON covering the active/latest run, last success, freshness, runtime, reject/warning rates and deferred backlog. Thresholds are configured in `config/pipeline_health.json`; override with `PIPELINE_HEALTH_CONFIG=<path>`. The `olist-pipeline-health` CLI exits `0` when healthy, `1` for threshold violations/missing success, and `2` when checks cannot be performed; Make returns nonzero on CLI failure. The command does not load `.env`, mutate queues/watermarks or run on a schedule. See [operational health](docs/data_contracts/11_pipeline_control.md#operational-health) for calculations and limitations.
 
-`make pipeline-dashboard` tạo `build/reports/pipeline_dashboard.html` từ cùng health
-snapshot (export `PG*` như trên), mở trực tiếp bằng browser. Override path bằng
-`PIPELINE_DASHBOARD_OUTPUT=<path>`. Dashboard hiển thị run/attempt, issues, actual
-metrics và thresholds; không cần web server. CLI vẫn xuất JSON và trả health exit
-code; HTML vẫn được tạo khi unhealthy. Đây là snapshot tĩnh có timestamp, không tự
-refresh. Nếu không đọc được database hoặc ghi file thất bại, command báo lỗi;
-file cũ có thể còn tồn tại nên cần kiểm tra timestamp và exit code.
+`make pipeline-dashboard` writes `build/reports/pipeline_dashboard.html` from the same health snapshot (export `PG*` as above); open it directly in a browser. Override the path with `PIPELINE_DASHBOARD_OUTPUT=<path>`. It shows run/attempt, issues, observed metrics and thresholds without a web server. The CLI also emits JSON and returns the health exit code; HTML is still generated for unhealthy results. This is a timestamped static snapshot with manual refresh. Database/read/write failures return an error; an older file may remain, so check its timestamp and the command's exit status.
 
 ## Item analytics
 
-`fct_order_items` giữ grain `(order_id, order_item_id)`, join current product/seller
-Type 1 keys và order context. `mart_product_daily`/`mart_seller_daily` tính item
-counts, distinct orders trong từng group, GMV và freight theo local purchase date.
-Không join payments hoặc phân bổ AOV/payout xuống items. Order counts không cộng
-được giữa products/sellers. Xem [metric contract](docs/data_contracts/09_analytics_models.md#item-facts-and-productseller-metrics).
-Chạy `make test-dbt-integration`; `make dataset` tự build/test các models mới.
-Metabase có top-10 product/seller tables và payment-type charts, chỉ SELECT trên
-aggregate marts; xem [dashboard contract](docs/data_contracts/14_business_dashboard.md).
+`fct_order_items` has grain `(order_id, order_item_id)`, joining current product/seller Type 1 keys and order context. `mart_product_daily`/`mart_seller_daily` calculate item counts, group-local distinct orders, GMV and freight by local purchase date. Payments are not joined, and AOV/payout is not allocated to items. Order counts are not additive across products/sellers. See the [metric contract](docs/data_contracts/09_analytics_models.md#item-facts-and-productseller-metrics). Run `make test-dbt-integration`; `make dataset` builds/tests these models automatically. Metabase exposes top-10 product/seller tables and payment-type charts through SELECT-only aggregate mart access; see the [dashboard contract](docs/data_contracts/14_business_dashboard.md).
 
 ## Payment analytics
 
-`fct_payments` giữ grain `(order_id, payment_sequential)`, LEFT JOIN order context.
-`mart_payment_type_daily` tính entry counts, distinct eligible orders trong từng
-payment type/date và observed gross paid. Không nhân amount với installments,
-không join items và không dùng type order counts làm AOV denominator. `make dataset`
-tự build/test; standalone dùng `make dbt-build` với PG/dbt environment hiện có.
-Xem [payment metric contract](docs/data_contracts/09_analytics_models.md#payment-facts-and-type-metrics).
+`fct_payments` has grain `(order_id, payment_sequential)` and LEFT JOINs order context. `mart_payment_type_daily` calculates entry counts, distinct eligible orders per payment type/date and observed gross paid. Amounts are not multiplied by installments, items are not joined, and type-level order counts are not used as the AOV denominator. `make dataset` builds/tests these models automatically; standalone execution uses `make dbt-build` with the existing PG/dbt environment. See the [payment metric contract](docs/data_contracts/09_analytics_models.md#payment-facts-and-type-metrics).
 
 ## Customer value and purchase behavior
 
-`mart_customer_value` gộp theo shopper, gồm cả members chưa có order: observed
-eligible GMV/paid value, positive-paid AOV, completeness counts và repeat flag.
-`mart_repeat_purchase_daily` đếm first/repeat eligible orders theo current staged
-history; late earlier orders/status changes có thể phân loại lại ngày cũ.
-`mart_order_status_daily` đếm current status theo purchase cohort, không phải
-status transitions. Không join raw items/payments/reviews làm nhân bản metrics,
-không suy diễn lifetime value hoặc retention đầy đủ. BI grants giữ nguyên;
-xem [metric contract](docs/data_contracts/09_analytics_models.md#customer-value-and-repeat-purchase).
+`mart_customer_value` aggregates by shopper, including members without orders: observed eligible GMV/paid value, positive-paid AOV, completeness counts and a repeat flag. `mart_repeat_purchase_daily` counts first/repeat eligible orders in current staged history; late earlier orders and status changes can reclassify previous dates. `mart_order_status_daily` counts current status within purchase cohorts, rather than status transitions. Raw items/payments/reviews are not joined into these metrics, and the models do not infer lifetime value or complete retention. BI grants remain unchanged; see the [metric contract](docs/data_contracts/09_analytics_models.md#customer-value-and-repeat-purchase).
 
 ## Dimension keys and missing members
 
-Customer/product/seller/ZIP dùng stable MD5 business keys; dates dùng YYYYMMDD.
-Không thêm synthetic unknown rows hoặc dummy keys. Required parent thiếu đi theo
-Silver deferred/reject và dbt integrity gates; optional location giữ NULL. Missing
-attributes vẫn giữ member có thật. Source-backed reconciliation kiểm tra cả keys
-chưa có fact tham chiếu và customer representative; xem
-[policy](docs/data_contracts/09_analytics_models.md#dimension-keys-and-missing-members).
+Customer/product/seller/ZIP dimensions use stable MD5 business keys; dates use YYYYMMDD. There are no synthetic unknown members or dummy keys. Missing required parents follow Silver deferred/reject rules and dbt integrity gates; optional locations remain NULL. Missing attributes do not remove real members. Source-backed reconciliation checks keys without fact references and the customer representative; see the [policy](docs/data_contracts/09_analytics_models.md#dimension-keys-and-missing-members).
 
 ## Review snapshots
 
-Reviews chạy full Bronze/Silver/staging standalone hoặc trong cả ba core modes ở grain `(review_id, order_id)`;
-`review_id` hoặc `order_id` riêng lẻ không unique. Dùng `make ingest-order-reviews`,
-`make process-order-reviews` với `ORDER_SNAPSHOT=<full orders Silver prefix>`, rồi
-warehouse/deferred commands với `SOURCE_TABLE=order_reviews`. Score 1–5, UTC/DST,
-optional comments và bounded retry được kiểm tra; core runner tự xử lý reviews,
-có `fct_reviews` và `mart_review_daily`, giữ nguyên BI grants. Xem [review contract](docs/data_contracts/19_review_snapshots.md).
+Reviews use full Bronze/Silver/staging snapshots, standalone or in all three core modes, at grain `(review_id, order_id)`; neither `review_id` nor `order_id` is individually unique. Run `make ingest-order-reviews` and `make process-order-reviews` with `ORDER_SNAPSHOT=<full orders Silver prefix>`, followed by warehouse/deferred commands with `SOURCE_TABLE=order_reviews`. Validation covers scores 1–5, UTC/DST, optional comments and bounded retries. The core runner processes reviews automatically, including `fct_reviews` and `mart_review_daily`, without changing BI grants. See the [review contract](docs/data_contracts/19_review_snapshots.md).
 
-Reviews được freeze cùng source transaction, pin full orders và có normal/deferred
-receipts bắt buộc. `review_snapshot_rows` và backlog xuất hiện trong health/dashboard;
-không thêm cursor hoặc BI grants. Bounded modes refresh current reviews ngoài delta
-window; xem [review contract](docs/data_contracts/19_review_snapshots.md).
+Reviews are frozen in the same source transaction, pin full orders and require normal/deferred receipts. Health/dashboard outputs include `review_snapshot_rows` and backlog; no completion cursor or BI grants are added. Bounded modes refresh current reviews beyond the delta window; see the [review contract](docs/data_contracts/19_review_snapshots.md).
 
-Review mart dùng ngày tạo review tại São Paulo, score trung bình theo review grain,
-score 1–2 rate và comment-presence rate. Distinct reviewed orders không additive qua
-ngày; gộp score_sum/counts trước khi chia, không average daily means. Fact không join
-order/item/payment amounts; review comments giữ trong staging. Calendar gồm cả review
-creation dates, kể cả reviews-only backfill. Xem [metric policy](docs/data_contracts/09_analytics_models.md#review-facts-and-creation-cohorts).
+The review mart cohorts by review creation date in São Paulo, with review-weighted mean scores, score 1–2 rates and comment-presence rates. Distinct reviewed orders are not additive across dates; combine score sums/counts before dividing instead of averaging daily means. The fact does not join order/item/payment amounts, and review comments remain in staging. The calendar includes review creation dates, including reviews-only backfills. See the [metric policy](docs/data_contracts/09_analytics_models.md#review-facts-and-creation-cohorts).
 
 ## Geolocation analytics
 
-`ingest-geolocation` / `process-geolocation` chạy full observations standalone;
-cả ba core modes tự freeze, publish và load geolocation cùng các datasets khác.
-Standalone load với `SOURCE_TABLE=geolocation`, sau đó `make dbt-build`. `dim_location` có một
-row/ZIP với exact coordinate medians và deterministic joint city/state mode.
-Không dùng ZIP làm source key, không drop observations có tọa độ trùng hoặc suy
-đoán địa chỉ customer/seller. Hai dimensions có nullable `location_key` theo ZIP;
-unmatched ZIP giữ NULL. Full runner có 34 tasks, bounded modes có 38; bốn cursors
-và BI grants giữ nguyên. Xem [geolocation contract](docs/data_contracts/18_geolocation_snapshots.md).
+`ingest-geolocation` / `process-geolocation` support standalone full observations; all three core modes freeze, publish and load geolocation with the other datasets. For standalone loads, use `SOURCE_TABLE=geolocation`, then `make dbt-build`. `dim_location` has one row per ZIP, with exact coordinate medians and deterministic joint city/state modes. ZIP is not a source key; observations sharing coordinates are retained, and customer/seller addresses are not inferred. Both dimensions have nullable ZIP-based `location_key` values; unmatched ZIPs remain NULL. Full mode audits 34 tasks and bounded modes 38; the four completion cursors and BI grants remain unchanged. See the [geolocation contract](docs/data_contracts/18_geolocation_snapshots.md).
 
 ## Calendar dimension
 
-`dim_date` chứa liên tục các ngày từ min/max local purchase, estimated/actual delivery và review creation
-dates; dữ liệu rỗng cho lịch rỗng. Bốn facts có purchase date key YYYYMMDD;
-delivery thêm estimated/actual role keys; reviews có creation date key. ISO week dùng cùng ISO year, weekday
-Monday=1; không tự suy diễn holiday calendar. `make dbt-build` hoặc các core runners
-tự build/test; BI grants giữ nguyên. Xem [calendar contract](docs/data_contracts/09_analytics_models.md#calendar-dimension-and-fact-date-roles).
+`dim_date` spans every date between the minimum and maximum local purchase, estimated/actual delivery and review creation dates; empty input produces an empty calendar. Four facts have YYYYMMDD purchase-date keys; delivery adds estimated/actual date roles, while reviews use a creation-date key. ISO weeks include the ISO year, weekdays use Monday=1, and holidays are not inferred. `make dbt-build` and the core runners build/test these models automatically; BI grants remain unchanged. See the [calendar contract](docs/data_contracts/09_analytics_models.md#calendar-dimension-and-fact-date-roles).
 
 ## Delivery analytics
 
-`fct_delivery` giữ một row/order với milestones, chronology flags và UTC elapsed
-hours. Lateness dùng ngày local Sao Paulo: giao cùng ngày hẹn là on-time. Missing/
-invalid timestamps giữ nguyên, metrics NULL và có completeness counts riêng.
-`mart_delivery_daily` theo purchase-date cohort, rate chỉ dùng valid delivered
-observations; không coi undelivered là on-time hoặc average daily rates để lấy
-late rate toàn kỳ. Xem [delivery contract](docs/data_contracts/09_analytics_models.md#delivery-facts-and-cohort-metrics).
-Models tự build/test trong pipeline, chưa cấp quyền/cards Metabase cho delivery.
+`fct_delivery` has one row per order, preserving milestones, chronology flags and UTC elapsed hours. Lateness uses São Paulo calendar dates: delivery on the estimated date is on time. Missing/invalid timestamps are preserved, metrics remain NULL, and completeness counts are reported separately. `mart_delivery_daily` uses purchase-date cohorts and valid delivered observations for rates. Undelivered orders are not treated as on time, and overall late rates must not average daily rates. See the [delivery contract](docs/data_contracts/09_analytics_models.md#delivery-facts-and-cohort-metrics). The pipeline builds/tests these models; delivery has no Metabase grants/cards.
 
 ## Incremental core pipeline
 
-`make dataset-incremental` bootstrap namespace riêng lần đầu, sau đó lấy window từ
-**pipeline watermark** với lookback 48 giờ inclusive. Freeze chốt đồng thời bốn
-source deltas và sáu full snapshots (customers/orders/products/sellers/geolocation/order_reviews) trong một PostgreSQL snapshot, lưu
-bytes/bounds trước publication. Retry không lấy lại upper mới; delivery checkpoint
-không điều khiển window. Full mode `make dataset` freeze tám full streams.
+`make dataset-incremental` bootstraps a separate namespace on its first run, then derives windows from the **pipeline watermark** with an inclusive 48-hour lookback. It atomically freezes four source deltas and six full snapshots (customers/orders/products/sellers/geolocation/order_reviews) in one PostgreSQL snapshot, persisting bytes/bounds before publication. Retries reuse the original upper cursor; the delivery checkpoint does not determine the window. Full mode (`make dataset`) freezes eight full streams.
 
-Orders/items/payments FK và deferred retries luôn dùng full parents, không dùng
-delta làm key set. Customer delta là Silver v2, full customer parent vẫn v1.
-Pipeline audits 38 tasks, dùng cùng final receipt/reconciliation/dbt/CAS gates.
-Bootstrap/after-cursor/lookback, FK scans và retry inputs có counters riêng;
-after-cursor không phải net business growth. Full parent scans vẫn có chi phí.
+Orders/items/payments FK checks and deferred retries always use full parents, never deltas as complete key sets. Customer deltas use Silver v2; the full customer parent remains v1. The pipeline audits 38 tasks with the same final receipt/reconciliation/dbt/CAS gates. Bootstrap/after-cursor/lookback, FK scans and retry inputs have separate counters; after-cursor rows do not measure net business growth. Full parent scans still incur processing costs.
 
 ```bash
 make dataset-incremental
@@ -478,47 +368,31 @@ make pipeline-health PIPELINE_NAMESPACE=incremental_core_v1
 make pipeline-dashboard PIPELINE_NAMESPACE=incremental_core_v1
 ```
 
-Giữ cùng mode/code/config/pending ID khi resume; updates ngoài 48 giờ chưa được bảo
-đảm tự thu thập. Xem [incremental contract](docs/data_contracts/12_incremental_pipeline.md),
-kiểm tra bằng `make test-incremental-integration` với Java 17.
+Resume with the same mode/code/configuration/pending ID; updates outside the 48-hour lookback are not guaranteed to be collected automatically. See the [incremental contract](docs/data_contracts/12_incremental_pipeline.md); verify with `make test-incremental-integration` and Java 17.
 
 ## Isolated backfill
 
-Repair theo `source_updated_at` trong khoảng UTC **[start, end)**, giữ nguyên
-watermark full/incremental. Chạy lại cùng command/bounds để resume sau lỗi:
+Repair records by `source_updated_at` within a UTC **[start, end)** window while preserving full/incremental watermarks. Rerun the same command/bounds to resume after failure:
 
 ```bash
 make dataset-backfill BACKFILL_START=2020-01-01T00:00:00Z BACKFILL_END=2020-02-01T00:00:00Z
 ```
 
-Bốn deltas và sáu full inputs được freeze cùng transaction. Backfill chỉ
-retry queue thuộc run đó; merge không ghi đè newer source versions. Final gate
-vẫn chạy fresh dbt và reconciliation. Dữ liệu sửa đi vào staging/marts dùng chung;
-đây không phải historical restore của source versions đã bị overwrite.
-Xem [backfill contract](docs/data_contracts/13_backfill_pipeline.md), kiểm tra bằng
-`make test-backfill-integration`. Health/dashboard dùng `PIPELINE_NAMESPACE=backfill_core_v1`.
+Four bounded delta streams and six full inputs are frozen in one transaction. Backfill retries only its own queue entries; merges never overwrite newer source versions. The final gate still runs fresh dbt and reconciliation. Repairs update shared staging/marts; they cannot restore source history that has already been overwritten. See the [backfill contract](docs/data_contracts/13_backfill_pipeline.md); verify with `make test-backfill-integration`. Health/dashboard commands use `PIPELINE_NAMESPACE=backfill_core_v1`.
 
 ## Local Airflow orchestration
 
-Cài Python 3.12, uv, Docker Compose, Java 17 và đủ 9 CSV canonical, rồi chạy:
+Install Python 3.12, uv, Docker Compose and Java 17, provide all nine canonical CSVs, then run:
 
 ```bash
 make sync-airflow test-airflow
 make airflow-local
 ```
 
-UI bind `127.0.0.1:8080`; credentials local được tạo trong ignored
-`build/airflow/`. Hai DAG `olist_core_full_snapshot` và `olist_core_incremental` mặc định paused, schedule `@daily`
-UTC, `catchup=False`, `max_active_runs=1`. Trigger thủ công để kiểm tra trước khi
-unpause. Chỉ bật schedule của mode muốn dùng. Mỗi DAG có một task gọi runner; full/incremental audit 34/38 business tasks trong PostgreSQL.
-DAG `olist_core_backfill` manual-only nhận conf `start`/`end`, truyền bounds qua environment; Retry/Clear cùng DAG run để resume.
-Dừng standalone bằng Ctrl-C; PostgreSQL/MinIO và metadata được giữ lại.
+The UI binds to `127.0.0.1:8080`; generated local credentials are stored in ignored `build/airflow/`. DAGs `olist_core_full_snapshot` and `olist_core_incremental` start paused, with `@daily` UTC schedules, `catchup=False` and `max_active_runs=1`. Trigger manually for verification before unpausing, and enable only the intended mode's schedule. Each DAG has one runner task; full/incremental executions audit 34/38 business tasks in PostgreSQL. The manual-only `olist_core_backfill` DAG accepts `start`/`end` configuration and passes bounds through the environment; Retry/Clear the same DAG run to resume. Ctrl-C stops standalone components while retaining PostgreSQL/MinIO and metadata.
 
-Retry/Clear task của **cùng DAG run** giữ pipeline ID, replay receipts hoặc NOOP
-sau commit. Không trigger run mới để thay thế unfinished run và không sửa code/config
-trong khi run đang pending. Airflow thiếu CSV/Java sẽ fail thay vì skip. Đây là
-local standalone orchestration dùng SQLite riêng; deployment production còn planned. Xem [operations](infrastructure/README.md#local-airflow).
+Retry/Clear the task in the **same DAG run** to retain its pipeline ID and replay receipts or return NOOP after commit. Do not replace an unfinished run with a new trigger or change pinned code/configuration while a run is pending. Airflow fails on missing CSVs/Java instead of skipping work. This is local standalone orchestration with separate SQLite metadata; production deployment is not implemented. See [operations](infrastructure/README.md#local-airflow).
 
 ## License
 
-Source code sử dụng license trong [LICENSE](LICENSE). Olist dataset có license riêng được ghi tại [data/raw/README.md](data/raw/README.md).
+Source code is licensed under [LICENSE](LICENSE). The Olist dataset has a separate license documented in [data/raw/README.md](data/raw/README.md).
