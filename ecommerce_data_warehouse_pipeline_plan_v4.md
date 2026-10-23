@@ -726,6 +726,29 @@ Job Python 3.10 của lượt đầu phát hiện shared cursor parser chưa nh�
 
 ### PHASE 6 — Optional scale-up
 
+#### Baseline Before Scale-up
+
+- [x] Chạy lại full Olist end-to-end bằng source hiện tại và đối chiếu trước/sau.
+- [ ] Triển khai deterministic synthetic events, bắt đầu từ 2 triệu dòng.
+- [ ] Benchmark pandas/Polars/PySpark với cùng input và điều kiện đo rõ ràng.
+
+Baseline ngày 2026-10-23: run `dataset_54ab35e89b4d48e48a2649bf88b5b862`, attempt 1, source tại commit `14f193a` (implementation đã được GitHub CI xác minh tại `751674d`). Chín CSV canonical PASS checksum; tám full streams gồm 1.550.851 source rows được freeze trong cùng source snapshot. Hoàn tất 34/34 tasks và fresh dbt build PASS 261/261 nodes (31 models, 230 tests).
+
+| Fact | Rows |
+|---|---:|
+| `fct_orders` / `fct_delivery` | 99.424 mỗi model |
+| `fct_order_items` | 112.621 |
+| `fct_payments` | 103.869 |
+| `fct_reviews` | 99.197 |
+
+Source/staging row counts giữ nguyên; warehouse counters ghi 1.550.761 candidates unchanged, inserted/updated/stale-ignored đều bằng 0. Dữ liệu nghiệp vụ giữ nguyên; metadata lineage được refresh theo merge contract. 168 deferred retry inputs được hạch toán riêng với source input; reject/deferred/expiry vẫn được audit theo policy. Bốn local completion control versions tăng đúng một lần, committed cursor values giữ nguyên; incremental/backfill controls không đổi. Health `HEALTHY`, BI publication available và SELECT grants vẫn giới hạn đúng sáu business models cùng status view. Đã refresh static health dashboard.
+
+Thời gian audit pipeline là 1.355,07 giây; toàn bộ `make dataset` gồm setup là 1.364,20 giây (~22 phút 44 giây). Task `dbt.build` gồm gate mất 423,92 giây; dbt execution riêng là 403,18 giây. `source.freeze` mất 314,68 giây; geolocation warehouse/Silver lần lượt 112,39/92,94 giây. Dùng Java 17, JVM tối đa 8 CPU, Spark driver heap 2 GiB, các workloads chạy tuần tự. Đây là full rerun trên staging/volumes có sẵn, không phải cold-load hoặc engine benchmark; chưa đo peak RAM tổng của cả stack.
+
+GMV đối soát là BRL 13.491.218,65; eligible gross paid BRL 15.736.441,59; global positive-paid AOV BRL 160,27 (98.190 orders, tổng paid amount chia tổng paid orders). Giữ raw snapshots và các queue terminal states. Evidence ở ignored `build/reports/olist-baseline-{before,after,health}.json`, `olist-baseline-full.log`, `olist-baseline-time.txt` và audit tables; không commit dữ liệu/generated artifacts.
+
+#### Scale-up Scope
+
 Phase 6 chỉ được triển khai sau khi Phase 0–3 ổn định. Synthetic website events có thể được sinh ở quy mô 2–10 triệu dòng với các event như `page_view`, `product_view`, `add_to_cart`, `checkout_started` và `purchase`. Chỉ purchase event mới có thể chứa `order_id`. Data generator cần tạo cả anonymous sessions, cart abandonment, duplicate events, late-arriving events và out-of-order events.
 
 Phần mở rộng này giúp tạo lý do thực tế hơn cho PySpark. ADR phải ghi rõ rằng Olist MVP không bắt buộc cần distributed processing; Spark được dùng để xây abstraction có thể mở rộng và synthetic events được dùng để đánh giá scale-up behavior.
