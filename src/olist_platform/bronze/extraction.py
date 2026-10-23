@@ -55,7 +55,7 @@ def cursor_value(row: dict | None, table: str = "orders") -> dict | None:
 
 def cursor_tuple(value: dict, table: str = "orders") -> tuple:
     return (
-        datetime.fromisoformat(value["updated_at"]),
+        datetime.fromisoformat(value["updated_at"].replace("Z", "+00:00")),
         value["source_sequence"],
         *(value["primary_key"][key] for key in KEYS[table]),
     )

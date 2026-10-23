@@ -29,6 +29,10 @@ class BronzeOrdersTest(unittest.TestCase):
         self.assertEqual(cursor_tuple(cursor), (row["source_updated_at"], 2, "b"))
         equal_instant = dict(cursor, updated_at="2019-12-31T21:00:00-03:00")
         self.assertEqual(cursor_tuple(cursor), cursor_tuple(equal_instant))
+        zulu = dict(cursor, updated_at="2020-01-01T00:00:00Z")
+        self.assertEqual(cursor_tuple(cursor), cursor_tuple(zulu))
+        with self.assertRaises(ValueError):
+            cursor_tuple(dict(cursor, updated_at="not-a-timestamp"))
         self.assertLess(
             cursor_tuple(dict(cursor, source_sequence=1)), cursor_tuple(cursor)
         )
