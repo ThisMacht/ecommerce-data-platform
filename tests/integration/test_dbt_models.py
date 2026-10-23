@@ -6,7 +6,7 @@ import re
 import subprocess
 import sys
 import tempfile
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -137,6 +137,9 @@ class DbtModelsTest(PostgresIntegrationCase):
                 "analytics.dim_product",
                 "analytics.dim_seller",
                 "analytics.fct_order_items",
+                "analytics.stg_reviews",
+                "analytics.fct_reviews",
+                "analytics.mart_review_daily",
             ):
                 with (
                     self.subTest(table=table),
@@ -625,7 +628,7 @@ class DbtModelsTest(PostgresIntegrationCase):
             "t",
         )
         self.psql(
-            "TRUNCATE raw_staging.customers, raw_staging.orders, raw_staging.order_items, raw_staging.order_payments, raw_staging.products, raw_staging.sellers, raw_staging.geolocation"
+            "TRUNCATE raw_staging.customers, raw_staging.orders, raw_staging.order_items, raw_staging.order_payments, raw_staging.products, raw_staging.sellers, raw_staging.geolocation, raw_staging.order_reviews"
         )
         self.dbt()
         self.assertEqual(
@@ -642,6 +645,9 @@ class DbtModelsTest(PostgresIntegrationCase):
             "dim_date",
             "dim_location",
             "int_geolocation_by_zip",
+            "stg_reviews",
+            "fct_reviews",
+            "mart_review_daily",
         ):
             self.assertEqual(self.psql(f"SELECT COUNT(*) FROM analytics.{model}"), "0")
 
@@ -1320,3 +1326,226 @@ class DbtModelsTest(PostgresIntegrationCase):
                     for r in results["results"]
                 )
             )
+
+    def load_review_fixture(self):
+        rows = []
+        for sequence, (
+            review,
+            order,
+            score,
+            instant,
+            title,
+            message,
+            invalid,
+        ) in enumerate(
+            (
+                ("shared", "a", 5, "2018-11-04T02:10:00+00:00", "Title", None, False),
+                ("shared", "b", 1, "2018-11-04T02:20:00+00:00", None, None, False),
+                (
+                    "second",
+                    "a",
+                    3,
+                    "2018-11-04T02:30:00+00:00",
+                    None,
+                    "Mensagem",
+                    False,
+                ),
+                ("third", "a", 1, "2018-11-04T03:30:00+00:00", "Both", "Text", False),
+                (
+                    "cancelled",
+                    "cancel",
+                    4,
+                    "2018-11-05T03:30:00+00:00",
+                    None,
+                    None,
+                    True,
+                ),
+            ),
+            1,
+        ):
+            created = datetime.fromisoformat(instant)
+            rows.append(
+                valid_row("order_reviews", review, sequence)
+                | {
+                    "order_id": order,
+                    "review_score": score,
+                    "review_creation_date": created,
+                    "review_answer_timestamp": created
+                    + timedelta(hours=-1 if invalid else 1),
+                    "review_comment_title": title,
+                    "review_comment_message": message,
+                    "warning_rule_ids": ["review_answer_before_creation"]
+                    if invalid
+                    else [],
+                }
+            )
+        with psycopg.connect(
+            host="127.0.0.1",
+            port=self.port,
+            dbname=self.database,
+            user="olist_test_loader",
+            password="isolated_test_loader",
+            autocommit=True,
+        ) as connection:
+            merge_rows(
+                connection,
+                self.contract,
+                table="order_reviews",
+                run_id="reviews",
+                rows=rows,
+                request={"fixture": "review-analytics"},
+                silver_counts={
+                    "input_rows": 5,
+                    "valid_rows": 5,
+                    "rejected_rows": 0,
+                    "deferred_rows": 0,
+                    "duplicates_rows": 0,
+                    "warning_rows": 1,
+                },
+            )
+
+    def test_review_grain_scores_local_dates_comments_and_weighted_metrics(self):
+        self.load_review_fixture()
+        self.dbt()
+        self.assertEqual(
+            self.psql(
+                "SELECT COUNT(*),COUNT(DISTINCT review_id),COUNT(DISTINCT order_id),SUM(review_score) FROM analytics.fct_reviews"
+            ),
+            "5|4|3|14",
+        )
+        self.assertEqual(
+            self.psql("""SELECT review_creation_date,review_count,reviewed_order_count,score_sum,
+            ROUND(average_score,2),low_score_count,ROUND(low_score_rate,6),commented_review_count,ROUND(comment_rate,6)
+            FROM analytics.mart_review_daily ORDER BY review_creation_date"""),
+            "2018-11-03|3|2|9|3.00|1|0.333333|2|0.666667\n"
+            "2018-11-04|1|1|1|1.00|1|1.000000|1|1.000000\n"
+            "2018-11-05|1|1|4|4.00|0|0.000000|0|0.000000",
+        )
+        self.assertEqual(
+            self.psql("""SELECT ROUND(SUM(score_sum)::numeric/SUM(review_count),2),
+            SUM(reviewed_order_count),SUM(low_score_count),SUM(commented_review_count)
+            FROM analytics.mart_review_daily"""),
+            "2.80|4|2|3",
+        )
+        query = "SELECT review_id,order_id,review_creation_date,review_creation_date_key FROM analytics.fct_reviews ORDER BY review_id,order_id"
+        expected = "cancelled|cancel|2018-11-05|20181105\nsecond|a|2018-11-03|20181103\nshared|a|2018-11-03|20181103\nshared|b|2018-11-03|20181103\nthird|a|2018-11-04|20181104"
+        self.assertEqual(self.psql(query), expected)
+        self.assertEqual(
+            self.psql("SET TIME ZONE 'Asia/Tokyo'; " + query).splitlines()[-5:],
+            expected.splitlines(),
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT has_invalid_answer_chronology FROM analytics.fct_reviews WHERE review_id='cancelled'"
+            ),
+            "t",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='analytics' AND table_name='fct_reviews' AND column_name IN ('review_comment_title','review_comment_message')"
+            ),
+            "0",
+        )
+        self.assertEqual(
+            self.psql("SELECT gmv,gross_paid_amount FROM analytics.mart_revenue_daily"),
+            "37.25|43.25",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT paid_order_count,average_order_value FROM analytics.mart_average_order_value"
+            ),
+            "2|21.63",
+        )
+        self.assertEqual(
+            self.psql("SELECT COUNT(*) FROM analytics.fct_order_items"), "4"
+        )
+        self.assertEqual(self.psql("SELECT COUNT(*) FROM analytics.fct_payments"), "5")
+        for model in ("stg_reviews", "fct_reviews", "mart_review_daily"):
+            self.assertEqual(
+                self.psql(
+                    f"SELECT has_table_privilege('olist_bi_reader','analytics.{model}','SELECT')"
+                ),
+                "f",
+            )
+        self.dbt()
+        self.assertEqual(self.psql(query), expected)
+
+    def test_reviews_only_calendar_and_empty_review_sources(self):
+        self.load_review_fixture()
+        self.psql(
+            "TRUNCATE raw_staging.orders,raw_staging.customers,raw_staging.order_items,raw_staging.order_payments"
+        )
+        self.dbt()
+        self.assertEqual(self.psql("SELECT COUNT(*) FROM analytics.fct_orders"), "0")
+        self.assertEqual(self.psql("SELECT COUNT(*) FROM analytics.fct_reviews"), "5")
+        self.assertEqual(
+            self.psql(
+                "SELECT MIN(calendar_date),MAX(calendar_date),COUNT(*) FROM analytics.dim_date"
+            ),
+            "2018-11-03|2018-11-05|3",
+        )
+        self.assertEqual(
+            self.psql(
+                "SELECT COUNT(*) FROM analytics.fct_reviews WHERE review_creation_date_key IS NULL"
+            ),
+            "0",
+        )
+        self.psql("TRUNCATE raw_staging.order_reviews")
+        self.dbt()
+        for model in ("stg_reviews", "fct_reviews", "mart_review_daily", "dim_date"):
+            self.assertEqual(self.psql(f"SELECT COUNT(*) FROM analytics.{model}"), "0")
+
+    def test_review_fact_reconciliation_rejects_valid_but_wrong_attributes(self):
+        self.load_review_fixture()
+        self.dbt()
+        for change in (
+            "review_score=4",
+            "review_creation_date_key=20181104",
+            "has_comment_title=FALSE",
+        ):
+            with self.subTest(change=change):
+                self.psql(
+                    "DROP TABLE IF EXISTS analytics.saved_review_fact CASCADE; CREATE TABLE analytics.saved_review_fact AS SELECT * FROM analytics.fct_reviews; GRANT SELECT ON analytics.saved_review_fact TO olist_test_loader;"
+                )
+                self.psql(
+                    f"UPDATE analytics.saved_review_fact SET {change} WHERE review_id='shared' AND order_id='a'; CREATE OR REPLACE VIEW analytics.fct_reviews AS SELECT * FROM analytics.saved_review_fact;"
+                )
+                results = self.dbt("test", success=False)
+                self.assertTrue(
+                    any(
+                        r["unique_id"].endswith("review_fact_reconciliation")
+                        and r["status"] == "fail"
+                        for r in results["results"]
+                    )
+                )
+                generic_checks = [
+                    r["status"]
+                    for r in results["results"]
+                    if "accepted_values_fct_reviews_review_score" in r["unique_id"]
+                    or "relationships_fct_reviews_review_creation_date_key"
+                    in r["unique_id"]
+                ]
+                self.assertEqual(generic_checks, ["pass", "pass"])
+                self.dbt()
+
+    def test_review_metric_reconciliation_rejects_coherent_wrong_averages(self):
+        self.load_review_fixture()
+        self.dbt()
+        self.psql("""CREATE TABLE analytics.saved_review_mart AS SELECT * FROM analytics.mart_review_daily; GRANT SELECT ON analytics.saved_review_mart TO olist_test_loader;
+            UPDATE analytics.saved_review_mart SET score_sum=score_sum+review_count,average_score=average_score+1 WHERE review_creation_date='2018-11-03';
+            CREATE OR REPLACE VIEW analytics.mart_review_daily AS SELECT * FROM analytics.saved_review_mart;""")
+        results = self.dbt("test", success=False)
+        self.assertTrue(
+            any(
+                r["unique_id"].endswith("review_metric_reconciliation")
+                and r["status"] == "fail"
+                for r in results["results"]
+            )
+        )
+        self.assertTrue(
+            any(
+                r["unique_id"].endswith("review_fact_reconciliation")
+                and r["status"] == "pass"
+                for r in results["results"]
+            )
+        )

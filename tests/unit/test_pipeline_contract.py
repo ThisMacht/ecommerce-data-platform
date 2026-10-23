@@ -186,6 +186,7 @@ class PipelineContractTest(unittest.TestCase):
                 "missing_source",
                 "missing_seller_source",
                 "missing_geolocation_source",
+                "missing_review_source",
                 "extra_source",
                 "not_build",
             ):
@@ -209,6 +210,8 @@ class PipelineContractTest(unittest.TestCase):
                     del m["sources"]["sellers"]
                 elif change == "missing_geolocation_source":
                     del m["sources"]["geolocation"]
+                elif change == "missing_review_source":
+                    del m["sources"]["order_reviews"]
                 elif change == "extra_source":
                     m["sources"]["reviews"] = m["sources"]["products"] | {
                         "name": "reviews"

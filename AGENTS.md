@@ -12,7 +12,7 @@ Implemented: core layers, dbt, deferred retries, full/incremental audit, isolate
 - `src/olist_platform/deferred/`: quarantine registration, bounded retry/expiry and atomic staging resolution.
 - `src/olist_platform/pipeline/`: run/task audit, receipt reconciliation and all-table cursor CAS.
 - `airflow/`: isolated Python 3.12 runtime/lock and paused full/incremental and manual backfill DAGs.
-- `dbt/`: staging views, customer/product/seller Type 1 dimensions, continuous local-calendar dim_date, ZIP dim_location with optional customer/seller keys, order/item/payment/delivery facts, daily GMV/AOV, product/seller/payment-type and delivery cohort marts.
+- `dbt/`: staging views, customer/product/seller Type 1 dimensions, continuous local-calendar dim_date, ZIP dim_location with optional customer/seller keys, order/item/payment/delivery/review facts, daily GMV/AOV, product/seller/payment-type and delivery cohort marts.
 - `scripts/`: compatibility wrappers and the local dataset runner.
 - `tests/unit/`: unittest and CLI checks.
 - `tests/processing/`: Spark checks with independent expected fixtures.
@@ -115,7 +115,7 @@ credentials/metadata, expose admin/source credentials as datasource, average dai
 AOV, or treat live views as atomic snapshots. H2 metadata is local-only. A latest
 non-successful run or newer audited load hides metrics; untracked writers are not detected.
 
-Products: standalone full snapshots, nullable attributes warn, negative/overflow measurements reject. Preserve source `lenght` spelling until dbt aliases. Type 1 by `product_id`; full/empty snapshots never imply deletes. Core gate locks/audits eight datasets; dbt still declares seven sources; only the four delta tables have completion cursors. Products/sellers use dimension_snapshot_rows, never source growth. A standalone products load hides BI metrics until a new successful core gate.
+Products: standalone full snapshots, nullable attributes warn, negative/overflow measurements reject. Preserve source `lenght` spelling until dbt aliases. Type 1 by `product_id`; full/empty snapshots never imply deletes. Core gate locks/audits eight datasets; dbt declares all eight sources; only the four delta tables have completion cursors. Products/sellers use dimension_snapshot_rows, never source growth. A standalone products load hides BI metrics until a new successful core gate.
 
 Sellers use Type 1 by `seller_id`; location rules match customers. Blank locations become NULL with warnings; preserve invalid ZIP/state values with flags. Sellers/products stay full-only in every core mode; no deletes or new delta cursors; item v2 checks membership. New standalone loads require a fresh successful core gate to restore BI publication.
 
@@ -147,10 +147,10 @@ wall-clock subtraction. Incomplete/invalid/non-delivered metrics stay NULL.
 Daily mart uses purchase-date cohorts; expose observation counts, keep undefined
 rates/means NULL and never average daily rates. No new BI grants for these models.
 
-Calendar: `dim_date` spans observed local purchase/estimated/actual dates including
+Calendar: `dim_date` spans observed local purchase/estimated/actual and review creation dates including
 unused intervening days; no dates means no rows. Keys are integer YYYYMMDD;
 ISO weeks require iso_year, weekdays Monday=1. Purchase keys propagate through
-all four facts; actual delivery keys stay NULL only without a timestamp,
+all four purchase-based facts; actual delivery keys stay NULL only without a timestamp,
 independent of delivery observation eligibility. Preserve explicit Sao Paulo
 conversion, empty behavior and existing BI grants when extending date roles.
 
@@ -180,6 +180,18 @@ normal/deferred receipts through the eight-table lock/dbt/CAS gate. Bounded revi
 use the hashed parent stream ID; backfill origin filtering must match that Silver
 ID, while load/registration/resolution receipts use the owner pipeline ID. Keep
 review_snapshot_rows separate from dimensions/delta growth; health includes reviews
-backlog. No new completion cursors, dbt models or BI grants. Standalone review loads
+backlog. No new completion cursors or BI grants. Standalone review loads
 still hide BI until a fresh core gate; backfill refreshes current reviews, not
 review state as of its historical end bound.
+
+Review analytics: `fct_reviews` keeps (review_id, order_id), all observed scores and
+UTC creation/answer timestamps; comment text stays in staging, fact exposes only
+presence flags. No order/item/payment joins or one-review-per-order selection.
+`mart_review_daily` cohorts by Sao Paulo review creation date across all statuses.
+Mean/rates are review-weighted: aggregate score_sum/counts before dividing; distinct
+reviewed orders are local to each date and not additive across dates. Score 1–2
+means low score, not inferred sentiment. Chronology warnings retain scores.
+`dim_date` includes review creation dates, including reviews-only backfill when
+orders are outside the staging window; Silver full-order membership remains the
+parent gate. Empty review input yields zero mart rows. Keep eight dbt sources,
+all-table receipt locks and existing six-model BI grants; no review BI exposure.

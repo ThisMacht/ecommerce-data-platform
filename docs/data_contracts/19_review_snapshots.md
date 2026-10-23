@@ -7,8 +7,8 @@ Reviews chạy full standalone và trong core full/incremental/backfill: Bronze 
 thể có nhiều reviews. Không chọn một review/order hoặc dùng review_id riêng lẻ làm
 PK. Source contract giữ nguyên; migration `020` thêm delivery state, staging và
 quarantine scope. Migration `021` thêm owned full review streams. Core có tám
-datasets, 34/38 tasks và bốn completion cursors; chưa thêm review dbt models hoặc
-BI grants.
+datasets, 34/38 tasks và bốn completion cursors; có review fact/creation-cohort
+mart trong dbt, giữ nguyên BI grants.
 
 ## Extraction and Replay
 
@@ -58,8 +58,8 @@ Load/registration/resolution receipts luôn dùng owner ID. Backfill resolver l�
 origin bằng original full Silver ID, giữ nguyên queue các run khác.
 
 Final gate kiểm đủ tám dataset receipts, reviews parent/deferred hashes và khóa tám
-staging tables qua fresh dbt/CAS. dbt artifact source set vẫn bảy nguồn có models;
-review validation dựa trên Silver/warehouse/deferred receipts, chưa có analytics model.
+staging tables qua fresh dbt/CAS. dbt artifact source set đủ tám nguồn, bao gồm
+review fact/metric reconciliation trên raw staging.
 Chỉ bốn delta tables có completion cursors. Full/empty review snapshots không xóa
 staging cũ; backfill refreshes current reviews, không khôi phục lịch sử tại end bound.
 
@@ -80,10 +80,23 @@ make test-review-integration
 Source orders parent có thể là standalone v1 hoặc dependency-aware v2, nhưng luôn
 FULL. Dùng new retry ID khi parent thay đổi; replay giữ đúng original parent.
 Standalone warehouse load vẫn làm BI unavailable theo existing global publication
-gate cho tới fresh core SUCCESS, dù reviews chưa thuộc analytics. Không bypass
+gate cho tới fresh core SUCCESS. Không bypass
 gate. Core health/dashboard theo dõi review quality/backlog và `review_snapshot_rows`
 riêng; không cộng full scan hoặc retry vào delta growth. Không expose review
 comments lên business BI.
+
+## Analytics Semantics
+
+`stg_reviews` → `fct_reviews` → `mart_review_daily`; xem đầy đủ metric policy tại
+[analytics contract](09_analytics_models.md#review-facts-and-creation-cohorts).
+Fact giữ composite grain, UTC timestamps, local São Paulo creation date/key và
+comment/chronology flags; không copy comment text hoặc join orders/items/payments.
+Mart review-weighted qua mọi statuses, low score = 1–2, comment presence = title OR
+message. Distinct orders không additive qua dates; aggregate score_sum/counts trước
+khi chia average/rates. Chronology warnings không loại score khỏi denominator.
+Calendar bao gồm review creation dates; empty input không sinh synthetic mart rows.
+No new BI grants/cards; full-parent validation vẫn ở Silver cho reviews nằm ngoài
+bounded order staging window.
 
 ## Validation Evidence
 
@@ -142,7 +155,7 @@ Evidence ignored: `build/reports/reviews-core-fast.log`, `reviews-core-gates.log
 `reviews-core-integration.log` và `reviews-core-final-checks.log`. GitHub CI chưa
 được chạy; integration dùng fixtures, bằng chứng full Olist run ghi riêng bên dưới.
 
-## Core Olist Verification (2026-10-23)
+## Core Ingestion Verification (2026-10-23, Before Analytics)
 
 Full run `dataset_7f462f5e178f448d88480321352623c3`, attempt 1 SUCCESS: 34 tasks,
 8 reconciled dataset audits, 1,550,851 source rows trong cùng frozen transaction.
@@ -172,3 +185,16 @@ Evidence ignored: `build/reports/reviews-core-local.json`, `reviews-core-health.
 `reviews-core-verify.log`, `reviews-core-dataset.log` và refreshed
 `build/reports/pipeline_dashboard.html`. Chưa triển khai review analytics hoặc chạy
 GitHub CI; các rows thiếu parent không được bỏ qua validation để đưa vào staging.
+
+## Analytics Verification (2026-10-23)
+
+Locked standalone build trên staging Olist đã PASS 226 nodes (28 views, 198 tests),
+đủ tám sources. Review fact có 99,197 composite rows, score_sum=405,361 và mean
+4.0864239845963084; mart có 636 local creation cohorts, tổng sums/counts khớp raw
+staging. Business reader bị từ chối cả ba review models; fact không chứa comment
+text. Controls, deferred attempts và warehouse load receipts giữ nguyên.
+
+Đây là kiểm tra analytics trên baseline core SUCCESS trước đó, không phải một core
+execution mới. Xem [chi tiết số liệu và giới hạn](09_analytics_models.md#review-analytics-verification-2026-10-23)
+và ignored `build/reports/review-analytics-local.json`. Không chạy lại ingestion
+hoặc GitHub CI trong lượt này.

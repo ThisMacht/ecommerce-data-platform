@@ -13,9 +13,8 @@ cho items/payments; default standalone extraction của orders/items/payments v�
 bounded incremental. Bootstrap không được lấy một delta sau Bronze checkpoints cũ
 làm bằng chứng rằng toàn source snapshot đã được xử lý.
 
-Reviews có full-only stream và deferred receipts, không có completion cursor hoặc
-dbt model. Final gate khóa cả tám staging tables; dbt artifact source set vẫn là
-bảy sources đã model. Không cấp thêm BI quyền đọc review comments.
+Reviews có full-only stream và deferred receipts, không có review completion cursor. Final gate khóa cả tám staging tables; dbt artifact source set là
+tám sources đã model. Không cấp thêm BI quyền đọc review comments.
 
 ## Run lifecycle and concurrency
 

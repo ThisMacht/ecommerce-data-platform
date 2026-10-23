@@ -33,8 +33,9 @@ Products/sellers/geolocation luôn full refresh và load Type 1, kể cả windo
 dimension snapshots, không phải ảnh chụp lịch sử tại end bound.
 
 Reviews cũng full refresh ngoài window, pin current full orders trong cùng source
-transaction. `review_snapshot_rows` ghi riêng; không có review completion cursor,
-dbt model hoặc BI grant. Đây không phải review state lịch sử tại end bound.
+transaction. `review_snapshot_rows` ghi riêng; không thêm review completion cursor
+hoặc BI grant. Review fact/mart dùng creation cohort và không join bounded order staging.
+Đây không phải review state lịch sử tại end bound.
 
 ## Reconciliation and completion
 

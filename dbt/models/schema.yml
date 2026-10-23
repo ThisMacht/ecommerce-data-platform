@@ -10,6 +10,7 @@ sources:
   - name: products
   - name: sellers
   - name: geolocation
+  - name: order_reviews
 models:
 - name: stg_customers
   columns:
@@ -598,4 +599,111 @@ models:
     data_tests: [not_null]
   - name: record_hash
     description: "MD5 of current representative attributes and counts; excludes observation timestamps."
+    data_tests: [not_null]
+
+- name: stg_reviews
+  description: "Current full reviews at (review_id, order_id); optional text stays protected in staging."
+  columns:
+  - name: review_id
+    description: "Review identifier; may occur for multiple orders."
+    data_tests: [not_null]
+  - name: order_id
+    description: "Order identifier; may have several reviews. Full-parent membership is validated in Silver."
+    data_tests: [not_null]
+  - name: review_score
+    description: "Observed integer score from 1 to 5."
+    data_tests:
+    - not_null
+    - accepted_values:
+        arguments:
+          values: [1, 2, 3, 4, 5]
+          quote: false
+  - name: review_comment_title
+    description: "Optional original nonblank title, including case and Unicode."
+  - name: review_comment_message
+    description: "Optional original nonblank message; not copied into the fact or business BI."
+  - name: review_creation_timestamp
+    description: "UTC instant from the source review_creation_date; source local time was validated in Silver."
+    data_tests: [not_null]
+  - name: review_answer_timestamp
+    description: "Observed UTC answer instant; not a customer-service response SLA."
+    data_tests: [not_null]
+  - name: source_sequence
+    description: "Authoritative source version used by the warehouse merge."
+  - name: source_updated_at
+    description: "Source version timestamp, not the review cohort date."
+
+- name: fct_reviews
+  description: "One current row per (review_id, order_id), without order/item/payment joins or review selection per order. All observed scores retained."
+  columns:
+  - name: review_id
+    description: "First component of the composite review grain."
+    data_tests: [not_null]
+  - name: order_id
+    description: "Second grain component; parent validation uses the full Silver snapshot, which can exceed a bounded staging window."
+    data_tests: [not_null]
+  - name: review_score
+    description: "Observed score; statistics weight each composite review equally, not each order."
+    data_tests:
+    - not_null
+    - accepted_values:
+        arguments:
+          values: [1, 2, 3, 4, 5]
+          quote: false
+  - name: review_creation_timestamp
+    description: "UTC creation instant retained for traceability."
+    data_tests: [not_null]
+  - name: review_answer_timestamp
+    description: "UTC answer instant, including chronology warnings retained by Silver."
+    data_tests: [not_null]
+  - name: review_creation_date
+    description: "Sao Paulo calendar creation date; independent of the database session timezone."
+    data_tests: [not_null]
+  - name: review_creation_date_key
+    description: "YYYYMMDD key into the continuous calendar, including reviews-only dates."
+    data_tests:
+    - not_null
+    - relationships:
+        arguments:
+          to: ref('dim_date')
+          field: date_key
+  - name: has_comment_title
+    description: "True for a nonblank title; text itself remains in protected staging."
+    data_tests: [not_null]
+  - name: has_comment_message
+    description: "True for a nonblank message."
+    data_tests: [not_null]
+  - name: has_invalid_answer_chronology
+    description: "Answer precedes creation in UTC; the valid score remains in review metrics."
+    data_tests: [not_null]
+
+- name: mart_review_daily
+  description: "Review-creation cohorts, one Sao Paulo date per row. Review-weighted scores across all statuses, without revenue joins. No new BI grant."
+  columns:
+  - name: review_creation_date
+    description: "Local review creation cohort date, not purchase or delivery date."
+    data_tests: [unique, not_null]
+  - name: review_count
+    description: "Number of composite reviews; additive across dates."
+    data_tests: [not_null]
+  - name: reviewed_order_count
+    description: "Distinct orders within this date; not additive across dates."
+    data_tests: [not_null]
+  - name: score_sum
+    description: "Sum of observed scores; aggregate this with review_count to combine dates."
+    data_tests: [not_null]
+  - name: average_score
+    description: "score_sum / review_count; never average daily means to calculate the whole-period mean."
+    data_tests: [not_null]
+  - name: low_score_count
+    description: "Number of reviews with score 1 or 2, without inferred sentiment labels."
+    data_tests: [not_null]
+  - name: low_score_rate
+    description: "low_score_count / review_count; aggregate counts before dividing across dates."
+    data_tests: [not_null]
+  - name: commented_review_count
+    description: "Reviews with a nonblank title or message, counted once when both are present."
+    data_tests: [not_null]
+  - name: comment_rate
+    description: "commented_review_count / review_count, not a measure of text sentiment."
     data_tests: [not_null]

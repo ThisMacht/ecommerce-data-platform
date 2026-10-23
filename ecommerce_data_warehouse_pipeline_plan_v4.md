@@ -647,7 +647,7 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 - [x] Standalone full geolocation Bronze/Silver/staging with technical row IDs, exact coordinates and retry/version gates.
 - [x] Standalone full reviews Bronze/Silver/staging at (review_id, order_id), pinned full orders and atomic deferred retries; see `docs/data_contracts/19_review_snapshots.md`.
 - [x] Integrate full-only reviews into audited core scheduling, pinned full orders/deferred receipts and health; eight dataset audits, four completion cursors.
-- [ ] Add review analytics with explicit multi-review grain.
+- [x] Add review fact and creation-date daily scores/comment metrics at explicit (review_id, order_id) grain; source reconciliation, reviews-only calendar and no new BI grants.
 - [x] Integrate full-only geolocation into full/incremental/backfill freeze/receipts and nullable customer/seller location keys; seven dataset audits, four completion cursors.
 - [x] `int_geolocation_by_zip`: exact numeric coordinate medians and deterministic joint city/state mode.
 - [ ] Hoàn thiện dimensions với surrogate keys, unique business keys và explicit unknown-member policy.

@@ -6,6 +6,9 @@ WITH observed_dates AS (
     UNION ALL
     SELECT (order_delivered_customer_date AT TIME ZONE 'America/Sao_Paulo')::date
     FROM {{ ref('stg_orders') }}
+    UNION ALL
+    SELECT (review_creation_timestamp AT TIME ZONE 'America/Sao_Paulo')::date
+    FROM {{ ref('stg_reviews') }}
 ), bounds AS (
     SELECT MIN(calendar_date) AS first_date, MAX(calendar_date) AS last_date
     FROM observed_dates

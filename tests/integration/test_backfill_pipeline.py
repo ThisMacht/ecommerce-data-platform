@@ -84,12 +84,16 @@ class BackfillPipelineTest(CorePipelineCase):
             ("fct_orders", "order_id"),
             ("mart_revenue_daily", "order_purchase_date"),
             ("mart_average_order_value", "order_purchase_date"),
+            ("mart_review_daily", "review_creation_date"),
         ):
             result[table] = c.execute(
                 sql.SQL("SELECT * FROM analytics.{} ORDER BY {}").format(
                     sql.Identifier(table), sql.Identifier(key)
                 )
             ).fetchall()
+        result["fct_reviews"] = c.execute(
+            "SELECT * FROM analytics.fct_reviews ORDER BY review_id,order_id"
+        ).fetchall()
         return result
 
     def full_reference(self, source, directory):

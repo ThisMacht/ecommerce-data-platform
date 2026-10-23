@@ -89,7 +89,7 @@ hai auxiliary scans, tại customers/orders; không cộng vào delta processing
 Products/sellers/geolocation ghi `dimension_snapshot_rows` riêng, không cộng vào growth hay lặp lại trong `full_parent_source_rows`. Routing/load equations của contract 11 áp dụng riêng từng dataset; core deltas cộng retry occurrences.
 Reviews ghi `review_snapshot_rows` riêng và có deferred retry counts, không có
 bootstrap/after-cursor/lookback hoặc completion cursor. Gate khóa tám staging
-tables, còn dbt source set vẫn là bảy nguồn đã model. Health JSON/HTML hiển thị các counters này; old full runs có field chưa có sẽ hiện
+tables, còn dbt source set là đủ tám nguồn đã model. Health JSON/HTML hiển thị các counters này; old full runs có field chưa có sẽ hiện
 Unavailable. Queue metrics vẫn đọc backlog chung của các modes.
 
 ## Airflow and recovery

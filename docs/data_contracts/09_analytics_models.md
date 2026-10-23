@@ -2,7 +2,7 @@
 
 ## Scope and execution
 
-Status: **Active — seven modeled staging datasets; reviews audited separately**.
+Status: **Active — eight modeled staging datasets**.
 `dbt/` dùng locked `analytics` extra, PostgreSQL adapter và schema `analytics`
 được tạo bởi migration `007`. Existing loader role sở hữu schema; reader chỉ SELECT. Migration `012` thêm
 `olist_bi_reader` NOLOGIN group chỉ đọc fct_orders, hai order daily marts, ba
@@ -37,7 +37,7 @@ khi chạy runner. Analytics dependency sync có thể bỏ Spark extra; dùng
 | `int_order_item_summary` | Một order: item count, SUM(price), SUM(freight) |
 | `int_payment_summary` | Một order: payment count, SUM(payment_value) |
 | `int_geolocation_by_zip`, `dim_location` | Một ZIP với exact medians, joint city/state mode và stable Type 1 location key; full-only observations |
-| `dim_date` | Một ngày liên tục giữa min/max observed local purchase/estimated/actual dates; integer YYYYMMDD key |
+| `dim_date` | Một ngày liên tục giữa min/max observed local purchase/estimated/actual/review-creation dates; integer YYYYMMDD key |
 | `dim_customer` | Một `customer_unique_id`; current attributes, stable surrogate key |
 | `fct_orders` | Một order; join hai summaries để tránh items × payments fan-out |
 | `fct_order_items` | Một `(order_id, order_item_id)`; order/customer/product/seller keys, price và freight ở item grain |
@@ -45,13 +45,16 @@ khi chạy runner. Analytics dependency sync có thể bỏ Spark extra; dùng
 | `fct_payments` | Một `(order_id, payment_sequential)`; observed payment amount, type, installments và order/customer context |
 | `mart_payment_type_daily` | Một local purchase date × payment type; entry counts, group distinct orders và gross paid |
 | `fct_delivery` | Một order với UTC milestones, local delivery dates, chronology/completeness flags và durations |
+| `stg_reviews`, `fct_reviews` | Một `(review_id, order_id)`; score, UTC timestamps, local creation date/key và comment/chronology flags; fact không chứa comment text |
+| `mart_review_daily` | Một local review creation date; review-weighted scores/rates và group-distinct reviewed orders |
 | `mart_delivery_daily` | Purchase-date cohort: observed delivery counts, late rate và mean elapsed hours |
 | `mart_revenue_daily` | Một local purchase date: GMV, freight, gross paid và completeness counts |
 | `mart_average_order_value` | Một local purchase date: paid amount, paid order count và AOV |
 
 `fct_orders` giữ `customer_id`, shopper ID và `customer_key`. Missing customer không được
 inner join để âm thầm drop order hoặc gán unknown member: relationship/not-null
-tests làm fail build. Orphan child rows cũng làm fail relationship tests.
+tests làm fail build. Orphan item/payment rows cũng làm fail relationship tests. Reviews giữ Silver full-parent
+membership gate; không yêu cầu order phải nằm trong bounded staging window.
 Đây là integrity gate cho staging; persisted deferred lifecycle ở [contract 10](10_deferred_lifecycle.md).
 
 ## Customer identity and Type 1 policy
@@ -228,7 +231,7 @@ medians, deterministic joint modes, completeness và giới hạn core receipts/
 ## Calendar dimension and fact date roles
 
 `dim_date` là continuous calendar từ min đến max của purchase date đã normalize
-và estimated/actual delivery dates chuyển rõ bằng `America/Sao_Paulo`. Bao gồm
+và estimated/actual delivery, review creation dates chuyển rõ bằng `America/Sao_Paulo`. Bao gồm
 ngày không có orders; không có source dates thì dimension rỗng. Dùng integer day
 offsets, không dùng timestamp series hoặc session timezone. Không tự thêm future
 dates, holiday/fiscal calendar hay unknown member.
@@ -238,12 +241,12 @@ năm/quý/tháng/ngày, `iso_year`, `iso_week`, `iso_day_of_week` (Monday=1) và
 `is_weekend` (Saturday/Sunday). ISO week phải ghép với ISO year: 2019-12-30 thuộc
 2020-W01; 2021-01-01 thuộc 2020-W53.
 
-Bốn facts giữ nguyên date columns và thêm `order_purchase_date_key`. Items/payments
+Bốn purchase-based facts giữ nguyên date columns và thêm `order_purchase_date_key`. Items/payments
 kế thừa purchase key từ order; delivery thêm `estimated_delivery_date_key` và
 `delivered_date_key`. Actual key NULL khi timestamp thiếu; chronology/status không
 xóa actual date key dù observation bị loại khỏi metrics. Đây là role-playing date
 joins, không thêm rows, phân bổ tiền hoặc đổi eligibility. Không cấp BI quyền đọc
-dimension. Lịch là view theo current staging: sửa source bounds có thể đổi phạm vi.
+dimension. Review fact dùng `review_creation_date_key` riêng. Lịch là view theo current staging: sửa source bounds có thể đổi phạm vi.
 
 `date_dimension_reconciliation` đối chiếu source bounds, từng ngày và attributes;
 `fact_date_reconciliation` so date keys với raw staging, phát hiện cả valid key
@@ -327,3 +330,88 @@ Ruff, contract/config/shell checks và package build thành công.
 
 Profile và environment theo [dbt profiles](https://docs.getdbt.com/docs/local/profiles.yml);
 execution/tests theo [dbt build](https://docs.getdbt.com/reference/commands/build).
+
+## Review facts and creation cohorts
+
+`stg_reviews` đọc current version-aware staging ở grain `(review_id, order_id)`.
+`fct_reviews` giữ đầy đủ composite reviews, không chọn một review/order, không
+join orders/items/payments hoặc mang doanh thu vào review grain. Scope là observed
+valid reviews qua mọi order statuses, không suy diễn mỗi order có review.
+
+Fact giữ UTC creation/answer timestamps và explicit São Paulo creation date/key.
+`dim_date` thêm review creation dates vào observed bounds, kể cả review-only inputs;
+calendar rỗng chỉ khi không có observed order hoặc review dates. Đây không phải
+purchase/delivery cohort. Answer-before-creation giữ flag và score, không suy diễn
+customer-service response SLA. Comment title/message chỉ nằm ở protected staging;
+fact giữ hai presence flags, không phân tích sentiment từ text.
+
+`mart_review_daily` có một row/ngày thực sự có reviews:
+
+- `review_count`: số composite reviews, không phải số distinct review IDs.
+- `reviewed_order_count`: COUNT DISTINCT order_id trong ngày; một order có reviews
+  ở nhiều ngày xuất hiện trong nhiều cohorts, không cộng daily counts thành total.
+- `score_sum`, `average_score`: SUM(score), AVG(score), mỗi review có weight bằng 1.
+  Whole-period mean = SUM(score_sum)/SUM(review_count), không AVG(daily averages).
+- `low_score_count/rate`: số/tỷ lệ score 1–2 trên toàn review_count; đây là ngưỡng
+  score do project định nghĩa, không khẳng định sentiment hoặc order-level rating.
+- `commented_review_count/comment_rate`: nonblank title OR message, đếm một lần
+  nếu có cả hai. Aggregate counts trước khi chia rates qua nhiều ngày.
+
+Empty input sinh zero fact/mart rows; calendar không tạo synthetic zero-review
+observations. Full reviews snapshots không xóa staging cũ. Backfill có thể có valid
+reviews mà order tương ứng nằm ngoài bounded staging window; Silver đã pin full
+orders trong cùng source transaction. Fact không drop rows hoặc invent order/customer
+context trong trường hợp đó. Review analytics không đổi GMV/AOV hoặc BI grants.
+
+Source-grain, composite fact grain, exact fact attributes/date/flags và daily
+metrics được đối soát trực tiếp raw staging, độc lập với upstream aggregates.
+Ngày/key hợp lệ nhưng sai, valid score bị đổi hoặc coherent wrong daily averages
+phải làm dbt tests fail. Core gate yêu cầu đủ tám declared dbt sources.
+
+## Review Analytics Verification (2026-10-23)
+
+Locked standalone dbt build trên canonical staging, baseline core run
+`dataset_7f462f5e178f448d88480321352623c3`: PASS=226 (28 views, 198 tests),
+WARN/ERROR/SKIP=0 và đúng tám declared sources. Tám staging SHARE locks được giữ
+qua build và đối soát; current code hash được kiểm tra trước/sau. Đây là analytics
+validation, không tạo core run mới hoặc promote completion cursors.
+
+`fct_reviews`: 99,197 rows, 98,383 distinct review IDs, 98,646 distinct orders,
+score_sum=405,361, mean=4.0864239845963084, low_score_count=14,571 và
+commented_review_count=42,683. Không có answer-before-creation trong valid staging
+của dataset này. Fact không chứa comment text.
+
+`mart_review_daily`: 636 cohorts từ 2016-10-02 đến 2018-08-31. Tổng review_count,
+score_sum, low-score/comment counts và weighted mean khớp raw staging. Sum daily
+distinct orders=99,040 khác whole-period distinct orders=98,646; không sử dụng
+SUM(daily reviewed_order_count) làm số orders toàn kỳ.
+
+Existing facts giữ counts orders/delivery=99,424, items=112,621, payments=103,869.
+Pipeline controls, deferred statuses/attempts và số warehouse load receipts không
+thay đổi. Health HEALTHY, BI publication vẫn available; business reader không đọc
+được staging/fact/mart reviews. Metabase UI/cards không được mở rộng trong task này.
+
+Evidence ignored: `build/reports/review-analytics-local.json`,
+`review-analytics-local-build.log`, `review-analytics-health.json` và artifacts tại
+`build/reports/review-analytics-local-dbt/`. Không chạy lại toàn bộ ingestion trên
+Olist hoặc GitHub CI; full/incremental/backfill/recovery gates được kiểm tra bằng
+fixtures riêng.
+
+### Regression Coverage
+
+126 fast unit tests, 21 unique analytics integration cases và 11 core pipeline
+cases đã được xác nhận PASS. Analytics suite gồm grain, source reconciliation,
+weighted metrics, local/DST dates, reviews-only/empty behavior, no revenue fan-out,
+BI denial và valid-but-wrong fact/mart corruption. Hai copied-view corruption
+fixtures được rerun sau khi cấp SELECT cho test loader; giữ cả initial suite log
+và targeted recheck log để phân biệt lỗi fixture với kết quả cuối cùng.
+
+Pipeline verification gồm full gate (1), incremental (6), isolated backfill (2)
+và recovery (2), với fresh 226-node builds và source set tám tables. Backfill so
+sánh cả review fact/mart với independent full reload; recovery giữ rollback/CAS,
+immutable receipts và original retry attempts. Lint, formatter và wheel/sdist
+build được kiểm tra trong cùng thay đổi.
+
+Logs ignored: `build/reports/review-analytics-fast.log`, `review-analytics-dbt.log`,
+`review-analytics-dbt-recheck.log`, `review-analytics-gates.log` và
+`review-analytics-final-checks.log`.

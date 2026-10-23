@@ -25,7 +25,7 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Operational dashboard | Implemented — standalone HTML health snapshot; manual refresh |
 | GitHub Actions CI: fast checks, package build and simulator integration | Implemented |
 | Full products/sellers Bronze/Silver, staging and Type 1 dimensions | Implemented — scheduled in all core modes, frozen full snapshots and item FK v2 |
-| dbt calendar/Type 1 dimensions, order/item/payment/delivery facts and daily marts | Implemented — GMV/AOV, product/seller/payment-type and delivery cohort metrics; exact reconciliation and relationship tests |
+| dbt calendar/Type 1 dimensions, order/item/payment/delivery/review facts and daily marts | Implemented — GMV/AOV, product/seller/payment-type and delivery cohort metrics; exact reconciliation and relationship tests |
 | Airflow orchestration | Implemented — paused daily full/incremental and manual backfill DAGs, isolated runtime and stable retry identity |
 | Business dashboard / Metabase | Implemented — date-filtered GMV/paid/AOV, product/seller rankings and payment-type charts; restricted reader and publication gate |
 
@@ -199,7 +199,7 @@ Sau migration `006`, dùng `make load-warehouse SOURCE_TABLE=<table> SILVER_PREF
 
 Sau staging, `make dataset` tự chạy dbt build/tests cho `dim_customer`, `fct_orders` và daily GMV/AOV views. Items/payments aggregate riêng theo order trước khi join. Customer dùng shopper business key, surrogate key ổn định và current Type 1 attributes. Metric tests đối soát exact với staging, kể cả many-to-many fan-out, canceled orders và zero payments.
 
-Chạy riêng bằng `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_PASSWORD`, `DBT_READER_USER`, rồi `make dbt-build`. Xem [analytics contract](docs/data_contracts/09_analytics_models.md); kiểm thử bằng `make test-dbt-integration`. Views chưa có atomic publication hoặc end-to-end watermark; chỉ coi build thành công sau khi tests pass.
+Chạy riêng bằng `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_PASSWORD`, `DBT_READER_USER`, rồi `make dbt-build`. Xem [analytics contract](docs/data_contracts/09_analytics_models.md); kiểm thử bằng `make test-dbt-integration`. Views chưa có atomic publication; standalone dbt build không promote end-to-end watermarks. Chỉ coi build thành công sau khi tests pass.
 
 ## Business dashboard
 
@@ -279,12 +279,18 @@ Reviews chạy full Bronze/Silver/staging standalone hoặc trong cả ba core m
 `make process-order-reviews` với `ORDER_SNAPSHOT=<full orders Silver prefix>`, rồi
 warehouse/deferred commands với `SOURCE_TABLE=order_reviews`. Score 1–5, UTC/DST,
 optional comments và bounded retry được kiểm tra; core runner tự xử lý reviews,
-chưa có review marts hoặc BI grants. Xem [review contract](docs/data_contracts/19_review_snapshots.md).
+có `fct_reviews` và `mart_review_daily`, giữ nguyên BI grants. Xem [review contract](docs/data_contracts/19_review_snapshots.md).
 
 Reviews được freeze cùng source transaction, pin full orders và có normal/deferred
 receipts bắt buộc. `review_snapshot_rows` và backlog xuất hiện trong health/dashboard;
-không thêm cursor hoặc dbt/BI model. Bounded modes refresh current reviews ngoài delta
+không thêm cursor hoặc BI grants. Bounded modes refresh current reviews ngoài delta
 window; xem [review contract](docs/data_contracts/19_review_snapshots.md).
+
+Review mart dùng ngày tạo review tại São Paulo, score trung bình theo review grain,
+score 1–2 rate và comment-presence rate. Distinct reviewed orders không additive qua
+ngày; gộp score_sum/counts trước khi chia, không average daily means. Fact không join
+order/item/payment amounts; review comments giữ trong staging. Calendar gồm cả review
+creation dates, kể cả reviews-only backfill. Xem [metric policy](docs/data_contracts/09_analytics_models.md#review-facts-and-creation-cohorts).
 
 ## Geolocation analytics
 
@@ -299,9 +305,9 @@ và BI grants giữ nguyên. Xem [geolocation contract](docs/data_contracts/18_g
 
 ## Calendar dimension
 
-`dim_date` chứa liên tục các ngày từ min/max local purchase, estimated và actual
-delivery dates; dữ liệu rỗng cho lịch rỗng. Bốn facts có purchase date key YYYYMMDD;
-delivery thêm estimated/actual role keys. ISO week dùng cùng ISO year, weekday
+`dim_date` chứa liên tục các ngày từ min/max local purchase, estimated/actual delivery và review creation
+dates; dữ liệu rỗng cho lịch rỗng. Bốn facts có purchase date key YYYYMMDD;
+delivery thêm estimated/actual role keys; reviews có creation date key. ISO week dùng cùng ISO year, weekday
 Monday=1; không tự suy diễn holiday calendar. `make dbt-build` hoặc các core runners
 tự build/test; BI grants giữ nguyên. Xem [calendar contract](docs/data_contracts/09_analytics_models.md#calendar-dimension-and-fact-date-roles).
 

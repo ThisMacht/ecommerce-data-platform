@@ -6,6 +6,9 @@ WITH source_dates AS (
     UNION ALL
     SELECT (order_delivered_customer_date AT TIME ZONE 'America/Sao_Paulo')::date
     FROM {{ source('raw_staging', 'orders') }}
+    UNION ALL
+    SELECT (review_creation_date AT TIME ZONE 'America/Sao_Paulo')::date
+    FROM {{ source('raw_staging', 'order_reviews') }}
 ), bounds AS (
     SELECT MIN(calendar_date) AS first_date, MAX(calendar_date) AS last_date FROM source_dates
 ), expected AS (

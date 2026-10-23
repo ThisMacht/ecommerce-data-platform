@@ -650,11 +650,19 @@ cùng generic commands. Resume cùng IDs, dùng new resolution ID khi parent đ�
 `make test-review-integration` kiểm tra frozen retry, dirty routing, composite keys,
 expiry và atomic resolution. Core runner tự freeze/publish/load/register/resolve
 reviews full-only, pin same-run full orders và bắt buộc receipts; không có review
-completion cursor, dbt model hoặc BI grant mới. Bounded reviews Silver dùng hashed
+completion cursor hoặc BI grant mới. Bounded reviews Silver dùng hashed
 parent ID; backfill retry lọc theo ID đó, còn receipts dùng owner ID. Health/dashboard
 gồm review backlog và `review_snapshot_rows`. Standalone load làm publication
 unavailable cho tới fresh core SUCCESS.
 Xem [review contract](../data_contracts/19_review_snapshots.md).
+
+Review analytics được build/test trong cùng core gate: `fct_reviews` giữ composite
+grain và UTC/local creation date; `mart_review_daily` theo review creation cohorts.
+Không join reviews vào payment/item amounts. Whole-period mean/rates phải gộp sums/
+counts trước khi chia; distinct orders không additive qua ngày. `dim_date` bao gồm
+review creation dates và không yêu cầu bounded order staging phải có full parents.
+Comment text không được đưa vào fact/BI. Sau sửa models chạy `make test-dbt-integration`
+và các core gate/backfill/recovery suites; không đổi code trong lúc run đang pending.
 
 ## 31. Change control
 
