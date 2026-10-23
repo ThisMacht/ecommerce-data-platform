@@ -691,7 +691,7 @@ Unit tests tập trung vào source simulator, dirty-data injector, cursor orderi
 - [x] Kiểm tra concurrent-run guard và cursor compare-and-swap.
 - [x] Chạy DAG import test và một MinIO → Spark → PostgreSQL vertical-slice smoke test.
 - [x] Chạy dbt grain tests, fan-out tests và reconciliation tests.
-- [ ] Xác nhận workflow mới PASS trên GitHub và trạng thái CI badge; local checks không thay thế hosted CI.
+- [x] Xác nhận workflow mới PASS trên GitHub và CI badge: [run 39947805131](https://github.com/ThisMacht/ecommerce-data-platform/actions/runs/39947805131), source `751674d`, 9/9 jobs SUCCESS.
 
 CI hiện có trong `.github/workflows/ci.yml`, chạy trên push, pull request và manual dispatch, không cần raw CSV hoặc repository secrets:
 
@@ -710,9 +710,13 @@ Các nhóm Spark dùng matrix `fail-fast: false`, Java 17, driver heap 2 GiB và
 
 Replay được kiểm tra ở source simulator, Bronze, Silver và warehouse: cùng ID trả NOOP; new load ID cùng business versions giữ nguyên row count và báo unchanged. Schema matrix có unit checks cho nullable additions, required/missing/renamed columns, type/precision/nullability, primary key và source-sequence constraints. Source catalog cho phép nullable addition với WARN; Bronze/Silver vẫn yêu cầu frozen schema/contract chính xác. Marker/checksum corruption và partial publication phải fail trước downstream consumption; retry dùng sealed bytes.
 
-Local verification (2026-10-23): `make test` PASS 126 unit tests; simulator/Bronze/warehouse-merge/deferred-state/pipeline-control PASS 50 integration tests; full/incremental/backfill PASS 9 tests với Java 17, hai CPU JVM và heap 2 GiB (các fresh dbt gates PASS 261/261 nodes). Toàn bộ `make test-dbt-integration` PASS 29 tests trong 1.311,935 giây (~21 phút 52 giây), gồm real docs catalog. Đây là runtime fixture trên máy local, không phải benchmark GitHub runner. `actionlint` 1.7.12 PASS; đối chiếu workflow trước/sau giữ đủ 23 test targets đúng một lần, dry-run cả bốn Spark groups PASS. Logs/self-checks ở ignored `build/reports/phase5-*`.
+Local verification (`12adf35`, 2026-10-23): `make test` PASS 126 unit tests; simulator/Bronze/warehouse-merge/deferred-state/pipeline-control PASS 50 integration tests; full/incremental/backfill PASS 9 tests với Java 17, hai CPU JVM và heap 2 GiB (các fresh dbt gates PASS 261/261 nodes). Toàn bộ `make test-dbt-integration` PASS 29 tests trong 1.311,935 giây (~21 phút 52 giây), gồm real docs catalog. Đây là runtime fixture trên máy local, không phải benchmark GitHub runner. `actionlint` 1.7.12 PASS; đối chiếu workflow trước/sau giữ đủ 23 test targets đúng một lần, dry-run cả bốn Spark groups PASS. Logs/self-checks ở ignored `build/reports/phase5-*`.
 
-Không rerun full Olist ingestion, Airflow hoặc ba nhóm Spark còn lại trong thay đổi cấu hình này; không sửa source algorithms, database schemas, grants hoặc cursor contracts. GitHub CI mới chưa được chạy/xác nhận.
+Lượt local của `12adf35` không rerun full Olist ingestion, Airflow hoặc ba nhóm Spark còn lại. Sau đó hosted CI đã kiểm tra toàn bộ fixture suites; full Olist ingestion vẫn chưa rerun trong đợt này.
+
+Hosted verification (2026-10-23): [CI run 39947805131](https://github.com/ThisMacht/ecommerce-data-platform/actions/runs/39947805131) hoàn tất SUCCESS lúc 11:58 UTC, attempt 1, cho source `751674d5f0aabc87540866f8596fffde9247c9f6`. PASS 9/9 jobs: fast checks/build/installed wheel trên Python 3.10 và 3.12, Airflow import/serialization, PostgreSQL/MinIO transactions, dbt/catalog và cả bốn nhóm Spark. dbt job mất 15 phút 25 giây, gồm setup; đây không phải isolated query benchmark. CI badge trên main hiển thị `passing` khi xác minh. Metadata/badge lưu ở ignored `build/reports/phase5-github-*` và `github-jobs-39947805131.json`.
+
+Job Python 3.10 của lượt đầu phát hiện shared cursor parser chưa nhận UTC hậu tố `Z`; `751674d` normalize sang `+00:00`, giữ nguyên timestamp/sequence/key ordering. Đã tái hiện trước sửa, PASS 126 unit tests trên mỗi Python version, 126 installed-wheel tests trên Python 3.10 và 14 Bronze integration tests trước khi push. Không thay đổi database schemas, grants hoặc cursor contracts.
 
 Đây là **Continuous Integration**, không gọi là CI/CD vì chưa có deployment tự động.
 
