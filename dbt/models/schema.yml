@@ -44,12 +44,15 @@ models:
     - unique
     - not_null
 - name: dim_customer
+  description: "One current shopper from source customers; stable MD5 business key, without synthetic unknown members."
   columns:
   - name: customer_key
+    description: "MD5 of customer_unique_id; stable identifier, not an anonymization or security hash."
     data_tests:
     - unique
     - not_null
   - name: customer_unique_id
+    description: "Shopper business key; representative selected by descending source_sequence then customer_id."
     data_tests:
     - unique
     - not_null
@@ -179,7 +182,7 @@ models:
     - unique
     - not_null
 - name: dim_seller
-  description: "Type 1 current seller location; no inferred historical address; optional current ZIP representative key."
+  description: "Type 1 current seller location; no synthetic unknown members or inferred historical address; optional current ZIP representative key."
   columns:
   - name: seller_key
     description: "Stable MD5 hex surrogate of seller_id."

@@ -650,7 +650,7 @@ Sau khi pipeline lõi ổn định, mở rộng ingestion và modeling sang prod
 - [x] Add review fact and creation-date daily scores/comment metrics at explicit (review_id, order_id) grain; source reconciliation, reviews-only calendar and no new BI grants.
 - [x] Integrate full-only geolocation into full/incremental/backfill freeze/receipts and nullable customer/seller location keys; seven dataset audits, four completion cursors.
 - [x] `int_geolocation_by_zip`: exact numeric coordinate medians and deterministic joint city/state mode.
-- [ ] Hoàn thiện dimensions với surrogate keys, unique business keys và explicit unknown-member policy.
+- [x] Hoàn thiện stable surrogate/business keys và explicit no-synthetic-unknown-member policy; source-backed checks cho unreferenced keys/customer representative, strict required FK và nullable location/date roles.
 - [x] Current Type 1 `dim_customer`, `dim_product`, `dim_seller`; continuous `dim_date` with local date role keys in all facts, ISO/leap/empty/corruption checks.
 - [x] Standalone Type 1 `dim_location` at ZIP grain; stable key, counts, source reconciliation and no new BI grants.
 - [x] Add `fct_order_items` at composite item grain with order/customer/product/seller keys, exact source reconciliation and no payment fan-out.

@@ -272,6 +272,15 @@ không join items và không dùng type order counts làm AOV denominator. `make
 tự build/test; standalone dùng `make dbt-build` với PG/dbt environment hiện có.
 Xem [payment metric contract](docs/data_contracts/09_analytics_models.md#payment-facts-and-type-metrics).
 
+## Dimension keys and missing members
+
+Customer/product/seller/ZIP dùng stable MD5 business keys; dates dùng YYYYMMDD.
+Không thêm synthetic unknown rows hoặc dummy keys. Required parent thiếu đi theo
+Silver deferred/reject và dbt integrity gates; optional location giữ NULL. Missing
+attributes vẫn giữ member có thật. Source-backed reconciliation kiểm tra cả keys
+chưa có fact tham chiếu và customer representative; xem
+[policy](docs/data_contracts/09_analytics_models.md#dimension-keys-and-missing-members).
+
 ## Review snapshots
 
 Reviews chạy full Bronze/Silver/staging standalone hoặc trong cả ba core modes ở grain `(review_id, order_id)`;

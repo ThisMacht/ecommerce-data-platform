@@ -644,6 +644,9 @@ class DbtModelsTest(PostgresIntegrationCase):
             "mart_delivery_daily",
             "dim_date",
             "dim_location",
+            "dim_customer",
+            "dim_product",
+            "dim_seller",
             "int_geolocation_by_zip",
             "stg_reviews",
             "fct_reviews",
@@ -1549,3 +1552,114 @@ class DbtModelsTest(PostgresIntegrationCase):
                 for r in results["results"]
             )
         )
+
+    def test_dimension_keys_reject_unused_hashes_and_wrong_customer_representatives(
+        self,
+    ):
+        with psycopg.connect(
+            host="127.0.0.1",
+            port=self.port,
+            dbname=self.database,
+            user="olist_test_loader",
+            password="isolated_test_loader",
+            autocommit=True,
+        ) as connection:
+            for table, row in (
+                (
+                    "customers",
+                    valid_row("customers", "unused_customer", 3)
+                    | {"customer_unique_id": "unused_shopper"},
+                ),
+                ("products", valid_row("products", "unused_product", 2)),
+                ("sellers", valid_row("sellers", "unused_seller", 2)),
+            ):
+                merge_rows(
+                    connection,
+                    self.contract,
+                    table=table,
+                    run_id="unused_dimension",
+                    rows=[row],
+                    request={"fixture": "dimension_keys"},
+                    silver_counts={
+                        "input_rows": 1,
+                        "valid_rows": 1,
+                        "rejected_rows": 0,
+                        "deferred_rows": 0,
+                        "duplicates_rows": 0,
+                        "warning_rows": 0,
+                    },
+                )
+        self.psql(
+            "UPDATE raw_staging.customers SET source_sequence=2 WHERE customer_id='ca'"
+        )
+        self.dbt()
+        self.assertEqual(
+            self.psql(
+                "SELECT latest_customer_id FROM analytics.dim_customer WHERE customer_unique_id='shopper'"
+            ),
+            "cb",
+        )
+        for entity, column, business, change in (
+            (
+                "customer",
+                "customer_unique_id",
+                "unused_shopper",
+                "customer_key=MD5('wrong_unused_key')",
+            ),
+            (
+                "product",
+                "product_id",
+                "unused_product",
+                "product_key=MD5('wrong_unused_key')",
+            ),
+            (
+                "seller",
+                "seller_id",
+                "unused_seller",
+                "seller_key=MD5('wrong_unused_key')",
+            ),
+            ("customer", "customer_unique_id", "shopper", "latest_customer_id='ca'"),
+        ):
+            with self.subTest(entity=entity, change=change):
+                self.psql(f"""DROP TABLE IF EXISTS analytics.saved_dimension_keys CASCADE;
+                    CREATE TABLE analytics.saved_dimension_keys AS SELECT * FROM analytics.dim_{entity};
+                    GRANT SELECT ON analytics.saved_dimension_keys TO olist_test_loader;
+                    UPDATE analytics.saved_dimension_keys SET {change} WHERE {column}='{business}';
+                    CREATE OR REPLACE VIEW analytics.dim_{entity} AS SELECT * FROM analytics.saved_dimension_keys;""")
+                results = self.dbt("test", success=False)
+                self.assertEqual(
+                    [
+                        (r["unique_id"].split(".")[-1], r["status"])
+                        for r in results["results"]
+                        if r["status"] != "pass"
+                    ],
+                    [("dimension_key_reconciliation", "fail")],
+                )
+                self.dbt()
+
+    def test_synthetic_unknown_dimension_members_fail_source_membership(self):
+        self.dbt()
+        for entity, business in (
+            ("customer", "customer_unique_id"),
+            ("product", "product_id"),
+        ):
+            with self.subTest(entity=entity):
+                self.psql(f"""DROP TABLE IF EXISTS analytics.saved_unknown_member CASCADE;
+                    CREATE TABLE analytics.saved_unknown_member AS SELECT * FROM analytics.dim_{entity};
+                    GRANT SELECT ON analytics.saved_unknown_member TO olist_test_loader;
+                    INSERT INTO analytics.saved_unknown_member
+                    SELECT (JSONB_POPULATE_RECORD(NULL::analytics.saved_unknown_member,
+                        TO_JSONB(d) || JSONB_BUILD_OBJECT('{business}','__unknown__',
+                            '{entity}_key',MD5('__unknown__')))).*
+                    FROM analytics.dim_{entity} d LIMIT 1;
+                    CREATE OR REPLACE VIEW analytics.dim_{entity} AS SELECT * FROM analytics.saved_unknown_member;""")
+                results = self.dbt("test", success=False)
+                self.assertEqual(
+                    [
+                        (r["unique_id"].split(".")[-1], r["status"])
+                        for r in results["results"]
+                        if r["status"] != "pass"
+                    ],
+                    [("dimension_key_reconciliation", "fail")],
+                )
+                self.dbt()

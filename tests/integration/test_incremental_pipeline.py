@@ -142,7 +142,7 @@ class IncrementalPipelineTest(CorePipelineCase):
                 Path(directory) / "final",
             )
             self.assertEqual(final["status"], "SUCCESS")
-            self.assertEqual(final["dbt"]["node_count"], 226)
+            self.assertEqual(final["dbt"]["node_count"], 227)
             self.assertEqual(
                 self.psql("SELECT COUNT(*) FROM analytics.fct_orders"), "4"
             )

@@ -664,6 +664,13 @@ review creation dates và không yêu cầu bounded order staging phải có ful
 Comment text không được đưa vào fact/BI. Sau sửa models chạy `make test-dbt-integration`
 và các core gate/backfill/recovery suites; không đổi code trong lúc run đang pending.
 
+Dimension policy giữ stable business-key hashes và không tạo unknown members.
+Khi `dimension_key_reconciliation` fail, đối chiếu current staging, exact MD5 key và
+customer representative theo source_sequence/customer_id; không chèn dummy row
+hoặc sửa source để bypass. Optional location NULL khác required parent missing.
+Chạy `make test-dbt-integration` sau thay đổi keys/membership, gồm cả empty staging
+và members chưa có fact. Xem [key policy](../data_contracts/09_analytics_models.md#dimension-keys-and-missing-members).
+
 ## 31. Change control
 
 Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay đổi:

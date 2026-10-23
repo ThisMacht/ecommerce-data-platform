@@ -72,6 +72,46 @@ SHA-256 hash ở source-row grain. Không dùng dimension hash thay warehouse ha
 
 Quyết định Type 1 được ghi tại [ADR-004](../adr/ADR-004-use-scd-type-1.md).
 
+## Dimension Keys and Missing Members
+
+Dimensions giữ exact business-key membership từ current `raw_staging`; không thêm
+synthetic unknown row, không dùng `-1`, `0` hoặc một hash cố định để thay missing FK.
+Đây là chính sách có chủ đích của MVP, không có nghĩa dữ liệu không thể thiếu.
+
+| Dimension | Business key | Surrogate key | Missing-member behavior |
+| --- | --- | --- | --- |
+| `dim_customer` | `customer_unique_id` | MD5 của business key | Required shopper FK; Silver defer locally valid missing customer, dbt fail nếu staging bị orphan |
+| `dim_product` | `product_id` | MD5 của business key | Required item v2 membership; missing product không tạo placeholder |
+| `dim_seller` | `seller_id` | MD5 của business key | Required item v2 membership; missing seller không tạo placeholder |
+| `dim_location` | Valid source ZIP prefix | MD5 của ZIP, giữ leading zeros | Optional customer/seller LEFT JOIN; absent/invalid/unmatched ZIP giữ location_key NULL |
+| `dim_date` | Local calendar date | Integer YYYYMMDD | Required purchase/review creation roles; optional milestone key NULL khi timestamp thiếu, không tạo day 0 |
+
+MD5 chỉ là deterministic identifier, không phải security/anonymization hash.
+Business/surrogate uniqueness và not-null tests vẫn bắt buộc, kể cả collision.
+Keys giữ nguyên qua Type 1 attribute updates. Customer representative lấy source
+sequence lớn nhất, tie theo customer_id DESC; `latest_customer_id` phải đúng current
+source record, không chỉ là một customer ID còn tồn tại.
+
+Null product attributes hoặc source city/state là missing attributes của một member
+có thật; giữ row/key và warning semantics. Optional location không được suy diễn
+địa chỉ hoặc dùng unknown ZIP. Actual delivery date key vẫn giữ khi timestamp có
+nhưng chronology/status làm metric không eligible. Reviews pin full orders ở Silver;
+order có thể nằm ngoài bounded staging window, nên review fact không invent order
+context hoặc áp required warehouse-order relationship trong trường hợp đó.
+
+`dimension_key_reconciliation` FULL JOIN raw staging và ba MD5 entity dimensions,
+đối chiếu exact member sets/key mapping, kể cả members chưa được fact tham chiếu,
+và customer representative. Location/date source-backed gates giữ trong
+`geolocation_reconciliation`, `location_key_reconciliation` và
+`date_dimension_reconciliation`. Không dùng generic relationships thay cho việc
+kiểm tra business meaning của key.
+
+Empty staging sinh empty dimensions, không còn default unknown row. Full/empty
+source snapshots không xóa staging cũ: retained valid staging members vẫn là
+source-backed members, không coi chúng là synthetic rows hoặc suy luận deletes.
+Missing required parents tiếp tục deferred/rejected theo contract và expiry rules;
+không sửa source hoặc gán dummy key để làm tests pass.
+
 ## Metric policy
 
 Mọi số tiền là **BRL, exact PostgreSQL NUMERIC**. Aggregates không narrow về
@@ -415,3 +455,27 @@ build được kiểm tra trong cùng thay đổi.
 Logs ignored: `build/reports/review-analytics-fast.log`, `review-analytics-dbt.log`,
 `review-analytics-dbt-recheck.log`, `review-analytics-gates.log` và
 `review-analytics-final-checks.log`.
+
+## Dimension Policy Verification (2026-10-23)
+
+126 fast unit tests, 7 targeted analytics integration cases và full pipeline gate
+(1 case) đã PASS. Fixtures xác nhận wrong-but-unique unused customer/product/seller
+keys, wrong current customer representative và synthetic unknown rows đều làm
+`dimension_key_reconciliation` fail trong khi generic constraints vẫn pass.
+Equal-sequence customer tie chọn customer_id DESC. Existing strict missing-parent,
+optional location NULL, all-empty dimensions và reviews-only calendar cases vẫn PASS.
+Full fixture gate build đủ 227 nodes (28 views, 199 tests), không skip/error.
+
+Trên Olist, chỉ chạy selected `dimension_key_reconciliation` dưới tám staging SHARE
+locks; PASS với current code hash, không rebuild views hoặc tạo pipeline execution.
+Counts đọc tại cùng lần kiểm tra: customer=96,096, product=32,951, seller=3,095,
+location=19,015 và date=800. Đây không phải full 227-node rebuild trên Olist.
+Controls, deferred statuses/attempts và số warehouse load receipts giữ nguyên.
+
+Logs/artifacts ignored: `build/reports/dimension-policy-fast.log`,
+`dimension-policy-integration.log`, `dimension-policy-gate.log`,
+`dimension-policy-local.json`, `dimension-policy-local.log`,
+`dimension-policy-local-dbt/` và `dimension-policy-final-checks.log`.
+Ruff/format và wheel/sdist build PASS. Không chạy lại toàn bộ ingestion,
+incremental/backfill/recovery suites hoặc GitHub CI trong thay đổi này; các modes
+cùng sử dụng manifest-based final gate, node-count expectations đã cập nhật 227.

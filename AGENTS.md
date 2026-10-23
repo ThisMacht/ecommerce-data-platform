@@ -195,3 +195,12 @@ means low score, not inferred sentiment. Chronology warnings retain scores.
 orders are outside the staging window; Silver full-order membership remains the
 parent gate. Empty review input yields zero mart rows. Keep eight dbt sources,
 all-table receipt locks and existing six-model BI grants; no review BI exposure.
+
+Dimension keys: preserve MD5 mappings for shopper/product/seller/ZIP and integer
+YYYYMMDD dates; hashes are identifiers, not anonymization. No synthetic unknown
+members or dummy FK keys. Missing required parents follow deferred/reject rules
+and dbt integrity checks; optional location keys stay NULL. Missing attributes
+do not remove real members. Customer representative uses source_sequence DESC, customer_id DESC.
+`dimension_key_reconciliation` checks raw-staging membership, unreferenced MD5 keys
+and latest_customer_id; location/date retain their source-backed gates. Empty
+staging yields empty dimensions; empty source snapshots still never imply deletes.
