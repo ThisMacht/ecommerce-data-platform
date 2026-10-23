@@ -5,6 +5,10 @@ không xem một command tồn tại hoặc test fixture PASS là bằng chứng
 Architecture và ERDs nằm tại [data model](22_architecture_and_data_model.md);
 commands/recovery nằm tại [runbook](runbooks/01_data_processing_runbook.md).
 
+Báo cáo kỹ thuật dùng audit, logs, CI và measurements làm evidence chính; ảnh/video
+là minh họa tùy chọn. Không cần chụp thêm ảnh để hoàn thiện tài liệu, nhưng vẫn phải
+ghi rõ live verification nào chưa hoàn tất.
+
 ## Implemented and Verified
 
 - [x] Nine-file raw manifest/checksums, source contracts, idempotent PostgreSQL seed
@@ -87,20 +91,51 @@ Không commit CSV, report chứa dữ liệu hoặc credentials để chứng mi
   làm ấm; sampled RSS gồm JVM, không phải PSS hoặc RAM toàn host. Chưa có 10M,
   cold-cache, Parquet hoặc distributed-cluster measurements; không bắt buộc cho scope này.
 
+## Interrupted Live Demo (2026-10-24)
+
+Lần demo mới đã bắt đầu bằng DAG `olist_core_full_snapshot`, DAG run
+`scheduled__2026-10-23T00:00:00+00:00`, pipeline run
+`airflow_7bdc420ca7a6d2c20fecd65007d91bb22fc877113b246d88579707ab8ef2c7b1`.
+
+Lúc **02:00:28 +07:00**, `systemd-oomd` kill VS Code application scope do memory
+pressure; Airflow và runner chạy trong terminal thuộc scope đó cũng dừng.
+Kiểm tra sau incident xác nhận không còn Airflow/runner processes, port 8080 đóng.
+Audit dừng tại `geolocation.silver.process`; geolocation Bronze đã SUCCESS.
+Run/task vẫn ghi `RUNNING` do process mất trước khi cập nhật failure, không phải
+bằng chứng còn thực thi. Không sửa audit thủ công để tạo trạng thái hoàn tất.
+
+Đối soát sau incident: **0 completion controls** mang run ID này và **0 final
+dataset receipts**. Final dbt/CAS gate chưa hoàn tất; chưa có SUCCESS cho lần demo
+này. Các data-plane commits/artifacts trước đó được giữ để resume, không chạy lại
+từ đầu hoặc thay thế bằng run ID mới. Schedule đã được pause; manual run đang
+queued chưa được dùng làm bằng chứng execution.
+
+Metabase health trả HTTP 200, nhưng publication status của run này là
+`available=false`. Ảnh dashboard còn chọn cả hai date filters là 2050-01-01;
+cần xóa filters và refresh sau successful gate. Ảnh Airflow SUCCESS ngày 21/10
+thuộc run cũ, không chứng nhận revision hiện tại.
+
+CI, full Olist baseline và benchmark nêu trên vẫn là evidence tại đúng revision
+đã ghi. Incident này là giới hạn tài nguyên khi demo local, chưa phải recovery
+verification PASS; chưa thực hiện resume hoặc đo lại workload sau OOM.
+
 ## Remaining Closeout Evidence
 
-- [ ] Live demo current revision: trigger một DAG thích hợp, lưu đúng DAG/run ID,
-  đối chiếu pipeline SUCCESS, receipts/dbt results và health timestamp. Import tests
-  hoặc CLI baseline không thay thế bằng chứng DAG thực thi.
+- [ ] Live demo current revision: khôi phục Airflow ngoài VS Code terminal scope,
+  resume cùng DAG run/task và pinned code/config, rồi đối chiếu pipeline SUCCESS,
+  receipts/dbt results và health timestamp. Không trigger replacement run để bỏ
+  qua pending run. Import tests hoặc CLI baseline không thay thế live verification.
 - [ ] Kiểm tra Metabase sau successful core gate: managed cards, inclusive date
   filters, counts/GMV/paid/AOV đối chiếu SQL, restricted reader và unavailable state;
-  lưu screenshots hoặc video đã che credentials ngoài Git data artifacts.
+  lưu SQL/audit/API evidence. Screenshots/video đã che credentials là minh họa
+  tùy chọn, không phải prerequisite để viết báo cáo.
 - [ ] Gắn release/tag và ghi release notes sau khi demo/evidence được kiểm tra.
   Chưa có bằng chứng release hoàn tất trong checklist này.
 
-README/runbook/ERDs đã được đồng bộ; ba mục trên là phần closeout còn lại, không
-phải yêu cầu bổ sung công nghệ. Ngay trước demo cần chạy health mới, kiểm tra pending
-run và services; kết quả HEALTHY lịch sử không chứng minh trạng thái hiện tại.
+README/runbook/ERDs và báo cáo evidence đã hoàn thiện cho scope implementation.
+Ba mục trên vẫn là phần closeout chưa xác minh; không ghi toàn bộ acceptance PASS
+hoặc gọi deployment production-ready. Ngay trước demo cần chạy health mới, kiểm
+tra pending run và services; HEALTHY lịch sử không chứng minh trạng thái hiện tại.
 
 ## Known Boundaries
 
