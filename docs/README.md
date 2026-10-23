@@ -1,6 +1,6 @@
 # Documentation
 
-Thư mục này chứa tài liệu kỹ thuật và vận hành của project. Prefix hai chữ số trong filename thể hiện thứ tự đọc đề xuất trên toàn bộ `docs/`.
+Thư mục này chứa mô tả implementation, contracts, vận hành và acceptance evidence của project. Đọc nhanh [architecture và ERDs](22_architecture_and_data_model.md), [runbook](runbooks/01_data_processing_runbook.md) và [checklist](23_project_acceptance.md). Prefix hai chữ số trong filename thể hiện thứ tự đọc chi tiết trên toàn bộ `docs/`.
 
 ## Reading order
 
@@ -15,9 +15,9 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | 06 | [Customer Snapshots](data_contracts/06_customer_snapshots.md) | Full customers Bronze/Silver, orders FK routing và pinned dependency replay | Active |
 | 07 | [Order Items and Payments](data_contracts/07_order_children.md) | Composite-key Bronze/Silver, decimal money và pinned full orders dependencies | Active |
 | 08 | [Warehouse Staging](data_contracts/08_warehouse_staging.md) | Canonical hashes, version-aware PostgreSQL merges và transactional load audit | Active |
-| 09 | [Analytics Models](data_contracts/09_analytics_models.md) | Calendar dimension, order/item/payment/delivery grains, Type 1 keys, GMV/AOV và cohort/group metrics | Active |
+| 09 | [Analytics Models](data_contracts/09_analytics_models.md) | Five dimensions/facts, Type 1 keys, GMV/AOV, review/delivery cohorts và customer behavior metrics | Active |
 | 10 | [Deferred Lifecycle](data_contracts/10_deferred_lifecycle.md) | Persisted quarantine, pinned dependency retries, expiry và atomic staging resolution | Active |
-| 11 | [Pipeline Control](data_contracts/11_pipeline_control.md) | Local run/task audit, receipt gates và atomic pipeline watermark commit | Active — manual full snapshots |
+| 11 | [Pipeline Control](data_contracts/11_pipeline_control.md) | Local run/task audit, receipt gates và atomic pipeline watermark commit | Active — eight-table full completion gate |
 | 12 | [Incremental Pipeline](data_contracts/12_incremental_pipeline.md) | Frozen four-table deltas, 48h lookback, full FK inputs và isolated completion cursors | Active |
 | 13 | [Isolated Backfill](data_contracts/13_backfill_pipeline.md) | Explicit UTC repair window, frozen retry, queue isolation and unchanged scheduled controls | Active |
 | 14 | [Business Dashboard](data_contracts/14_business_dashboard.md) | Local Metabase, reader grants, metrics, filters and publication gate | Active |
@@ -25,15 +25,16 @@ Thư mục này chứa tài liệu kỹ thuật và vận hành của project. P
 | 16 | [Seller Snapshots](data_contracts/16_seller_snapshots.md) | Full sellers Bronze/Silver, location warnings, version-aware staging and Type 1 dimension | Active — standalone and core full refresh |
 | 17 | [Item Dependency Snapshots](data_contracts/17_item_dependency_snapshots.md) | Three-parent item FK scope, immutable pins and atomic deferred retry | Active — standalone and scheduled v2 |
 | 18 | [Geolocation Snapshots](data_contracts/18_geolocation_snapshots.md) | Full observation snapshots, exact coordinates, ZIP medians/joint modes and Type 1 location dimension | Active — standalone and core full refresh |
-| 19 | [Review Snapshots](data_contracts/19_review_snapshots.md) | Composite full reviews, pinned orders, version-aware staging and atomic deferred retry | Active — standalone |
-| 20 | [Synthetic Website Events](data_contracts/20_synthetic_events.md) | Deterministic standalone JSONL workload, arrival/duplicate/session semantics and atomic artifact verification | Active — generator only |
-| 21 | [Event Engine Benchmark](data_contracts/21_event_engine_benchmark.md) | Local engine parity, independent oracle, process-tree RSS/resource guards and timing methodology | Active — local benchmark harness |
+| 19 | [Review Snapshots](data_contracts/19_review_snapshots.md) | Composite full reviews, pinned orders, version-aware staging and atomic deferred retry | Active — standalone and all core modes |
+| 20 | [Synthetic Website Events](data_contracts/20_synthetic_events.md) | Deterministic standalone JSONL workload, arrival/duplicate/session semantics and atomic artifact verification | Active — standalone generator |
+| 21 | [Event Engine Benchmark](data_contracts/21_event_engine_benchmark.md) | Local engine parity, independent oracle, process-tree RSS/resource guards and timing methodology | Active — measured 2M workload |
+| 22 | [Architecture and Data Model](22_architecture_and_data_model.md) | Current architecture, source/warehouse ERDs, execution modes and mart grains | Active |
+| 23 | [Project Acceptance Checklist](23_project_acceptance.md) | Implementation/evidence checklist, full Olist baseline, CI and remaining closeout | Active — demo and release evidence pending |
 
 ## Related documents
 
 | Document | Purpose |
 | --- | --- |
-| [Pipeline Implementation Plan](../ecommerce_data_warehouse_pipeline_plan_v4.md) | Kiến trúc, phases, contracts và implementation roadmap |
 | [Raw Dataset Manifest](../data/raw/README.md) | Nguồn dữ liệu, file inventory, checksums và raw-data handling rules |
 | [Customer Type 1 Decision](adr/ADR-004-use-scd-type-1.md) | Shopper identity, current attributes và giới hạn phân tích lịch sử |
 | [Local Spark and Scale-up Decision](adr/ADR-007-use-pyspark-on-small-olist-dataset.md) | Local MVP scope, reproducible workloads và giới hạn của performance claims |

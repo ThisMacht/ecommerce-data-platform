@@ -1,13 +1,14 @@
 # Local Infrastructure
 
-Infrastructure triển khai PostgreSQL source layer và MinIO cho orders Bronze. Database/object storage là stateful services; migrations, source loader và source verification là ephemeral jobs.
+Infrastructure triển khai PostgreSQL source/staging/audit/analytics, MinIO cho tám core Bronze/Silver datasets và optional local Metabase. Database/object storage là stateful services; migrations, source loader và source verification là ephemeral jobs. Airflow chạy trên host với environment riêng; xem [architecture](../docs/22_architecture_and_data_model.md).
 
 ## Implemented services
 
 | Service | Lifecycle | Purpose |
 | --- | --- | --- |
-| `postgres` | Stateful service | Lưu `olist_source`, source metadata và migration/seed audit |
-| `minio` | Stateful service | Lưu immutable orders Bronze/Silver, manifests và publication markers |
+| `postgres` | Stateful service | Database `olist_source`: source, raw_staging, audit và analytics views |
+| `minio` | Stateful service | Lưu tám core datasets Bronze/Silver, manifests và publication markers |
+| `metabase` | Optional stateful service | Local BI, restricted warehouse reader và H2 metadata |
 | `migrate` | Ephemeral job | Apply versioned migrations và kiểm tra checksum |
 | `source-loader` | Ephemeral job | COPY raw CSV read-only vào source tables theo transaction |
 | `source-check` | Ephemeral job | Đọc bằng read-only role để export schema catalog và xác minh source state |
@@ -99,8 +100,8 @@ Không commit password files/logs. Không dùng deployment này ngoài máy loca
 
 DAGs `olist_core_full_snapshot` và `olist_core_incremental`: daily UTC, paused upon creation, no catchup,
 max active runs 1; task `run_core_pipeline` retries 2 lần, delay 1 phút, timeout
-1 giờ. Một task dùng `BashOperator` gọi runner; business logic/audit 19 stages
-không sao chép vào DAG. Incremental wrapper thêm source freeze/full FK stages (24 tasks). UI cho thấy execution tổng, PostgreSQL audit cho thấy stages.
+1 giờ. Một task dùng `BashOperator` gọi runner; business logic/audit 34 tasks của full mode
+không sao chép vào DAG. Incremental/backfill dùng 38 audited tasks với frozen deltas/full parents. UI cho thấy execution tổng, PostgreSQL audit cho thấy stages.
 Chưa có stage-level Airflow graph, callbacks hoặc notification integration.
 
 Trigger thủ công qua UI, kiểm tra audit/report trước khi bật schedule. Thiếu raw
@@ -124,7 +125,7 @@ sử dụng logical date làm backfill bounds; chỉ unpause một mode trên lo
 Manual DAG `olist_core_backfill` nhận explicit `start`/`end` conf, không có schedule.
 Migration `011` thêm namespace/delivery streams riêng và giữ scheduled controls khi repair;
 xem [backfill contract](../docs/data_contracts/13_backfill_pipeline.md).
-PostgreSQL Airflow metadata còn planned. Chi tiết:
+Airflow metadata hiện là SQLite local, chưa có PostgreSQL metadata deployment. Chi tiết:
 [incremental contract](../docs/data_contracts/12_incremental_pipeline.md).
 
 Khi chủ động nâng Airflow, resolve lại với official constraints rồi commit cả lock:

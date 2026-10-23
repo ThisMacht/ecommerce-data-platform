@@ -5,18 +5,19 @@
 | System | Olist E-commerce Data Platform |
 | Owner | Data Engineering |
 | Status | Active — core full/incremental/backfill and local Airflow wrappers |
-| Last reviewed | 2026-10-23 |
+| Last reviewed | 2026-10-24 |
 | Processing mode | Batch |
 
-Runbook này định nghĩa quy trình vận hành dự kiến để xử lý snapshot nguồn Olist qua Bronze, Silver, các model warehouse PostgreSQL và analytics marts. Tài liệu mô tả các execution gates, cách xử lý lỗi, rerun và backfill. Runbook phải được cập nhật khi implementation details hoặc operational commands thay đổi.
+Runbook này định nghĩa quy trình vận hành hiện tại để xử lý snapshot nguồn Olist qua Bronze, Silver, các model warehouse PostgreSQL và analytics marts. Tài liệu mô tả các execution gates, cách xử lý lỗi, rerun và backfill. Runbook phải được cập nhật khi implementation details hoặc operational commands thay đổi.
 
 Tài liệu này là hướng dẫn vận hành bổ sung cho:
 
-- [Kế hoạch triển khai pipeline](../../ecommerce_data_warehouse_pipeline_plan_v4.md)
+- [Architecture and ERDs](../22_architecture_and_data_model.md)
+- [Project acceptance checklist](../23_project_acceptance.md)
 - [Raw dataset manifest](../../data/raw/README.md)
 - [Source contracts](../data_contracts/02_source_contracts.md)
 
-PostgreSQL source, bốn core Bronze/Silver datasets, staging, dbt và deferred lifecycle đã được triển khai. Các mục 13–20 mô tả operations hiện có; local Airflow full/incremental/manual-backfill wrappers đã có; các commands đánh dấu **planned** vẫn là target interface.
+Tám core datasets đã chạy Bronze/Silver/staging: customers, orders, order_items, order_payments, products, sellers, geolocation và order_reviews. Full runner audit 34 tasks; incremental/backfill audit 38. Airflow có ba local wrappers; mục 13–30 mô tả operations hiện có. Evidence lịch sử và live demo còn thiếu được phân biệt trong acceptance checklist.
 
 ## 1. Scope
 
@@ -43,7 +44,7 @@ Raw CSV snapshot
 PostgreSQL olist_source + source simulator
       │
       ▼
-Bounded incremental extraction
+Atomic full / bounded extraction freeze
       │
       ▼
 MinIO Bronze ── manifest + checksum + _SUCCESS
@@ -51,70 +52,67 @@ MinIO Bronze ── manifest + checksum + _SUCCESS
       ▼
 PySpark validation, normalization and routing
       │
-      ├── Silver valid, including warning flags
-      ├── Silver rejected
-      └── Silver deferred
-                │
-                ▼
-PostgreSQL raw_staging ── version-aware merge
-                │
-                ▼
+      ├── Silver rejected / duplicate audit (no staging load)
+      ├── Silver valid, including warnings ────────────┐
+      └── Silver deferred → bounded retry / expiry ────┤
+                                                      ▼
+PostgreSQL raw_staging ◀── normal valid + resolved candidates
+      │                   version-aware merge
+      ▼
 dbt staging → intermediate → dimensions/facts → marts
                 │
                 ▼
-Exact reconciliation → cursor commit → dashboards
+Exact receipts + fresh dbt under staging locks → atomic completion gate
+                │
+                ▼
+Health JSON / static HTML; Metabase publication gate (live views)
 ```
 
 ## 3. Run types
 
-| Run type | Purpose | Reads committed cursor | May advance scheduled cursor |
+| Mode | Entry point | Namespace | Completion controls |
 | --- | --- | --- | --- |
-| `scheduled` | Xử lý incremental thông thường | Có | Có, sau khi mọi gate thành công |
-| `manual` | Retry hoặc diagnostic run do operator kích hoạt | Có thể cấu hình | Chỉ khi được cấu hình rõ ràng |
-| `backfill` | Xử lý lại một khoảng ngày lịch sử cụ thể | Không; sử dụng bounds được cung cấp | Mặc định không |
+| Full (`manual` audit type) | `make dataset` | `local_core_v1` | CAS cả bốn controls sau final gate |
+| Incremental | `make dataset-incremental` | `incremental_core_v1` | Pipeline-owned cursors, inclusive 48h lookback; bootstrap riêng |
+| Backfill | `make dataset-backfill BACKFILL_START=<ISO> BACKFILL_END=<ISO>` | `backfill_core_v1` | Explicit UTC `[start,end)` source-updated-at; không promote cursors |
 
-Task retries vẫn thuộc cùng một pipeline run và tái sử dụng run ID, lower bound cùng upper cursor của run đó.
+Airflow full/incremental DAGs có daily schedule nhưng paused mặc định; backfill
+DAG manual-only. Trigger từ CLI hay UI không tự thay đổi mode/cursor policy.
+Task retries giữ cùng pipeline ID, frozen inputs, code/config và bounds.
 
 ## 4. Required run context
 
-Mỗi run phải ghi lại các trường sau trước khi extraction bắt đầu:
+Runner ghi `audit.pipeline_runs` với `run_id`, `pipeline_name`, `run_type`,
+`request`, `request_sha256`, `control_before` và status trước data-plane work.
+Request pin mode, `code_sha256`, `contract_sha256`, database identity, bucket/endpoint,
+dbt reader và original Airflow DAG/run context nếu có; backfill pin thêm UTC bounds.
+Không tạo/chỉnh audit thủ công để bỏ qua gate.
 
-```text
-run_id
-run_type
-logical_interval_start
-logical_interval_end
-code_version
-config_version
-source_table
-committed_cursor_before
-extract_lower_bound
-run_upper_cursor
-lookback_interval
-started_at
-```
+Source freeze lưu rows, serialized pages, bounds và parent stream IDs atomically
+trước publication. `audit.pipeline_dataset_runs` là completion evidence được ghi
+tại final gate, không phải nơi tự ghi extraction bounds trước run.
 
-Đối với source simulator, cursor ordering là:
-
-```text
-(source_updated_at, source_sequence, <primary-key columns>)
-```
-
-`source_sequence` là source version có thẩm quyền để giải quyết merge conflict. Các primary-key columns bảo đảm pagination ordering có tính deterministic.
+Cursor ordering là `(source_updated_at, source_sequence, <primary-key columns>)`.
+`source_sequence` có thẩm quyền khi merge; primary-key columns giữ deterministic
+pagination. Bronze delivery cursors không điều khiển incremental pipeline windows.
 
 ## 5. Preflight procedure
 
 Trước khi bắt đầu scheduled hoặc backfill run:
 
-1. Xác nhận PostgreSQL, MinIO và các Airflow services bắt buộc đều healthy.
-2. Xác nhận configuration và code version mong đợi đã được deploy.
+1. Xác nhận Docker Compose, PostgreSQL, MinIO, uv và Java 17 khả dụng; Airflow chỉ cần khi chạy qua DAG, không phải prerequisite của CLI runner.
+2. Kiểm tra pending run trong `build/reports/dataset/pending-run.txt`; nếu có, giữ nguyên code/config/mode/bounds để resume trước khi đổi revision.
 3. Xác nhận credentials của source, warehouse và object storage được cung cấp qua environment hoặc secret configuration, không nằm trong các file được commit.
-4. Xác nhận không có scheduled run khác đang giữ pipeline lock. MVP sử dụng `max_active_runs=1` kết hợp cursor compare-and-swap protection.
+4. Không chạy pipeline từ nhiều checkout/hosts hoặc cùng standalone writers. Runner giữ local file lock; DAG dùng `max_active_runs=1`; PostgreSQL guards/CAS không thay thế distributed orchestration.
 5. Với lần load raw source đầu tiên, kiểm tra checksum của từng CSV theo [raw dataset manifest](../../data/raw/README.md).
 6. Xác nhận database migrations đang ở version mong đợi.
-7. Tạo record trong `audit.pipeline_runs` với status `RUNNING`.
+7. Gọi runner đúng mode; runner tự begin/resume audit và pin configuration. Không tự INSERT audit rows.
 
-Dừng trước extraction nếu bất kỳ preflight check nào thất bại.
+Operator cần hoàn tất prerequisites trước khi chạy pipeline. Riêng CLI full runner
+có thể skip downstream khi thiếu CSV hoặc báo PARTIAL khi thiếu Java và giữ pending
+ID; đó không phải pipeline SUCCESS. Incremental/backfill và Airflow wrappers fail
+khi thiếu prerequisites. Xem reports/exit status, không suy ra completion từ việc
+một số Bronze tasks đã chạy.
 
 ## 6. Standard processing procedure
 
@@ -134,33 +132,34 @@ Step này áp dụng cho lần load source đầu tiên hoặc khi chủ động
 1. Apply source-schema migrations.
 2. Load CSV records vào source tables bằng quy trình bulk load có tính idempotent.
 3. Giữ nguyên source values và column names tại boundary này.
-4. Assert row counts, primary keys và foreign keys mong đợi.
+4. Verify row counts, schema/types, primary keys và seed audit. Source không enforce business FKs; Silver kiểm tra dependencies qua full pinned parents, gồm child-before-parent fixtures.
 5. Khởi tạo các trường deterministic `source_updated_at`, `source_sequence` và `source_operation` cho simulator.
 6. Ghi source-seed manifest chứa row counts, checksums và load timestamp.
 
 ### 6.3. Capture bounded extraction parameters
 
-Với mỗi source table:
-
-1. Đọc committed cursor `W` và `cursor_version` của nó từ `audit.pipeline_control`.
-2. Tính `extract_lower_bound = W.updated_at - lookback_interval`.
-3. Mở một consistent source snapshot và chụp maximum cursor `U`.
-4. Lưu `W`, lower bound và `U` vào `audit.pipeline_dataset_runs` trước khi đọc các page.
-5. Sử dụng page cursor riêng cho keyset pagination.
-6. Tái sử dụng cùng bounds cho mọi task retry trong run này.
-
-Initial load sử dụng sentinel cursor nhỏ hơn mọi source timestamp. Source table rỗng giữ nguyên committed cursor hiện tại.
+1. Full mode freeze tám full streams trong một source snapshot.
+2. Incremental đọc bốn pipeline controls `W` và versions; nếu đã có cursor, lấy
+   lower timestamp `W.updated_at - 48h` inclusive, đồng thời chụp upper cursors `U`.
+   Chưa có cursor thì bootstrap, không tạo sentinel giả.
+3. Backfill dùng explicit offset-aware bounds, chuẩn hóa UTC `[start,end)` theo
+   `source_updated_at`; scheduled controls giữ nguyên.
+4. Bounded modes freeze bốn delta/bounded streams và sáu full inputs trong cùng
+   transaction: customers/orders FK parents, products/sellers/geolocation/reviews.
+5. Durable prepared pages và pipeline request pin bytes/bounds trước S3 publication;
+   retry không đọc lại mutable source. Keyset page cursor tách khỏi completion cursor.
+6. Empty source không tạo watermark giả hoặc ngụ ý xóa staging members.
 
 ### 6.4. Extract and publish Bronze
 
 1. Đọc các page theo thứ tự giữa fixed lower bound và upper cursor.
 2. Giữ nguyên source business values, không trim, normalize hoặc cast business type.
-3. Bổ sung physical record ID, logical record ID, run metadata, source metadata và schema version.
+3. Bổ sung physical record ID, logical record ID, run metadata, source metadata và schema version theo frozen publication request.
 4. Ghi objects vào run-attempt path mà downstream tasks không thể consume.
 5. Sinh `manifest.json` chứa bounds, row count, schema fingerprint, file list và checksums.
 6. Chỉ publish batch sau khi mọi object cùng manifest đã hoàn tất.
 7. Ghi `_SUCCESS` sau cùng.
-8. Bỏ qua attempt paths không có `_SUCCESS`.
+8. Consumer verify marker, manifest, checksums và counts; không đọc trực tiếp object listing hoặc attempt chưa publish.
 
 Gate bắt buộc:
 
@@ -170,35 +169,35 @@ source_rows_extracted = bronze_rows_written
 
 ### 6.5. Validate and publish Silver
 
-Xử lý parent datasets trước dependent datasets. Dependency order của full model thường là customers, products và sellers trước orders, sau đó đến order items, payments và reviews. Geolocation được xử lý độc lập trước location modeling.
+Xử lý customers/products/sellers/geolocation trước full orders, rồi dependent
+items/payments/reviews. Bounded customer/order deltas không thay full FK parents.
+Core item v2 phải pin đủ full orders/products/sellers từ cùng frozen request.
 
-Với mỗi Bronze batch:
-
-1. Kiểm tra manifest checksums, row count và schema fingerprint.
-2. Parse và cast values theo source contract.
-3. Normalize strings, decimal values và timestamps theo BRL cùng timezone policies đã được tài liệu hóa.
-4. Đánh giá mọi data-quality rule áp dụng được.
-5. Gán chính xác một routing outcome theo precedence sau:
-
-   ```text
-   REJECT > DEFERRED > WARNING > INFO
-   ```
-
-6. Xem warning records là valid và gắn `warning_rule_ids`.
-7. Deduplicate theo logical record identity và giữ source version cao nhất.
-8. Ghi valid, rejected và deferred outputs thành immutable Silver batches.
-9. Publish từng output với manifest và `_SUCCESS` marker.
+1. Verify Bronze marker, manifest, checksums, counts và schema fingerprint.
+2. Parse explicit schema; normalize theo table contract, money NUMERIC/Decimal BRL,
+   source business time America/Sao_Paulo → UTC và giữ local business dates.
+3. Validate local rules và deterministic key/version selection; rejected/duplicate
+   records không được đưa vào deferred chỉ vì thiếu parent.
+4. Selected locally valid rows thiếu required parent đi deferred; các missing item
+   dependencies được đánh giá cùng nhau và lưu một immutable queue payload.
+5. Warning rows vẫn valid, có `warning_rule_ids`; không cộng warnings thêm một lần.
+6. Publish valid/rejected/deferred Parquet cùng duplicate counters, immutable
+   manifest và `_SUCCESS`. Retry phải giữ original inputs và parent hashes.
 
 ### 6.6. Retry deferred records
 
-1. Đọc các record `PENDING` đủ điều kiện từ shared quarantine table.
-2. Giữ nguyên physical record ID ban đầu của từng record.
-3. Resolve dependencies dựa trên valid parents của current run và parent state đã load trước đó.
-4. Chuyển các record đã resolve sang valid output.
-5. Giữ các record chưa resolve ở trạng thái `PENDING` và tăng attempt metadata.
-6. Đánh dấu record là `EXPIRED` khi đạt `max_attempts` hoặc `max_deferred_age`.
-7. Xem expired records là terminal rejects của resolution run.
-8. Upsert quarantine state theo `record_uid + rule_id`; không append duplicate retry entries.
+1. Register immutable Silver deferred records vào `audit.quarantine_records`, key
+   `(record_uid, rule_id)`; replay không nhân đôi occurrence hoặc reset limits.
+2. Mỗi pass chọn tối đa 1,000 eligible pending rows/table, pin verified full parent
+   snapshots; backfill chỉ chọn queue thuộc origin của run đó.
+3. Giữ original physical UID, full business key/version và payload. Item v2 resolver
+   kiểm tra cả ba memberships; không consume legacy item v1 scope.
+4. Dedupe candidates theo full key/version trước merge; retry inputs không phải
+   source growth. Chưa resolve thì giữ PENDING hoặc EXPIRED theo immutable limits.
+5. Commit queue transitions, attempts, staging merges và resolution audit trong
+   cùng transaction. Terminal states không reopen; expired rows không được load.
+6. Replay cùng resolution ID không tăng attempts; pass mới/parent mới cần ID mới.
+   Không sửa frozen payload hoặc xóa queue để làm gate PASS.
 
 ### 6.7. Merge into `raw_staging`
 
@@ -213,8 +212,8 @@ Với mỗi Bronze batch:
 
 ### 6.8. Build and test analytics models
 
-1. Chạy dbt dependencies và seeds khi cần.
-2. Thực thi `dbt build` cho các staging, intermediate, dimension, fact và mart models được chọn trong run.
+1. Dùng locked analytics environment và dbt connection/reader configuration hiện có.
+2. Final coordinator giữ SHARE locks trên tám staging tables và chạy fresh `dbt build` toàn bộ models/tests; standalone build không thay completion gate.
 3. Yêu cầu các tests về not-null, unique, relationship, accepted-value, grain, fan-out và metric invariant phải pass.
 4. Không promote source cursor khi dbt build hoặc tests của nó thất bại.
 
@@ -245,13 +244,16 @@ load_candidate_rows =
 
 Warning rows là tập con của valid rows và không được cộng thêm vào các phương trình. Data-quality violation counts đo số rule hits, không phải số distinct routed records.
 
-Sau khi toàn bộ source tables, dbt tests và reconciliations thành công:
+Final dataset counters ở trên cộng normal Silver routing với deferred resolution
+routing, và cộng normal load với retry load. Từng receipt được verify riêng trước
+khi tổng hợp; không dùng normal Silver manifest làm retry output hoặc tính retry
+inputs là source growth. Warning rows cũng được tổng hợp theo cùng phạm vi.
 
-1. Tính candidate cursor bằng `max(W, U)`.
-2. Promote cursor candidates bằng compare-and-swap trên `cursor_version` trước đó.
-3. Làm run fail khi có cursor version conflict; không ghi đè cursor của run khác.
-4. Đánh dấu dataset runs và pipeline run là `SUCCESS`.
-5. Refresh operational metrics và cho phép consumers nhìn thấy successful run.
+Sau khi remote artifacts, tám dataset receipts, fresh dbt và counters đều hợp lệ,
+coordinator ghi per-dataset audit, all-table cursor CAS và run SUCCESS trong cùng
+transaction. Full/incremental dùng candidates không lùi so với `W`; backfill không
+promote bất kỳ completion cursor nào. Conflict/rollback giữ controls cũ. Sau đó
+chạy health/dashboard mới; status gate cho phép BI nhưng views vẫn là live data.
 
 ## 7. Failure and recovery matrix
 
@@ -259,12 +261,12 @@ Sau khi toàn bộ source tables, dbt tests và reconciliations thành công:
 | --- | --- | --- | --- |
 | Raw checksum or schema validation | Chưa load source | Khôi phục snapshot mong đợi hoặc chủ động tiếp nhận và profile lại snapshot mới | Không thay đổi |
 | Source extraction | Bronze attempt có thể chưa hoàn chỉnh | Retry với cùng run bounds; bỏ qua các attempt chưa publish | Không thay đổi |
-| Bronze manifest verification | Silver chưa được publish | Sửa code/configuration và replay immutable Bronze | Không thay đổi |
+| Bronze manifest verification | Silver chưa được publish | Giữ artifacts; điều tra corruption/config mismatch, không sửa manifest hoặc request để ép resume | Không thay đổi |
 | Spark validation job | Silver attempt có thể chưa hoàn chỉnh | Retry từ Bronze đã publish | Không thay đổi |
 | Warehouse merge | PostgreSQL transaction đã rollback | Sửa nguyên nhân và chạy lại cùng Silver input | Không thay đổi |
-| dbt build or test | Staging có thể đã load; marts có thể chỉ hoàn tất một phần | Sửa model/test, chạy lại dbt rồi reconciliation | Không thay đổi |
+| dbt build or test | Staging có thể đã load; marts có thể chỉ hoàn tất một phần | Đọc failed nodes, khôi phục runtime/input hợp lệ và resume cùng pinned code/config; code fixes phải tuân change control | Không thay đổi |
 | Reconciliation mismatch | Data vẫn audit được nhưng run đã failed | So sánh record IDs và manifests theo từng stage; không bỏ qua row loss | Không thay đổi |
-| Cursor compare-and-swap conflict | Data có thể đã được load idempotently | Điều tra overlapping runs và chạy lại từ current committed cursor | Không ghi đè |
+| Cursor compare-and-swap conflict | Data có thể đã được load idempotently | Điều tra overlapping runs; không sửa control_before/bounds hoặc tạo ID mới để bypass unfinished run | Không ghi đè |
 
 Không bao giờ recovery incident bằng cách chỉnh sửa thủ công raw CSV, xóa quarantine records, thay đổi audit counters hoặc advance cursor mà không có investigation được tài liệu hóa.
 
@@ -273,7 +275,7 @@ Không bao giờ recovery incident bằng cách chỉnh sửa thủ công raw CS
 1. Giữ lại audit rows, manifests và logs của failed run.
 2. Xác định gate thất bại sớm nhất.
 3. Tái sử dụng immutable upstream artifact thành công gần nhất thay vì đọc lại source cũ khi không cần thiết.
-4. Retry tasks trong cùng Airflow run khi phù hợp.
+4. CLI gọi lại đúng Make command/mode/bounds với code/config cũ; Airflow Retry/Clear task trong cùng DAG run, không trigger replacement run.
 5. Kỳ vọng warehouse rerun phân loại phần lớn record đã load thành unchanged hoặc stale ignored.
 6. Thực thi lại dbt tests và mọi reconciliation equation.
 7. Xác nhận warehouse row counts không tăng chỉ vì rerun.
@@ -281,7 +283,7 @@ Không bao giờ recovery incident bằng cách chỉnh sửa thủ công raw CS
 
 ## 9. Backfill procedure
 
-1. Ghi `start_date`, `end_date`, reason và operator được yêu cầu vào audit run.
+1. Cấp `BACKFILL_START` và `BACKFILL_END` offset-aware ISO; runner pin normalized bounds trong `request.backfill_window`. Ghi reason/operator vào incident notes khi cần, không giả định có audit columns tương ứng.
 2. Xác nhận range có giới hạn và không vô tình chọn toàn bộ source history.
 3. Sử dụng `run_type=backfill`, control/delivery streams riêng và unique object run IDs.
 4. Đọc range cụ thể mà không thay đổi scheduled extraction bounds.
@@ -307,7 +309,7 @@ Giữ lại hoặc tham chiếu các artifacts sau:
 
 ## 11. Command interface
 
-Các Phase 0 commands sau đã được triển khai và kiểm thử:
+Các source/development commands sau đã được triển khai; `make help` là interface đầy đủ:
 
 ```bash
 make sync
@@ -341,11 +343,23 @@ Chạy commands từ repository root. `make sync` cài package `src/olist_platfo
 
 Simulator commands và batch format được mô tả trong [Source Simulator Contract](../data_contracts/03_source_simulator.md). `make apply-source-batch SOURCE_BATCH_DIR=<directory>` dùng `SOURCE_SIMULATOR_DSN` hoặc standard `PG*` process environment, apply atomic source changes cùng audit, và trả `NOOP` khi replay cùng batch/hash. Predecessor batches phải commit trước; batch ID conflict làm fail. Simulator dùng cùng advisory transaction lock với seed. `make test-source-simulator-integration` kiểm tra protocol trên small fixture, không yêu cầu raw CSV. Applied migrations `001` không được sửa; `002` thêm batch audit.
 
-Các pipeline commands sau vẫn ở trạng thái **planned** và chỉ trở thành authoritative sau khi Make targets cùng automated tests tương ứng được triển khai:
+Core runners và operational commands hiện tại:
 
 ```bash
-make run-pipeline
+make dataset
+make dataset-incremental
+make pipeline-health
+make pipeline-dashboard
+make sync-airflow test-airflow
+make airflow-local
+make metabase-up
+make metabase-setup
+make metabase-down
 ```
+
+Health/dashboard và standalone dbt dùng exported `PG*`; Compose `.env` không tự
+được export. Metabase setup dùng local configuration, cần fresh successful core
+publication gate. Không bật BI reader bằng admin/source credentials.
 
 Backfill interface đã triển khai (source update timestamps, end exclusive):
 
@@ -363,13 +377,13 @@ Một run chỉ thành công khi toàn bộ điều kiện sau là đúng:
 - Warehouse merge đã commit atomically.
 - dbt models và tests đã pass.
 - Mọi reconciliation equation khớp chính xác.
-- Quality rates nằm trong configured policy hoặc tạo ra data-quality failure state được phê duyệt rõ ràng.
+- Rejected/deferred/expired records và warning rates được audit đúng policy; health thresholds là read-only operational evaluation, không tự sửa pipeline status hoặc queue.
 - Cursor compare-and-swap thành công cho scheduled run, hoặc cursor giữ nguyên với isolated backfill.
 - Audit tables chứa final counters, timestamps và status.
 
 ## 13. Implemented orders Bronze operations
 
-Orders CLI slice đã hoạt động; phần end-to-end phía trên vẫn là planned workflow. Sau source seed và migration `003`, chạy `make bronze-up`, export `BRONZE_SOURCE_DSN` cùng AWS credentials, rồi `make init-bronze` và `make ingest-orders BRONZE_RUN_ID=<stable_id>`.
+Orders CLI slice và end-to-end core runner đều đã hoạt động; phần này mô tả standalone orders ingestion. Sau source seed và migration `003`, chạy `make bronze-up`, export `BRONZE_SOURCE_DSN` cùng AWS credentials, rồi `make init-bronze` và `make ingest-orders BRONZE_RUN_ID=<stable_id>`.
 
 Nếu run lỗi, gọi lại cùng run ID và config. `PREPARED` state giữ snapshot bytes/bounds, kể cả khi source đổi. Không tạo run mới để bỏ qua unfinished run, không sửa spool/control state. Marker đã có nhưng run còn `PREPARED` là recovery case hợp lệ: resume để hoàn tất checkpoint. Nếu checkpoint CAS conflict hoặc immutable-object conflict, giữ nguyên evidence để điều tra.
 
@@ -401,7 +415,7 @@ Apply migration `006`; dùng Java 17, `WAREHOUSE_DSN` hoặc `PG*`, cùng S3 cre
 
 Đối chiếu `audit.warehouse_load_runs`: load candidates bằng Silver valid; inserted + updated + unchanged + stale ignored phải bằng candidates. Source sequence quyết định version, không dùng timestamp. Same-version khác hash là integrity failure; không sửa target để ép pass. Retry cùng input/run ID sau lỗi sẽ rollback/replay an toàn; nếu đã commit thì trả `NOOP` với counters cũ. Parent snapshot khác cần Silver ID mới và warehouse load ID mới.
 
-Data/audit commit cùng transaction, theo từng dataset; toàn bộ bốn datasets chưa atomic như một pipeline. dbt đã có ở mục 18; local watermark gate đã có ở mục 20; scheduled incremental orchestration chưa triển khai. Run ID conflict, checksum/schema mismatch hoặc conflict version phải giữ evidence để điều tra. Xem [staging contract](../data_contracts/08_warehouse_staging.md); chạy cả hai warehouse integration suites sau thay đổi.
+Data/audit commit cùng transaction theo từng dataset; tám staging loads không phải một transaction chung. dbt và final watermark gate ở mục 18/20; incremental/backfill và Airflow wrappers ở mục 21/22 cùng phần Airflow execution. Run ID conflict, checksum/schema mismatch hoặc conflict version phải giữ evidence để điều tra. Xem [staging contract](../data_contracts/08_warehouse_staging.md); chạy cả hai warehouse integration suites sau thay đổi.
 
 ## 18. Implemented dbt analytics
 
@@ -472,7 +486,7 @@ chứng cho lần kiểm tra vừa thất bại.
 `make sync-airflow test-airflow`, sau đó `make airflow-local` chạy standalone local
 với metadata riêng trong `build/airflow/`. DAG `olist_core_full_snapshot` paused
 mặc định; trigger thủ công và đối chiếu PostgreSQL audit trước khi unpause daily UTC.
-Một task gọi runner, không tách 19 business stages thành Airflow tasks.
+Mỗi DAG có một task gọi runner; PostgreSQL audit ghi 34 full hoặc 38 incremental/backfill tasks, không tách thành stage-level Airflow tasks.
 
 Thiếu CSV/Java fail; retry hai lần cách nhau một phút, tối đa một active DAG run.
 Task failure sau audit begin ghi failure hiện có; crash/kill có thể để RUNNING
@@ -577,7 +591,7 @@ Xem [payment metrics](../data_contracts/09_analytics_models.md#payment-facts-and
 Chạy `make migrate` rồi `make metabase-setup` khi latest pipeline SUCCESS và marts
 đã tồn tại. Migration `017` cấp SELECT cho ba aggregate marts mới; dbt grants giữ
 quyền qua rebuild. Trên database mới, chạy pipeline để tạo marts trước setup.
-Không cấp source/staging/fact/dimension privileges hoặc tạo datasource admin.
+Giữ SELECT đúng sáu business models hiện có, gồm `fct_orders`, cùng status view; không cấp source/staging/dimension hoặc các fact khác, không tạo datasource admin.
 
 Dashboard có 13 saved cards và một policy text: rankings top 10 products/sellers,
 payment-type amounts/trends dùng cùng inclusive date filters và publication gate.
@@ -703,4 +717,4 @@ Update runbook này trong cùng pull request khi bất kỳ nội dung sau thay 
 - Warehouse conflict-resolution behavior.
 - Operational evidence hoặc recovery procedure bắt buộc.
 
-Sau khi pipeline được triển khai, chuyển document status từ `Draft — pre-implementation` sang `Active`, thay planned commands bằng tested commands và bổ sung links tới final data contracts cùng monitoring dashboards.
+Giữ runbook, [architecture/ERDs](../22_architecture_and_data_model.md), README và [acceptance evidence](../23_project_acceptance.md) đồng bộ trong cùng change. Không sửa pinned code/config khi còn pending run; giữ evidence và xử lý unfinished run trước khi nâng revision. Checklist phải phân biệt fixture tests, historical full-data run, live demo và release, không đánh dấu hoàn tất khi chưa có evidence.

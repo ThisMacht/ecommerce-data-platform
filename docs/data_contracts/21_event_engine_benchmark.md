@@ -137,5 +137,7 @@ worker logs/result JSON, `benchmark-2m-r2.log`, `benchmark-2m-r2-time.txt` và
 Validation: 138 fast tests trên Python 3.10/3.12, 138 installed-wheel tests trên
 Python 3.10, 5 engine/guard tests trên cả hai versions, wheel/sdist build và
 actionlint PASS. Installed wheel implementation hash khớp measured source.
-Hosted CI mới chưa được xác minh cho thay đổi benchmark; các lane mới chỉ chạy
-small correctness fixtures, không đo large performance trong CI.
+Hosted CI tại `f2ced4d` đã SUCCESS 11/11 jobs qua
+[run 40000218387](https://github.com/ThisMacht/ecommerce-data-platform/actions/runs/40000218387),
+gồm benchmark correctness trên Python 3.10/3.12. Các lanes chỉ chạy small fixtures,
+không đo large performance trong CI.

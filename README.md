@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/ThisMacht/ecommerce-data-platform/actions/workflows/ci.yml/badge.svg)](https://github.com/ThisMacht/ecommerce-data-platform/actions/workflows/ci.yml)
 
-Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source simulator, immutable Bronze/Silver layers, warehouse models và dashboards. Hiện đã có source validation, PostgreSQL source layer/simulator và tám core datasets ở Bronze/PySpark Silver trên MinIO; các phase sau được theo dõi trong [Pipeline Implementation Plan](ecommerce_data_warehouse_pipeline_plan_v4.md).
+Local batch data-engineering platform từ Olist raw CSV qua PostgreSQL source simulator, immutable Bronze/PySpark Silver trên MinIO, version-aware warehouse staging, dbt analytics và Metabase. Tám core datasets chạy full/incremental/backfill với deferred recovery và gated completion watermarks. Xem [architecture and ERDs](docs/22_architecture_and_data_model.md), [runbook](docs/runbooks/01_data_processing_runbook.md) và [acceptance checklist](docs/23_project_acceptance.md) để phân biệt implementation, evidence và phần closeout còn lại.
 
 ## Current status
 
@@ -27,9 +27,9 @@ Batch data-engineering project xây từ Olist raw CSV đến PostgreSQL source 
 | Isolated backfill | Implemented — explicit UTC window, frozen retry, origin-scoped queue and unchanged scheduled cursors |
 | Operational health checks | Implemented — read-only audit JSON, configurable thresholds and CLI failure status |
 | Operational dashboard | Implemented — standalone HTML health snapshot; manual refresh |
-| GitHub Actions CI | Configured — fast/wheel, Airflow, transactional integration, dbt/catalog and four Spark groups; hosted status via badge |
+| GitHub Actions CI | Verified at `f2ced4d` — 11 jobs: fast/wheel, Airflow, transactional integration, dbt/catalog, four Spark groups and two benchmark correctness lanes |
 | Full products/sellers Bronze/Silver, staging and Type 1 dimensions | Implemented — scheduled in all core modes, frozen full snapshots and item FK v2 |
-| dbt calendar/Type 1 dimensions, order/item/payment/delivery/review facts and daily marts | Implemented — GMV/AOV, product/seller/payment-type and delivery cohort metrics; exact reconciliation and relationship tests |
+| dbt analytics | Implemented — 31 views: five dimensions, five facts, ten marts plus staging/intermediates; metric/key/association reconciliation and catalog checks |
 | Airflow orchestration | Implemented — paused daily full/incremental and manual backfill DAGs, isolated runtime and stable retry identity |
 | Business dashboard / Metabase | Implemented — date-filtered GMV/paid/AOV, product/seller rankings and payment-type charts; restricted reader and publication gate |
 
@@ -61,9 +61,16 @@ make verify-source
 
 - `src/olist_platform/raw/`: package Python chứa manifest helpers, verification, profiling và source contracts.
 - `src/olist_platform/source_simulator/`: batch artifacts, deterministic fixtures và transactional apply.
-- `src/olist_platform/bronze/`: bounded orders extraction, durable retry state và verified MinIO publication.
+- `src/olist_platform/benchmark/`: standalone event engine workload, independent oracle và resource-guarded measurements.
+- `src/olist_platform/bronze/`: eight-dataset extraction, durable frozen retry state và verified MinIO publication.
 - `src/olist_platform/silver/`: explicit-schema Spark processing, row routing và Parquet publication.
+- `src/olist_platform/warehouse/`: verified staging merges/load audit và Metabase provisioning.
+- `src/olist_platform/deferred/`: durable quarantine, bounded retry/expiry và atomic resolution.
+- `src/olist_platform/pipeline/`: run/task audit, health/dashboard và receipt/dbt/CAS gates.
+- `airflow/`: three local DAG wrappers, isolated Python 3.12 runtime và lock.
+- `dbt/`: staging/intermediate/dimension/fact/mart SQL cùng schema descriptions và tests.
 - `tests/processing/`: Spark tests và independent dirty fixture expectations; tách khỏi fast unit tests.
+- `tests/benchmark/`: optional engine parity/resource checks trên tiny fixtures.
 - `scripts/`: compatibility wrappers cho các Python commands trước đây; cần cài package trước khi dùng.
 - `tests/unit/`: `unittest` và fixture nhỏ, gồm kiểm tra installed CLI từ thư mục ngoài checkout.
 - `tests/integration/`: PostgreSQL tests dùng container tạm; simulator dùng small SQL fixture trong `tests/fixtures/`, source seed dùng canonical raw snapshot.
@@ -72,11 +79,9 @@ make verify-source
 - `data/raw/`: immutable CSV local, không commit vào Git.
 - `docs/`: contracts, generated source profile và runbooks; JSON reports nằm trong `build/reports/` đã ignore.
 
-Chỉ thêm folders ingestion, Airflow, Spark và dbt khi có implementation tương ứng.
-
 ## Python development
 
-`pyproject.toml` khai báo package, Python version, CLI entry points và development tools. `uv.lock` khóa dependencies và phải được commit. Source dùng Psycopg 3, object storage dùng Boto3, Ruff thuộc development group. PySpark nằm trong optional extra `processing`: dùng Java 17 và `make sync-processing`. dbt dùng extra `analytics`. Airflow có Python 3.12 environment và lock riêng trong `airflow/`.
+`pyproject.toml` khai báo package, Python version, CLI entry points và development tools. `uv.lock` khóa dependencies và phải được commit. Source dùng Psycopg 3, object storage dùng Boto3, Ruff thuộc development group. PySpark nằm trong optional extra `processing`: dùng Java 17 và `make sync-processing`. dbt dùng extra `analytics`; pandas/Polars/Spark benchmark dùng extra `benchmark`. Airflow có Python 3.12 environment và lock riêng trong `airflow/`.
 
 ```bash
 make sync       # uv sync --locked: cài editable package và dev tools vào .venv
@@ -108,14 +113,17 @@ Chạy Make và CLI từ repository root để dùng default paths. CLI resolve 
 - `PostgreSQL and MinIO integration`: simulator, Bronze, warehouse merge, deferred lifecycle và pipeline control/CAS; disposable services với small fixtures.
 - `dbt models and catalog`: job riêng (35 phút), chạy toàn bộ `make test-dbt-integration`, gồm metric/grain/FK reconciliation, reader grants và catalog descriptions/output columns.
 - `Spark`: bốn runners độc lập (30 phút mỗi runner): normalization/orders; dimensions/staging/deferred; full/incremental/backfill gates; recovery. Mỗi runner chạy tuần tự các Make targets trong `matrix.targets`; lỗi một nhóm không hủy các nhóm khác.
+- `Event benchmark correctness`: Python 3.10/3.12, independent oracle parity và process/resource guards với tiny fixtures; không đo large-workload performance.
 
 CI không cần `.env`, raw CSV hay repository secrets. Integration suites tự tạo credentials cho services tạm và cleanup container/volume khi kết thúc. Full snapshot suite (`make test-source-integration`) vẫn chạy local sau khi tải canonical CSV. Spark dùng Java 17, heap 2 GiB và hai CPU JVM mỗi runner.
 
 Tái hiện fast checks: `make sync`, `make test`, `make build`. Với integration, cài locked extras tương ứng (`make sync-analytics` hoặc `uv sync --locked --extra processing --extra analytics`), rồi chạy các Make targets của job trong workflow. Khi chạy một máy local, giữ các nhóm Spark tuần tự và export `PYSPARK_PYTHON="$PWD/.venv/bin/python"` để worker dùng đúng Python environment.
 
+Hosted [run 40000218387](https://github.com/ThisMacht/ecommerce-data-platform/actions/runs/40000218387) đã SUCCESS 11/11 jobs tại `f2ced4d`; full Olist baseline và large benchmark được ghi riêng trong [acceptance evidence](docs/23_project_acceptance.md).
+
 Workflow pin action commit SHAs và uv version; cập nhật các pins cùng validation khi nâng tools. Thời gian giới hạn là budget CI, không phải kết quả benchmark; chỉ xác nhận GitHub CI PASS từ workflow run thực tế.
 
-## Synthetic events (Phase 6.1)
+## Synthetic events
 
 ```bash
 make generate-events  # 2M physical rows, seed 42; standalone, no Docker/Spark/CSVs
@@ -129,9 +137,9 @@ streaming có anonymous/cart/checkout-abandonment/purchase sessions, exact dupli
 late và out-of-order events. IDs đều synthetic, không nối vào Olist core. Cùng request
 được verify rồi NOOP; khác request/corruption fail. Counts phân biệt physical/unique
 và censored session cuối. Xem [event contract](docs/data_contracts/20_synthetic_events.md).
-Engine benchmark chưa được triển khai; core pipeline/BI vẫn dùng tám datasets hiện có.
+Engine benchmark chạy độc lập như mục tiếp theo; core pipeline/BI vẫn dùng tám datasets hiện có.
 
-## Event engine benchmark (Phase 6.2)
+## Event engine benchmark
 
 ```bash
 make sync-benchmark
@@ -156,7 +164,8 @@ mới cho lượt sau. Xem [benchmark contract](docs/data_contracts/21_event_eng
 - [Orders Bronze contract, retry and local execution](docs/data_contracts/04_orders_bronze.md)
 - [Orders Silver rules, Parquet and publication](docs/data_contracts/05_orders_silver.md)
 - [Customer snapshots and orders dependency routing](docs/data_contracts/06_customer_snapshots.md)
-- [Pipeline implementation plan](ecommerce_data_warehouse_pipeline_plan_v4.md)
+- [Architecture, source ERD and warehouse ERD](docs/22_architecture_and_data_model.md)
+- [Project acceptance checklist and verification evidence](docs/23_project_acceptance.md)
 
 ## Commands
 
@@ -235,7 +244,7 @@ Sau migration `006`, dùng `make load-warehouse SOURCE_TABLE=<table> SILVER_PREF
 
 ## dbt analytics
 
-Sau staging, `make dataset` tự chạy dbt build/tests cho `dim_customer`, `fct_orders` và daily GMV/AOV views. Items/payments aggregate riêng theo order trước khi join. Customer dùng shopper business key, surrogate key ổn định và current Type 1 attributes. Metric tests đối soát exact với staging, kể cả many-to-many fan-out, canceled orders và zero payments.
+Sau tám staging loads, core runner build/test 31 dbt views: 8 staging, 3 intermediate, 5 dimensions, 5 facts và 10 marts. Có order/item/payment/delivery/review analytics cùng customer value/repeat/status metrics; xem [warehouse ERD và mart grains](docs/22_architecture_and_data_model.md#warehouse-erd). Items/payments aggregate riêng theo order trước khi join. Customer dùng shopper business key, stable surrogate key và current Type 1 attributes. Tests đối soát exact với staging, gồm business associations, fan-out, canceled orders và zero payments.
 
 Chạy riêng bằng `make sync-analytics`, export `PG*`, `DBT_ENV_SECRET_PASSWORD`, `DBT_READER_USER`, rồi `make dbt-build`. Xem [analytics contract](docs/data_contracts/09_analytics_models.md); kiểm thử bằng `make test-dbt-integration`. Views chưa có atomic publication; standalone dbt build không promote end-to-end watermarks. Chỉ coi build thành công sau khi tests pass.
 
@@ -501,7 +510,7 @@ make airflow-local
 UI bind `127.0.0.1:8080`; credentials local được tạo trong ignored
 `build/airflow/`. Hai DAG `olist_core_full_snapshot` và `olist_core_incremental` mặc định paused, schedule `@daily`
 UTC, `catchup=False`, `max_active_runs=1`. Trigger thủ công để kiểm tra trước khi
-unpause. Chỉ bật schedule của mode muốn dùng. Mỗi DAG có một task gọi runner; full/incremental audit 19/24 business tasks trong PostgreSQL.
+unpause. Chỉ bật schedule của mode muốn dùng. Mỗi DAG có một task gọi runner; full/incremental audit 34/38 business tasks trong PostgreSQL.
 DAG `olist_core_backfill` manual-only nhận conf `start`/`end`, truyền bounds qua environment; Retry/Clear cùng DAG run để resume.
 Dừng standalone bằng Ctrl-C; PostgreSQL/MinIO và metadata được giữ lại.
 
